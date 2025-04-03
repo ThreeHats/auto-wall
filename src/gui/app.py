@@ -32,6 +32,13 @@ class WallDetectionApp:
         # UI elements
         self.font = pygame.font.SysFont('Arial', 18)
         
+        # Wall detection parameters
+        self.min_contour_area = 100
+        self.max_contour_area = None  # No upper limit by default
+        self.blur_kernel_size = 5
+        self.canny_threshold1 = 50
+        self.canny_threshold2 = 150
+    
     def load_image(self, image_path):
         """Load an image for processing."""
         try:
@@ -46,7 +53,14 @@ class WallDetectionApp:
         """Detect walls in the current image."""
         if self.current_image is not None:
             try:
-                contours = detect_walls(self.current_image)
+                contours = detect_walls(
+                    self.current_image, 
+                    min_contour_area=self.min_contour_area,
+                    max_contour_area=self.max_contour_area,
+                    blur_kernel_size=self.blur_kernel_size,
+                    canny_threshold1=self.canny_threshold1,
+                    canny_threshold2=self.canny_threshold2
+                )
                 self.detected_contours = contours
                 image_with_walls = draw_walls(self.current_image, contours)
                 self.canvas.set_background_image(image_with_walls)
@@ -69,14 +83,15 @@ class WallDetectionApp:
                 self.running = False
             
             elif event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_o:  # Open image
+                # Check for Ctrl + S for saving
+                if event.key == pygame.K_s and (pygame.key.get_mods() & pygame.KMOD_CTRL):
+                    self.save_result('data/output/result.png')
+                
+                elif event.key == pygame.K_o:  # Open image
                     # This would normally open a file dialog
                     self.load_image('data/input/CavernPitPublic-785x1024.jpg')
                 elif event.key == pygame.K_d:  # Detect walls
                     self.detect_walls_in_image()
-                elif event.key == pygame.K_s:  # Save result
-                    # This would normally open a save dialog
-                    self.save_result('data/output/result.png')
                 elif event.key == pygame.K_m:  # Toggle drawing mode
                     self.draw_mode = not self.draw_mode
                 elif event.key == pygame.K_c:  # Clear canvas
@@ -84,6 +99,36 @@ class WallDetectionApp:
                         self.canvas.set_background_image(self.current_image)
                     else:
                         self.canvas.clear()
+                
+                # Parameter adjustment keys
+                elif event.key == pygame.K_UP:
+                    self.min_contour_area += 50
+                    print(f"Min contour area: {self.min_contour_area}")
+                elif event.key == pygame.K_DOWN and self.min_contour_area > 50:
+                    self.min_contour_area -= 50
+                    print(f"Min contour area: {self.min_contour_area}")
+                elif event.key == pygame.K_RIGHT:
+                    self.canny_threshold1 += 10
+                    print(f"Canny Threshold1: {self.canny_threshold1}")
+                elif event.key == pygame.K_LEFT and self.canny_threshold1 > 10:
+                    self.canny_threshold1 -= 10
+                    print(f"Canny Threshold1: {self.canny_threshold1}")
+                elif event.key == pygame.K_w:
+                    self.canny_threshold2 += 10
+                    print(f"Canny Threshold2: {self.canny_threshold2}")
+                elif event.key == pygame.K_s and self.canny_threshold2 > self.canny_threshold1 + 10:
+                    self.canny_threshold2 -= 10
+                    print(f"Canny Threshold2: {self.canny_threshold2}")
+                elif event.key == pygame.K_b:
+                    self.blur_kernel_size += 2
+                    if self.blur_kernel_size % 2 == 0:
+                        self.blur_kernel_size += 1  # Ensure kernel size is odd
+                    print(f"Blur Kernel Size: {self.blur_kernel_size}")
+                elif event.key == pygame.K_v and self.blur_kernel_size > 3:
+                    self.blur_kernel_size -= 2
+                    if self.blur_kernel_size % 2 == 0:
+                        self.blur_kernel_size -= 1  # Ensure kernel size is odd
+                    print(f"Blur Kernel Size: {self.blur_kernel_size}")
             
             elif self.draw_mode:
                 # Handle drawing events
@@ -112,8 +157,19 @@ class WallDetectionApp:
             True, (0, 0, 0))
         self.screen.blit(mode_text, (10, 10))
         
+        # Show wall detection parameters
+        params_text1 = self.font.render(
+            f"Min Area: {self.min_contour_area} | Max Area: {self.max_contour_area or 'No limit'}", 
+            True, (0, 0, 0))
+        self.screen.blit(params_text1, (10, 35))
+        
+        params_text2 = self.font.render(
+            f"Blur: {self.blur_kernel_size} | Canny1: {self.canny_threshold1} | Canny2: {self.canny_threshold2}", 
+            True, (0, 0, 0))
+        self.screen.blit(params_text2, (10, 60))
+        
         help_text = self.font.render(
-            "O: Open | D: Detect | S: Save | M: Mode | C: Clear", 
+            "O: Open | D: Detect | Ctrl+S: Save | ↑↓: Min Area | ←→: Canny1 | W/S: Canny2 | B/V: Blur", 
             True, (0, 0, 0))
         self.screen.blit(help_text, (10, self.height - 30))
         
