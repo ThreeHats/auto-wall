@@ -6,7 +6,8 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../.
 
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QVBoxLayout, QHBoxLayout, QLabel, QSlider, QPushButton, QWidget, 
-    QFileDialog, QCheckBox, QRadioButton, QButtonGroup, QColorDialog
+    QFileDialog, QCheckBox, QRadioButton, QButtonGroup, QColorDialog, QListWidget, QListWidgetItem,
+    QScrollArea, QSizePolicy, QDialog, QDialogButtonBox, QFrame
 )
 from PyQt6.QtCore import Qt, QPoint, QRect
 from PyQt6.QtGui import QPixmap, QImage, QPainter, QPen, QColor, QMouseEvent
@@ -83,21 +84,42 @@ class WallDetectionApp(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Auto-Wall: Battle Map Wall Detection")
-        self.setGeometry(100, 100, 1000, 800)
+        self.setGeometry(100, 100, 1200, 800)  # Wider window to accommodate side-by-side layout
 
-        # Main layout
+        # Main layout - use central widget
         self.central_widget = QWidget()
         self.setCentralWidget(self.central_widget)
-        self.layout = QVBoxLayout(self.central_widget)
-
+        
+        # Use horizontal layout for main container (controls on left, image on right)
+        self.main_layout = QHBoxLayout(self.central_widget)
+        
+        # Left panel for controls (using scroll area for many controls)
+        self.controls_panel = QWidget()
+        self.controls_layout = QVBoxLayout(self.controls_panel)
+        
+        # Wrap controls in a scroll area to handle many options
+        self.scroll_area = QScrollArea()
+        self.scroll_area.setWidgetResizable(True)
+        self.scroll_area.setWidget(self.controls_panel)
+        self.scroll_area.setMinimumWidth(350)  # Set minimum width for controls panel
+        self.scroll_area.setMaximumWidth(400)  # Set maximum width for controls panel
+        self.main_layout.addWidget(self.scroll_area)
+        
+        # Right panel for image display
+        self.image_panel = QWidget()
+        self.image_layout = QVBoxLayout(self.image_panel)
+        self.main_layout.addWidget(self.image_panel, 1)  # Give image panel more space (stretch factor 1)
+        
         # Image display (using custom interactive label)
         self.image_label = InteractiveImageLabel(self)
         self.image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.layout.addWidget(self.image_label)
+        self.image_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.image_layout.addWidget(self.image_label)
 
-        # Controls
-        self.controls_layout = QVBoxLayout()
-        self.layout.addLayout(self.controls_layout)
+        # Add title for controls section
+        self.controls_title = QLabel("Wall Detection Controls")
+        self.controls_title.setStyleSheet("font-size: 16px; font-weight: bold;")
+        self.controls_layout.addWidget(self.controls_title)
 
         # Sliders
         self.sliders = {}
@@ -105,7 +127,7 @@ class WallDetectionApp(QMainWindow):
         self.add_slider("Blur", 1, 21, 5, step=2)
         self.add_slider("Canny1", 0, 255, 50)
         self.add_slider("Canny2", 0, 255, 150)
-        self.add_slider("Edge Margin", 0, 50, 5)  # New slider for edge margin
+        self.add_slider("Edge Margin", 0, 50, 5)
         
         # Use a scaling factor of 10 for float values (0.1 to 10.0 with 0.1 precision)
         self.add_slider("Min Merge Distance", 1, 100, 30, scale_factor=0.1)  # Default 3.0
@@ -169,32 +191,75 @@ class WallDetectionApp(QMainWindow):
         self.color_section_title.setStyleSheet("font-weight: bold;")
         self.color_section_layout.addWidget(self.color_section_title)
         
-        # Wall color selection
-        self.wall_color_layout = QHBoxLayout()
-        self.color_section_layout.addLayout(self.wall_color_layout)
+        # Multiple wall color selection
+        self.wall_colors_layout = QVBoxLayout()
+        self.color_section_layout.addLayout(self.wall_colors_layout)
         
-        self.wall_color_label = QLabel("Wall Color:")
-        self.wall_color_layout.addWidget(self.wall_color_label)
+        self.wall_colors_label = QLabel("Wall Colors:")
+        self.wall_colors_layout.addWidget(self.wall_colors_label)
         
-        self.wall_color_display = QWidget()
-        self.wall_color_display.setMinimumSize(30, 20)
-        self.wall_color_display.setMaximumSize(30, 20)
-        self.wall_color_display.setStyleSheet("background-color: #000000; border: 1px solid #FFFFFF;")
-        self.wall_color_layout.addWidget(self.wall_color_display)
+        # List widget to display selected colors
+        self.wall_colors_list = QListWidget()
+        self.wall_colors_list.setMaximumHeight(100)
+        self.wall_colors_list.itemClicked.connect(self.select_color)
+        self.wall_colors_list.itemDoubleClicked.connect(self.edit_wall_color)
+        self.wall_colors_layout.addWidget(self.wall_colors_list)
         
-        self.pick_wall_color_button = QPushButton("Pick")
-        self.pick_wall_color_button.setMaximumWidth(50)
-        self.pick_wall_color_button.clicked.connect(self.pick_wall_color)
-        self.wall_color_layout.addWidget(self.pick_wall_color_button)
+        # Buttons for color management
+        self.color_buttons_layout = QHBoxLayout()
+        self.wall_colors_layout.addLayout(self.color_buttons_layout)
         
-        # Color detection options
+        self.add_color_button = QPushButton("Add Color")
+        self.add_color_button.clicked.connect(self.add_wall_color)
+        self.color_buttons_layout.addWidget(self.add_color_button)
+        
+        self.remove_color_button = QPushButton("Remove Color")
+        self.remove_color_button.clicked.connect(self.remove_wall_color)
+        self.color_buttons_layout.addWidget(self.remove_color_button)
+        
+        # Replace the edit threshold button with direct threshold controls
+        self.threshold_container = QWidget()
+        self.threshold_layout = QVBoxLayout(self.threshold_container)
+        self.threshold_layout.setContentsMargins(0, 0, 0, 0)
+        
+        # Add a header for the threshold section
+        self.threshold_header = QLabel("Selected Color Threshold:")
+        self.threshold_header.setStyleSheet("font-weight: bold;")
+        self.threshold_layout.addWidget(self.threshold_header)
+        
+        # Create the threshold slider
+        self.current_threshold_layout = QHBoxLayout()
+        self.threshold_layout.addLayout(self.current_threshold_layout)
+        
+        self.threshold_label = QLabel("Threshold: 10.0")
+        self.current_threshold_layout.addWidget(self.threshold_label)
+        
+        self.threshold_slider = QSlider(Qt.Orientation.Horizontal)
+        self.threshold_slider.setMinimum(1)
+        self.threshold_slider.setMaximum(300)
+        self.threshold_slider.setValue(100)  # Default value 10.0
+        self.threshold_slider.valueChanged.connect(self.update_selected_threshold)
+        self.current_threshold_layout.addWidget(self.threshold_slider)
+        
+        # Add a separator
+        separator = QFrame()
+        separator.setFrameShape(QFrame.Shape.HLine)
+        separator.setFrameShadow(QFrame.Shadow.Sunken)
+        self.threshold_layout.addWidget(separator)
+        
+        self.wall_colors_layout.addWidget(self.threshold_container)
+        
+        # Initially hide the threshold controls until a color is selected
+        self.threshold_container.setVisible(False)
+        
+        # Store the currently selected color item
+        self.selected_color_item = None
+        
+        # Color detection options - Add the missing checkbox
         self.use_color_detection = QCheckBox("Enable Color Detection")
         self.use_color_detection.setChecked(False)
         self.use_color_detection.toggled.connect(self.toggle_detection_mode)
         self.color_section_layout.addWidget(self.use_color_detection)
-        
-        # Add slider for color threshold with float values (0.1 - 30.0)
-        self.add_slider("Color Threshold", 1, 300, 100, scale_factor=0.1)
         
         # Label for edge detection section
         self.edge_section_title = QLabel("Edge Detection Settings:")
@@ -206,9 +271,12 @@ class WallDetectionApp(QMainWindow):
         self.edge_detection_widgets.append(self.sliders["Canny1"])
         self.edge_detection_widgets.append(self.sliders["Canny2"])
         
-        # State for color detection
-        self.wall_color = QColor(0, 0, 0)  # Black
-
+        # State for color detection - now a list of colors
+        self.wall_colors = []  # List to store QColor objects
+        
+        # Add a default black color with default threshold
+        self.add_wall_color_to_list(QColor(0, 0, 0), 10.0)
+        
         # State
         self.original_image = None  # Original full-size image
         self.current_image = None   # Working image (possibly scaled down)
@@ -725,15 +793,110 @@ class WallDetectionApp(QMainWindow):
                 save_image(high_res_result, file_path)
                 print(f"Saved high-resolution image ({self.original_image.shape[:2]}) to {file_path}")
 
-    def pick_wall_color(self):
-        """Open a color dialog to select the wall color."""
-        color = QColorDialog.getColor(self.wall_color, self, "Select Wall Color")
+    def add_wall_color(self):
+        """Open a color dialog to add a new wall color."""
+        color = QColorDialog.getColor(QColor(0, 0, 0), self, "Select Wall Color")
         if color.isValid():
-            self.wall_color = color
-            self.wall_color_display.setStyleSheet(f"background-color: {color.name()}; border: 1px solid #FFFFFF;")
+            # Use the global threshold value as default for new colors
+            default_threshold = 0.1
+            item = self.add_wall_color_to_list(color, default_threshold)
+            
+            # Select the new color
+            self.wall_colors_list.setCurrentItem(item)
+            self.select_color(item)
+            
             # Update detection if image is loaded
             if self.current_image is not None:
                 self.update_image()
+    
+    def select_color(self, item):
+        """Handle selection of a color in the list."""
+        self.selected_color_item = item
+        
+        # Get color data
+        color_data = item.data(Qt.ItemDataRole.UserRole)
+        threshold = color_data["threshold"]
+        
+        # Update the threshold slider to show the selected color's threshold
+        self.threshold_slider.blockSignals(True)
+        self.threshold_slider.setValue(int(threshold * 10))
+        self.threshold_slider.blockSignals(False)
+        self.threshold_label.setText(f"Threshold: {threshold:.1f}")
+        
+        # Show the threshold container
+        self.threshold_container.setVisible(True)
+    
+    def update_selected_threshold(self, value):
+        """Update the threshold for the selected color."""
+        if not self.selected_color_item:
+            return
+            
+        # Calculate the actual threshold value
+        threshold = value / 10.0
+        self.threshold_label.setText(f"Threshold: {threshold:.1f}")
+        
+        # Get the current color data
+        color_data = self.selected_color_item.data(Qt.ItemDataRole.UserRole)
+        color = color_data["color"]
+        
+        # Update the color data with the new threshold
+        self.update_color_list_item(self.selected_color_item, color, threshold)
+        
+        # Update detection immediately for visual feedback
+        if self.current_image is not None and self.use_color_detection.isChecked():
+            self.update_image()
+    
+    def edit_wall_color(self, item):
+        """Edit an existing color."""
+        color_data = item.data(Qt.ItemDataRole.UserRole)
+        current_color = color_data["color"]
+        current_threshold = color_data["threshold"]
+        
+        new_color = QColorDialog.getColor(current_color, self, "Edit Wall Color")
+        if new_color.isValid():
+            # Keep the threshold and update the color
+            self.update_color_list_item(item, new_color, current_threshold)
+            # Update detection if image is loaded
+            if self.current_image is not None:
+                self.update_image()
+    
+    def update_color_list_item(self, item, color, threshold):
+        """Update a color list item with new color and threshold."""
+        # Store both color and threshold in the item data
+        color_data = {"color": color, "threshold": threshold}
+        item.setData(Qt.ItemDataRole.UserRole, color_data)
+        
+        # Update item text and appearance
+        item.setText(f"RGB: {color.red()}, {color.green()}, {color.blue()} (T: {threshold:.1f})")
+        item.setBackground(color)
+        
+        # Set text color based on background brightness
+        if color.lightness() < 128:
+            item.setForeground(QColor(255, 255, 255))
+        else:
+            item.setForeground(QColor(0, 0, 0))
+    
+    def add_wall_color_to_list(self, color, threshold=10.0):
+        """Add a color with threshold to the wall colors list."""
+        item = QListWidgetItem()
+        self.update_color_list_item(item, color, threshold)
+        self.wall_colors_list.addItem(item)
+        return item
+    
+    def remove_wall_color(self):
+        """Remove the selected color from the list."""
+        selected_items = self.wall_colors_list.selectedItems()
+        for item in selected_items:
+            self.wall_colors_list.takeItem(self.wall_colors_list.row(item))
+        
+        # Hide threshold controls if no colors are selected or all are removed
+        if not self.wall_colors_list.selectedItems() or self.wall_colors_list.count() == 0:
+            self.threshold_container.setVisible(False)
+            self.selected_color_item = None
+        
+        # Update detection if image is loaded and we still have colors
+        if self.current_image is not None and self.wall_colors_list.count() > 0:
+            self.update_image()
 
     def update_image(self):
         """Update the displayed image based on the current settings."""
@@ -761,18 +924,28 @@ class WallDetectionApp(QMainWindow):
         else:
             working_min_area = min_area
         
-        # Set up color detection parameters
-        wall_color = None
-        color_threshold = self.sliders["Color Threshold"].value() * 0.1
+        # Set up color detection parameters with per-color thresholds
+        wall_colors_with_thresholds = None
+        default_threshold = 0.1
         
-        if self.use_color_detection.isChecked():
-            # Convert Qt QColor to OpenCV BGR color
-            wall_color = (
-                self.wall_color.blue(),
-                self.wall_color.green(),
-                self.wall_color.red()
-            )
-            print(f"Using wall color detection: {wall_color} with threshold: {color_threshold:.1f}")
+        if self.use_color_detection.isChecked() and self.wall_colors_list.count() > 0:
+            # Extract all colors and thresholds from the list widget
+            wall_colors_with_thresholds = []
+            for i in range(self.wall_colors_list.count()):
+                item = self.wall_colors_list.item(i)
+                color_data = item.data(Qt.ItemDataRole.UserRole)
+                color = color_data["color"]
+                threshold = color_data["threshold"]
+                
+                # Convert Qt QColor to OpenCV BGR color and pair with threshold
+                bgr_color = (
+                    color.blue(),
+                    color.green(),
+                    color.red()
+                )
+                wall_colors_with_thresholds.append((bgr_color, threshold))
+            
+            print(f"Using {len(wall_colors_with_thresholds)} colors for detection with individual thresholds")
         
         # Debug output of parameters
         print(f"Parameters: min_area={min_area} (working: {working_min_area}), "
@@ -787,8 +960,8 @@ class WallDetectionApp(QMainWindow):
             canny_threshold1=canny1,
             canny_threshold2=canny2,
             edge_margin=edge_margin,
-            wall_color=wall_color,
-            color_threshold=color_threshold
+            wall_colors=wall_colors_with_thresholds,  # Now includes per-color thresholds
+            color_threshold=default_threshold  # Kept for backward compatibility
         )
         
         print(f"Detected {len(contours)} contours before merging")

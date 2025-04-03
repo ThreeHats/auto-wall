@@ -3,7 +3,7 @@ import numpy as np
 
 def detect_walls(image, min_contour_area=100, max_contour_area=None, blur_kernel_size=5, 
                 canny_threshold1=50, canny_threshold2=150, edge_margin=0,
-                wall_color=None, color_threshold=20):
+                wall_colors=None, color_threshold=20):
     """
     Detect walls in an image with adjustable parameters.
     
@@ -15,8 +15,12 @@ def detect_walls(image, min_contour_area=100, max_contour_area=None, blur_kernel
     - canny_threshold1: Lower threshold for Canny edge detection
     - canny_threshold2: Upper threshold for Canny edge detection
     - edge_margin: Number of pixels from the edge to place the cutting border (0 means no cutting)
-    - wall_color: (B,G,R) tuple for color-based wall detection (None to disable)
-    - color_threshold: How close a color needs to be to wall_color to be considered a wall (0-100)
+    - wall_colors: Can be one of:
+                  - None to disable color detection
+                  - A single BGR color tuple
+                  - A list of BGR color tuples
+                  - A list of (BGR color tuple, threshold) pairs for per-color thresholds
+    - color_threshold: Default threshold for colors without specific threshold (0-100)
     
     Returns:
     - List of contours representing walls
@@ -24,10 +28,20 @@ def detect_walls(image, min_contour_area=100, max_contour_area=None, blur_kernel
     # Create a copy of the image for processing
     working_image = image.copy()
     
-    # If wall color is provided, use direct color-based contour detection
-    if wall_color is not None:
-        # Create a mask of pixels that match the wall color
-        color_mask = create_color_mask(image, wall_color, color_threshold)
+    # If wall colors are provided, use direct color-based contour detection
+    if wall_colors is not None:
+        if not isinstance(wall_colors, list):
+            # Convert single color to list with default threshold
+            wall_colors = [(wall_colors, color_threshold)]
+        elif len(wall_colors) > 0 and not isinstance(wall_colors[0], tuple):
+            # Convert list of colors to list of (color, default_threshold) tuples
+            wall_colors = [(color, color_threshold) for color in wall_colors]
+        elif len(wall_colors) > 0 and isinstance(wall_colors[0], tuple) and len(wall_colors[0]) == 3:
+            # It's a list of color tuples, convert to (color, threshold) format
+            wall_colors = [(color, color_threshold) for color in wall_colors]
+        
+        # Create a mask that combines all specified colors with their thresholds
+        color_mask = create_multi_color_mask(image, wall_colors)
         
         # Save debug visualization
         debug_image = image.copy()
@@ -50,7 +64,7 @@ def detect_walls(image, min_contour_area=100, max_contour_area=None, blur_kernel
         # Return the filtered contours
         return result_contours
     
-    # If no wall color provided, continue with standard edge detection approach
+    # If no wall colors provided, continue with standard edge detection approach
     # Convert to grayscale
     gray = cv2.cvtColor(working_image, cv2.COLOR_BGR2GRAY)
 
@@ -245,6 +259,30 @@ def detect_walls(image, min_contour_area=100, max_contour_area=None, blur_kernel
                 result_contours.extend(center_contours)
     
     return result_contours
+
+def create_multi_color_mask(image, color_threshold_pairs):
+    """
+    Create a binary mask for multiple colors with individual thresholds.
+    
+    Parameters:
+    - image: Input BGR image
+    - color_threshold_pairs: List of ((B,G,R), threshold) tuples
+    
+    Returns:
+    - Binary mask with matching pixels as white (255)
+    """
+    if not color_threshold_pairs:
+        return np.zeros(image.shape[:2], dtype=np.uint8)
+        
+    # Start with an empty mask
+    combined_mask = np.zeros(image.shape[:2], dtype=np.uint8)
+    
+    # Create a mask for each color and threshold pair, combining them with OR operation
+    for color, threshold in color_threshold_pairs:
+        color_mask = create_color_mask(image, color, threshold)
+        combined_mask = cv2.bitwise_or(combined_mask, color_mask)
+    
+    return combined_mask
 
 def create_color_mask(image, target_color, threshold):
     """
