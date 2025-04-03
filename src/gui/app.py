@@ -1556,11 +1556,11 @@ class WallDetectionApp(QMainWindow):
             print("No walls to export.")
             return
             
-        # Ask for simplification tolerance
+        # Ask for simplification tolerance (default to 0 = minimal simplification)
         tolerance, ok = QInputDialog.getDouble(
             self, "Wall Simplification", 
-            "Enter simplification tolerance (lower = more detail):\n(0.01-0.2 recommended)",
-            0.05, 0.01, 1.0, 2
+            "Enter simplification tolerance (0 = maintain details):\n(0 best for detailed walls, higher = fewer walls)",
+            0.0, 0.0, 1.0, 3  # Increased precision to 3 decimal places
         )
         if not ok:
             return
@@ -1568,8 +1568,8 @@ class WallDetectionApp(QMainWindow):
         # Ask for maximum wall length
         max_length, ok = QInputDialog.getInt(
             self, "Maximum Wall Length", 
-            "Enter maximum wall segment length (pixels):\n(Lower values create more wall segments)",
-            50, 10, 500, 10
+            "Enter maximum wall segment length (pixels):\n(Lower values ensure smoother curves)",
+            25, 5, 500, 5  # Default to shorter segments (25) to better maintain curves
         )
         if not ok:
             return

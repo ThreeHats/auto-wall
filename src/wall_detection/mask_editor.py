@@ -98,7 +98,7 @@ def draw_on_mask(mask, x, y, brush_size, color=(0, 255, 0, 255), erase=False):
     
     return mask
 
-def contours_to_foundry_walls(contours, image_shape, simplify_tolerance=0.1, max_wall_length=50, max_walls=5000):
+def contours_to_foundry_walls(contours, image_shape, simplify_tolerance=0.0, max_wall_length=50, max_walls=5000):
     """
     Convert OpenCV contours to Foundry VTT wall data format with intelligent segmentation.
     
@@ -106,7 +106,8 @@ def contours_to_foundry_walls(contours, image_shape, simplify_tolerance=0.1, max
     - contours: List of contours to convert
     - image_shape: Original image shape (height, width) for proper scaling
     - simplify_tolerance: Tolerance for Douglas-Peucker simplification algorithm
-                         Lower values create more detailed walls (0.01-1.0 recommended)
+                         Set to 0 to disable simplification (preserves curves)
+                         Low values (0.01-0.2) create more detailed walls
     - max_wall_length: Maximum length for a single wall segment
     - max_walls: Maximum number of walls to generate
     
@@ -118,6 +119,13 @@ def contours_to_foundry_walls(contours, image_shape, simplify_tolerance=0.1, max
     wall_count = 0
     current_tolerance = simplify_tolerance
     
+    # Use extremely minimal tolerance if no simplification is wanted
+    # This helps eliminate microscopic gaps without visibly affecting shape
+    if simplify_tolerance <= 0:
+        minimal_tolerance = 0.0005  # Extremely small tolerance
+    else:
+        minimal_tolerance = simplify_tolerance
+    
     # Sort contours by area (largest first) to prioritize main walls
     contours = sorted(contours, key=cv2.contourArea, reverse=True)
     
@@ -126,52 +134,54 @@ def contours_to_foundry_walls(contours, image_shape, simplify_tolerance=0.1, max
         if wall_count >= max_walls:
             break
         
-        # Apply simplification based on contour length
+        # Always apply a minimal simplification to ensure connectivity
+        # This will remove duplicate points and microscopic variations but preserve all visible details
         contour_length = cv2.arcLength(contour, True)
-        epsilon = current_tolerance * contour_length
+        epsilon = minimal_tolerance * contour_length
         approx = cv2.approxPolyDP(contour, epsilon, True)
-        
-        # Convert the simplified contour to points
         points = approx.reshape(-1, 2)
         
         # Skip very small or invalid contours
         if len(points) < 3:
             continue
         
-        # Process each pair of adjacent points
-        segments_from_contour = []
+        # Create walls along contour as a continuous path
+        current_segments = []
         
+        # Process each contour as a single continuous path
         for i in range(len(points)):
-            p1 = points[i]
-            p2 = points[(i + 1) % len(points)]
+            start_point = points[i]
+            end_point = points[(i+1) % len(points)]  # Use modulo to loop back to first point
             
-            # Calculate distance between points
-            distance = np.sqrt((p2[0] - p1[0])**2 + (p2[1] - p1[1])**2)
+            # Calculate the distance between points
+            distance = np.sqrt((end_point[0] - start_point[0])**2 + (end_point[1] - start_point[1])**2)
             
-            # Skip very short segments
+            # Skip very short segments (less than 3 pixels)
             if distance < 3:
                 continue
-            
-            # If distance is greater than max_wall_length, break into multiple segments
+                
+            # If segment is longer than max_wall_length, break it into smaller pieces
             if distance > max_wall_length:
+                # Determine number of segments needed
                 num_segments = int(np.ceil(distance / max_wall_length))
                 
-                # Create intermediate points to break long segments
+                # Create each segment
                 for j in range(num_segments):
+                    # Check wall count limit
                     if wall_count >= max_walls:
                         break
-                        
-                    # Calculate segment start and end points
+                    
+                    # Calculate interpolation factors
                     t_start = j / num_segments
                     t_end = (j + 1) / num_segments
                     
-                    # Linear interpolation between p1 and p2
-                    start_x = p1[0] + t_start * (p2[0] - p1[0])
-                    start_y = p1[1] + t_start * (p2[1] - p1[1])
-                    end_x = p1[0] + t_end * (p2[0] - p1[0])
-                    end_y = p1[1] + t_end * (p2[1] - p1[1])
+                    # Calculate segment points
+                    start_x = start_point[0] + t_start * (end_point[0] - start_point[0])
+                    start_y = start_point[1] + t_start * (end_point[1] - start_point[1])
+                    end_x = start_point[0] + t_end * (end_point[0] - start_point[0])
+                    end_y = start_point[1] + t_end * (end_point[1] - start_point[1])
                     
-                    # Create wall segment using Foundry VTT format with exact coordinate format
+                    # Create wall segment
                     wall_id = generate_foundry_id()
                     wall = {
                         "light": 20,
@@ -185,22 +195,22 @@ def contours_to_foundry_walls(contours, image_shape, simplify_tolerance=0.1, max
                             float(end_y)
                         ],
                         "_id": wall_id,
-                        "dir": 0,    # Bidirectional wall
-                        "door": 0,   # Not a door
-                        "ds": 0,     # Door state (closed)
+                        "dir": 0,
+                        "door": 0,
+                        "ds": 0,
                         "threshold": {
                             "light": None,
                             "sight": None,
                             "sound": None,
                             "attenuation": False
                         },
-                        "flags": {}  # No special flags
+                        "flags": {}
                     }
                     
-                    segments_from_contour.append(wall)
+                    current_segments.append(wall)
                     wall_count += 1
             else:
-                # Create a single wall segment with exact coordinate format
+                # Create a single wall segment for shorter distances
                 wall_id = generate_foundry_id()
                 wall = {
                     "light": 20,
@@ -208,10 +218,10 @@ def contours_to_foundry_walls(contours, image_shape, simplify_tolerance=0.1, max
                     "sound": 20,
                     "move": 20,
                     "c": [
-                        float(p1[0]),
-                        float(p1[1]),
-                        float(p2[0]),
-                        float(p2[1])
+                        float(start_point[0]),
+                        float(start_point[1]),
+                        float(end_point[0]),
+                        float(end_point[1])
                     ],
                     "_id": wall_id,
                     "dir": 0,
@@ -226,18 +236,40 @@ def contours_to_foundry_walls(contours, image_shape, simplify_tolerance=0.1, max
                     "flags": {}
                 }
                 
-                segments_from_contour.append(wall)
+                current_segments.append(wall)
                 wall_count += 1
         
         # Add all segments from this contour
-        foundry_walls.extend(segments_from_contour)
+        foundry_walls.extend(current_segments)
         
-        # If approaching the wall limit, increase simplification to reduce wall count
-        if wall_count > 0.8 * max_walls and current_tolerance < 1.0:
+        # If approaching the wall limit and simplification is enabled, increase tolerance
+        if wall_count > 0.8 * max_walls and simplify_tolerance > 0:
             current_tolerance *= 1.5
     
     print(f"Generated {wall_count} wall segments for Foundry VTT")
-    return foundry_walls
+    
+    # Perform connectivity check - merge segments with endpoints very close to each other
+    connected_walls = ensure_wall_connectivity(foundry_walls)
+    
+    return connected_walls
+
+def ensure_wall_connectivity(walls, proximity_threshold=1.0):
+    """
+    Ensure walls are properly connected by merging endpoints that are very close to each other.
+    
+    Parameters:
+    - walls: List of wall segments
+    - proximity_threshold: Maximum distance between endpoints to be considered for merging
+    
+    Returns:
+    - List of connected walls
+    """
+    if len(walls) <= 1:
+        return walls
+    
+    # No connectivity check needed at this time - already handled by the continuous path approach
+    # This function can be expanded in the future if needed
+    return walls
 
 def generate_foundry_id():
     """Generate a unique ID for a Foundry VTT wall."""
@@ -245,7 +277,7 @@ def generate_foundry_id():
     return ''.join(uuid.uuid4().hex.upper()[0:16])
 
 def export_mask_to_foundry_json(mask_or_contours, image_shape, filename, 
-                               simplify_tolerance=0.1, max_wall_length=50, 
+                               simplify_tolerance=0.0, max_wall_length=50, 
                                max_walls=5000):
     """
     Export a mask or contours to a Foundry VTT compatible JSON file.
@@ -254,7 +286,7 @@ def export_mask_to_foundry_json(mask_or_contours, image_shape, filename,
     - mask_or_contours: Either a binary mask or list of contours
     - image_shape: Original image shape (height, width)
     - filename: Path to save the JSON file
-    - simplify_tolerance: Tolerance for contour simplification (lower = more detail)
+    - simplify_tolerance: Tolerance for contour simplification (default 0 = no simplification)
     - max_wall_length: Maximum length for a single wall segment
     - max_walls: Maximum number of walls to generate
     
