@@ -2,6 +2,7 @@ import cv2
 import numpy as np
 import json
 import uuid
+from collections import defaultdict
 
 def create_mask_from_contours(image_shape, contours, color=(0, 255, 0, 255)):
     """
@@ -256,20 +257,105 @@ def contours_to_foundry_walls(contours, image_shape, simplify_tolerance=0.0, max
 def ensure_wall_connectivity(walls, proximity_threshold=1.0):
     """
     Ensure walls are properly connected by merging endpoints that are very close to each other.
+    Also removes duplicate walls after points have been merged.
     
     Parameters:
     - walls: List of wall segments
     - proximity_threshold: Maximum distance between endpoints to be considered for merging
     
     Returns:
-    - List of connected walls
+    - List of connected walls with duplicates removed
     """
     if len(walls) <= 1:
         return walls
     
-    # No connectivity check needed at this time - already handled by the continuous path approach
-    # This function can be expanded in the future if needed
-    return walls
+    # Extract all points from walls
+    all_points = []
+    for wall in walls:
+        all_points.append((wall["c"][0], wall["c"][1]))  # Start point
+        all_points.append((wall["c"][2], wall["c"][3]))  # End point
+    
+    # Find clusters of nearby points
+    merged_points = merge_nearby_points(all_points, proximity_threshold)
+    
+    # Create new walls with merged points
+    new_walls = []
+    wall_hash_set = set()  # To track unique walls
+    
+    for wall in walls:
+        # Get original points
+        start_x, start_y = wall["c"][0], wall["c"][1]
+        end_x, end_y = wall["c"][2], wall["c"][3]
+        
+        # Find their merged coordinates
+        new_start = merged_points.get((start_x, start_y), (start_x, start_y))
+        new_end = merged_points.get((end_x, end_y), (end_x, end_y))
+        
+        # Skip walls that became too short after merging
+        new_dist = ((new_end[0] - new_start[0])**2 + (new_end[1] - new_start[1])**2)**0.5
+        if new_dist < 2:  # Minimum meaningful wall length
+            continue
+        
+        # Create a unique key for this wall (sort points to treat A->B same as B->A)
+        wall_key = tuple(sorted([new_start, new_end]))
+        
+        # Only add if this wall doesn't exist yet
+        if wall_key not in wall_hash_set:
+            # Create a new wall with merged points
+            new_wall = wall.copy()
+            new_wall["c"] = [float(new_start[0]), float(new_start[1]), 
+                             float(new_end[0]), float(new_end[1])]
+            new_walls.append(new_wall)
+            wall_hash_set.add(wall_key)
+    
+    print(f"Wall optimization: {len(walls)} original walls reduced to {len(new_walls)} walls")
+    return new_walls
+
+def merge_nearby_points(points, proximity_threshold):
+    """
+    Merge points that are within proximity_threshold distance of each other.
+    
+    Parameters:
+    - points: List of (x, y) tuples
+    - proximity_threshold: Distance threshold for merging
+    
+    Returns:
+    - Dictionary mapping original points to their merged positions
+    """
+    # Convert to numpy array for faster calculations
+    points = [tuple(map(float, p)) for p in points]
+    points_array = np.array(points)
+    
+    # Dictionary to store the mapping from original points to merged points
+    point_map = {}
+    
+    # Process points sequentially
+    for i, point in enumerate(points):
+        # Skip if this point is already processed
+        if point in point_map:
+            continue
+        
+        # Find all points within threshold distance
+        if len(points_array) > 0:
+            distances = np.sqrt(np.sum((points_array - np.array(point))**2, axis=1))
+            nearby_indices = np.where(distances <= proximity_threshold)[0]
+            
+            if len(nearby_indices) > 0:
+                # Calculate the average position for the cluster
+                cluster_points = points_array[nearby_indices]
+                avg_point = tuple(np.mean(cluster_points, axis=0))
+                
+                # Map all points in this cluster to the average position
+                for idx in nearby_indices:
+                    original_point = tuple(points_array[idx])
+                    point_map[original_point] = avg_point
+                
+                # Remove processed points to speed up next iterations
+                mask = np.ones(len(points_array), dtype=bool)
+                mask[nearby_indices] = False
+                points_array = points_array[mask]
+    
+    return point_map
 
 def generate_foundry_id():
     """Generate a unique ID for a Foundry VTT wall."""
@@ -278,7 +364,7 @@ def generate_foundry_id():
 
 def export_mask_to_foundry_json(mask_or_contours, image_shape, filename, 
                                simplify_tolerance=0.0, max_wall_length=50, 
-                               max_walls=5000):
+                               max_walls=5000, merge_distance=1.0):
     """
     Export a mask or contours to a Foundry VTT compatible JSON file.
     
@@ -289,6 +375,7 @@ def export_mask_to_foundry_json(mask_or_contours, image_shape, filename,
     - simplify_tolerance: Tolerance for contour simplification (default 0 = no simplification)
     - max_wall_length: Maximum length for a single wall segment
     - max_walls: Maximum number of walls to generate
+    - merge_distance: Distance threshold for merging nearby wall endpoints (pixels)
     
     Returns:
     - True if successful, False otherwise
@@ -304,7 +391,7 @@ def export_mask_to_foundry_json(mask_or_contours, image_shape, filename,
             # Assume it's already a list of contours
             contours = mask_or_contours
         
-        # Convert to Foundry walls format (now returns a list, not a dict)
+        # Convert to Foundry walls format
         foundry_walls = contours_to_foundry_walls(
             contours, 
             image_shape, 
@@ -313,7 +400,10 @@ def export_mask_to_foundry_json(mask_or_contours, image_shape, filename,
             max_walls=max_walls
         )
         
-        # Write the list of walls directly to the JSON file (no outer "walls" key)
+        # Optimize walls by merging nearby points and removing duplicates
+        foundry_walls = ensure_wall_connectivity(foundry_walls, proximity_threshold=merge_distance)
+        
+        # Write the list of walls directly to the JSON file
         with open(filename, 'w') as f:
             json.dump(foundry_walls, f, indent=2)
         

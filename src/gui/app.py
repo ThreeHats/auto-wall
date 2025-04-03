@@ -1582,6 +1582,15 @@ class WallDetectionApp(QMainWindow):
         )
         if not ok:
             return
+
+        # Ask for point merge distance
+        merge_distance, ok = QInputDialog.getDouble(
+            self, "Point Merge Distance", 
+            "Distance to merge nearby points (pixels):\n(Higher values reduce wall count but may change shape)",
+            1.0, 0.0, 10.0, 1  # Default 1.0, range 0-10 with 1 decimal place
+        )
+        if not ok:
+            return
             
         # Get file path for saving
         file_path, _ = QFileDialog.getSaveFileName(
@@ -1612,7 +1621,8 @@ class WallDetectionApp(QMainWindow):
             file_path,
             simplify_tolerance=tolerance,
             max_wall_length=max_length,
-            max_walls=max_walls
+            max_walls=max_walls,
+            merge_distance=merge_distance
         )
         
         if success:
