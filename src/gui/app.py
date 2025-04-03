@@ -5,7 +5,7 @@ import os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 
 from PyQt6.QtWidgets import (
-    QApplication, QMainWindow, QVBoxLayout, QHBoxLayout, QLabel, QSlider, QPushButton, QWidget, QFileDialog
+    QApplication, QMainWindow, QVBoxLayout, QHBoxLayout, QLabel, QSlider, QPushButton, QWidget, QFileDialog, QCheckBox
 )
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QPixmap, QImage
@@ -55,6 +55,22 @@ class WallDetectionApp(QMainWindow):
         self.save_button = QPushButton("Save Image")
         self.save_button.clicked.connect(self.save_image)
         self.buttons_layout.addWidget(self.save_button)
+
+        # Checkboxes for merge options
+        self.merge_options_layout = QHBoxLayout()
+        self.controls_layout.addLayout(self.merge_options_layout)
+
+        self.merge_before_min_area = QCheckBox("Merge Before Min Area")
+        self.merge_before_min_area.setChecked(False)
+        self.merge_options_layout.addWidget(self.merge_before_min_area)
+
+        self.merge_before_canny1 = QCheckBox("Merge Before Canny1")
+        self.merge_before_canny1.setChecked(False)
+        self.merge_options_layout.addWidget(self.merge_before_canny1)
+
+        self.merge_before_canny2 = QCheckBox("Merge Before Canny2")
+        self.merge_before_canny2.setChecked(False)
+        self.merge_options_layout.addWidget(self.merge_before_canny2)
 
         # State
         self.current_image = None
@@ -113,18 +129,26 @@ class WallDetectionApp(QMainWindow):
         # Process the image
         contours = detect_walls(
             self.current_image,
-            min_contour_area=min_area,
+            min_contour_area=min_area if not self.merge_before_min_area.isChecked() else 0,
             max_contour_area=max_area,
             blur_kernel_size=blur,
-            canny_threshold1=canny1,
-            canny_threshold2=canny2,
+            canny_threshold1=canny1 if not self.merge_before_canny1.isChecked() else 0,
+            canny_threshold2=canny2 if not self.merge_before_canny2.isChecked() else 255,
         )
 
-        # Merge nearby contours
-        merged_contours = merge_contours(self.current_image, contours)
+        # Merge nearby contours if specified
+        if self.merge_before_min_area.isChecked() or self.merge_before_canny1.isChecked() or self.merge_before_canny2.isChecked():
+            contours = merge_contours(self.current_image, contours)
+
+        # Apply additional filtering if merging occurred before thresholds
+        if self.merge_before_min_area.isChecked():
+            contours = [c for c in contours if cv2.contourArea(c) >= min_area]
+        if self.merge_before_canny1.isChecked() or self.merge_before_canny2.isChecked():
+            edges = cv2.Canny(cv2.drawContours(np.zeros_like(self.current_image), contours, -1, 255, thickness=cv2.FILLED), canny1, canny2)
+            contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
         # Draw merged contours
-        self.processed_image = draw_walls(self.current_image, merged_contours)
+        self.processed_image = draw_walls(self.current_image, contours)
 
         # Convert to QPixmap and display
         rgb_image = convert_to_rgb(self.processed_image)
