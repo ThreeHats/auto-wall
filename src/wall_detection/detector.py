@@ -294,10 +294,26 @@ def create_color_mask(image, target_color, threshold):
     - target_color: (B,G,R) tuple of the target color
     - threshold: How close a color needs to be to target_color (0-100)
                 Higher values are more lenient, lower values more strict
+                A value of 0 means exact color match only
     
     Returns:
     - Binary mask with matching pixels as white (255)
     """
+    # Special case for threshold=0: exact color match only
+    if threshold == 0:
+        # Create an empty mask
+        mask = np.zeros(image.shape[:2], dtype=np.uint8)
+        
+        # Extract channels
+        b, g, r = cv2.split(image)
+        
+        # Set pixels that exactly match the target color
+        exact_match = (b == target_color[0]) & (g == target_color[1]) & (r == target_color[2])
+        mask[exact_match] = 255
+        
+        return mask
+    
+    # Regular case for threshold > 0
     # Convert threshold from percentage (0-100) to actual distance in color space
     # Maximum possible distance in RGB space is sqrt(255²+255²+255²) ≈ 441.7
     max_distance = 255.0 * np.sqrt(3)

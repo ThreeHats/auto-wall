@@ -235,7 +235,7 @@ class WallDetectionApp(QMainWindow):
         self.current_threshold_layout.addWidget(self.threshold_label)
         
         self.threshold_slider = QSlider(Qt.Orientation.Horizontal)
-        self.threshold_slider.setMinimum(1)
+        self.threshold_slider.setMinimum(0)
         self.threshold_slider.setMaximum(300)
         self.threshold_slider.setValue(100)  # Default value 10.0
         self.threshold_slider.valueChanged.connect(self.update_selected_threshold)
@@ -798,7 +798,7 @@ class WallDetectionApp(QMainWindow):
         color = QColorDialog.getColor(QColor(0, 0, 0), self, "Select Wall Color")
         if color.isValid():
             # Use the global threshold value as default for new colors
-            default_threshold = 0.1
+            default_threshold = 0
             item = self.add_wall_color_to_list(color, default_threshold)
             
             # Select the new color
@@ -926,7 +926,7 @@ class WallDetectionApp(QMainWindow):
         
         # Set up color detection parameters with per-color thresholds
         wall_colors_with_thresholds = None
-        default_threshold = 0.1
+        default_threshold = 0
         
         if self.use_color_detection.isChecked() and self.wall_colors_list.count() > 0:
             # Extract all colors and thresholds from the list widget
