@@ -3,3 +3,4 @@ numpy
 matplotlib
 pygame
 Pillow
+pyQt6
