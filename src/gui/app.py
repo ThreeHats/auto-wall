@@ -1115,29 +1115,26 @@ class WallDetectionApp(QMainWindow):
         # Split contours that touch image edges AFTER area filtering, but only if not in color detection mode
         if not self.use_color_detection.isChecked():
           split_contours = split_edge_contours(self.current_image, contours)
-        else:
-          # In color detection mode, keep contours as they are
-          split_contours = contours
-        
-        # Use a much lower threshold for split contours to keep them all
-        # Use absolute minimum value instead of relative to min_area
-        min_split_area = 5.0 * (self.scale_factor * self.scale_factor)  # Scale with image
-        filtered_contours = []
-        
-        # Keep track of how many contours were kept vs filtered
-        kept_count = 0
-        filtered_count = 0
-        
-        for contour in split_contours:
-            area = cv2.contourArea(contour)
-            if area >= min_split_area:
-                filtered_contours.append(contour)
-                kept_count += 1
-            else:
-                filtered_count += 1
-        
-        contours = filtered_contours
-        print(f"After edge splitting: kept {kept_count}, filtered {filtered_count} tiny fragments")
+
+          # Use a much lower threshold for split contours to keep them all
+          # Use absolute minimum value instead of relative to min_area
+          min_split_area = 5.0 * (self.scale_factor * self.scale_factor)  # Scale with image
+          filtered_contours = []
+          
+          # Keep track of how many contours were kept vs filtered
+          kept_count = 0
+          filtered_count = 0
+          
+          for contour in split_contours:
+              area = cv2.contourArea(contour)
+              if area >= min_split_area:
+                  filtered_contours.append(contour)
+                  kept_count += 1
+              else:
+                  filtered_count += 1
+          
+          contours = filtered_contours
+          print(f"After edge splitting: kept {kept_count}, filtered {filtered_count} tiny fragments")
 
         # Save the current contours for interactive editing
         self.current_contours = contours
