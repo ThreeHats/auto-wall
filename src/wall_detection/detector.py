@@ -33,102 +33,106 @@ def detect_walls(image, min_contour_area=100, max_contour_area=None, blur_kernel
     # Find contours
     contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     
-    # Initial filtering by size (if not dealing with edge margin)
+    # Process contours - Generate filled mask
+    contour_mask = np.zeros(gray.shape, dtype=np.uint8)
+    cv2.drawContours(contour_mask, contours, -1, 255, thickness=cv2.FILLED)
+    
+    # Find touching contours - dilate slightly and run connectedComponents
+    kernel = np.ones((3, 3), np.uint8)
+    working_mask = cv2.dilate(contour_mask, kernel, iterations=1)
+    
+    # Find connected components (treats touching contours as one)
+    num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(working_mask)
+    
+    # Process each connected component
+    result_contours = []
+    
+    # No edge margin - simpler processing
     if edge_margin <= 0:
-        filtered_contours = []
-        for contour in contours:
-            area = cv2.contourArea(contour)
+        for i in range(1, num_labels):  # Skip background (label 0)
+            # Get the area of this component
+            area = stats[i, cv2.CC_STAT_AREA]
+            
+            # Apply area filtering
             if area >= min_contour_area and (max_contour_area is None or area <= max_contour_area):
-                filtered_contours.append(contour)
-        return filtered_contours
-    
-    # Edge margin is active, so we need to handle edge-touching contours specially
-    height, width = image.shape[:2]
-    
-    # Create masks for edge detection
-    center_mask = np.zeros(gray.shape, dtype=np.uint8)
-    cv2.rectangle(
-        center_mask,
-        (edge_margin, edge_margin),
-        (width - edge_margin, height - edge_margin),
-        255, -1
-    )
-    edge_mask = np.zeros_like(center_mask)
-    cv2.rectangle(
-        edge_mask,
-        (0, 0),
-        (width - 1, height - 1),
-        255, 1
-    )
-    
-    # Process contours
-    filtered_contours = []
-    
-    for contour in contours:
-        original_area = cv2.contourArea(contour)
-        
-        # Skip if clearly too small
-        if original_area < min_contour_area / 2:  # Use a lower threshold for initial filtering
-            continue
-        
-        # Skip if too large
-        if max_contour_area is not None and original_area > max_contour_area:
-            continue
-        
-        # Create a mask for this contour
-        contour_mask = np.zeros_like(center_mask)
-        cv2.drawContours(contour_mask, [contour], 0, 255, thickness=cv2.FILLED)
-        
-        # Check if contour touches the edge
-        edge_intersection = cv2.bitwise_and(contour_mask, edge_mask)
-        touches_edge = cv2.countNonZero(edge_intersection) > 0
-        
-        if touches_edge:
-            # Count the number of distinct intersections with the edge
-            edge_points = np.argwhere(edge_intersection > 0)
-            if len(edge_points) > 0:
-                # Cluster edge points to find distinct intersections
-                # We'll use a simple distance threshold approach
-                distance_threshold = max(width, height) // 20  # Adjust as needed
-                distinct_intersections = []
+                # Extract the contours for this component
+                component_mask = np.zeros_like(labels, dtype=np.uint8)
+                component_mask[labels == i] = 255
                 
-                for point in edge_points:
-                    y, x = point
-                    # Check if this point is close to any existing intersection
-                    is_new_intersection = True
-                    for i, existing in enumerate(distinct_intersections):
-                        if np.sqrt((y - existing[0])**2 + (x - existing[1])**2) < distance_threshold:
-                            is_new_intersection = False
-                            break
+                # Find contours of this component
+                component_contours, _ = cv2.findContours(component_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                
+                # Add all contours from this component to the result
+                result_contours.extend(component_contours)
+    
+    # Handle edge margin case
+    else:
+        # Create center mask
+        height, width = gray.shape
+        center_mask = np.zeros_like(gray, dtype=np.uint8)
+        cv2.rectangle(
+            center_mask,
+            (edge_margin, edge_margin),
+            (width - edge_margin, height - edge_margin),
+            255, -1
+        )
+        
+        # Create edge mask for detecting edge intersections
+        edge_mask = np.zeros_like(gray, dtype=np.uint8)
+        cv2.rectangle(edge_mask, (0, 0), (width-1, height-1), 255, 1)
+        
+        for i in range(1, num_labels):  # Skip background (label 0)
+            # Create a mask for this component
+            component_mask = np.zeros_like(labels, dtype=np.uint8)
+            component_mask[labels == i] = 255
+            
+            # Get area of this component
+            area = stats[i, cv2.CC_STAT_AREA]
+            
+            # Check if this component touches the edge
+            edge_intersection = cv2.bitwise_and(component_mask, edge_mask)
+            touches_edge = cv2.countNonZero(edge_intersection) > 0
+            
+            if touches_edge:
+                # Find edge intersection points
+                edge_points = np.argwhere(edge_intersection > 0)
+                
+                if len(edge_points) > 0:
+                    # Cluster edge points to find distinct intersections
+                    distance_threshold = max(width, height) // 20
+                    distinct_intersections = []
                     
-                    if is_new_intersection:
-                        distinct_intersections.append((y, x))
-                
-                # If contour touches the edge in multiple places, use its full area for min_area check
-                if len(distinct_intersections) >= 2:
-                    if original_area >= min_contour_area:
-                        # This contour passes the min_area check
-                        # Now extract only the portion inside the center region
-                        center_portion = cv2.bitwise_and(contour_mask, center_mask)
-                        center_contours, _ = cv2.findContours(center_portion, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                    for point in edge_points:
+                        y, x = point
+                        is_new_intersection = True
                         
-                        # Add all center portions to filtered contours
-                        for center_contour in center_contours:
-                            if cv2.contourArea(center_contour) > 0:
-                                filtered_contours.append(center_contour)
+                        for existing in distinct_intersections:
+                            if np.sqrt((y - existing[0])**2 + (x - existing[1])**2) < distance_threshold:
+                                is_new_intersection = False
+                                break
+                        
+                        if is_new_intersection:
+                            distinct_intersections.append((y, x))
                     
-                    continue  # Skip the normal processing
-        
-        # For contours that don't touch the edge in multiple places or are entirely inside
-        center_portion = cv2.bitwise_and(contour_mask, center_mask)
-        center_contours, _ = cv2.findContours(center_portion, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        
-        for center_contour in center_contours:
-            area = cv2.contourArea(center_contour)
-            if area >= min_contour_area and (max_contour_area is None or area <= max_contour_area):
-                filtered_contours.append(center_contour)
+                    # If component touches edge in multiple places, use full area for filtering
+                    if len(distinct_intersections) >= 2 and area >= min_contour_area:
+                        # Get the portion inside the center region
+                        center_portion = cv2.bitwise_and(component_mask, center_mask)
+                        if cv2.countNonZero(center_portion) > 0:
+                            component_contours, _ = cv2.findContours(center_portion, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                            result_contours.extend(component_contours)
+                        continue
+            
+            # Process the portion in the center region
+            center_portion = cv2.bitwise_and(component_mask, center_mask)
+            center_area = cv2.countNonZero(center_portion)
+            
+            # Apply area filtering
+            if center_area >= min_contour_area and (max_contour_area is None or center_area <= max_contour_area):
+                center_contours, _ = cv2.findContours(center_portion, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                result_contours.extend(center_contours)
     
-    return filtered_contours
+    return result_contours
 
 def draw_walls(image, contours, color=(0, 255, 0), thickness=2):
     """
