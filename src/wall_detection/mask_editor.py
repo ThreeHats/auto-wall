@@ -40,6 +40,18 @@ def blend_image_with_mask(image, mask):
     Returns:
     - BGRA image with mask blended
     """
+    # Check if dimensions match
+    if image.shape[:2] != mask.shape[:2]:
+        print(f"Warning: Image dimensions {image.shape[:2]} don't match mask dimensions {mask.shape[:2]}")
+        # Create a properly sized mask instead of failing
+        height, width = image.shape[:2]
+        new_mask = np.zeros((height, width, 4), dtype=np.uint8)
+        # Use the original mask data where possible (for the smaller dimension)
+        h_limit = min(height, mask.shape[0])
+        w_limit = min(width, mask.shape[1])
+        new_mask[:h_limit, :w_limit] = mask[:h_limit, :w_limit]
+        mask = new_mask
+    
     # Convert the image to BGRA if it's BGR
     if image.shape[2] == 3:
         bgra_image = cv2.cvtColor(image, cv2.COLOR_BGR2BGRA)

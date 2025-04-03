@@ -1209,6 +1209,10 @@ class WallDetectionApp(QMainWindow):
             
             print(f"Image loaded: Original size {self.original_image.shape}, Working size {self.current_image.shape}, Scale factor {self.scale_factor}")
             
+            # Reset the mask layer when loading a new image to prevent dimension mismatch
+            self.mask_layer = None
+            
+            # Update the display
             self.update_image()
 
     def create_working_image(self, image):
