@@ -1607,7 +1607,7 @@ class WallDetectionApp(QMainWindow):
         merge_distance, ok = QInputDialog.getDouble(
             self, "Point Merge Distance", 
             "Distance to merge nearby points (pixels):\n(Higher values reduce wall count but may change shape)",
-            25.0, 0.0, 100.0, 1  # Default 1.0, range 0-10 with 1 decimal place
+            25.0, 0.0, 100.0, 1  # Default 5.0, range 0-100 with 1 decimal place
         )
         if not ok:
             return
@@ -1624,7 +1624,7 @@ class WallDetectionApp(QMainWindow):
         # Ask for maximum gap for collinear wall merging
         max_gap, ok = QInputDialog.getDouble(
             self, "Maximum Gap", 
-            "Maximum gap between walls to merge (pixels):\n(Higher values bridge larger gaps between walls)",
+            "Maximum gap between walls to merge straight (coords):\n(Higher values bridge larger gaps between walls)",
             10.0, 0.0, 50.0, 1  # Default 5.0, range 0-50 with 1 decimal place
         )
         if not ok:

@@ -111,7 +111,7 @@ def draw_on_mask(mask, x, y, brush_size, color=(0, 255, 0, 255), erase=False):
     
     return mask
 
-def contours_to_foundry_walls(contours, image_shape, simplify_tolerance=0.0, max_wall_length=50, max_walls=5000, angle_tolerance=0.5, max_gap=5.0):
+def contours_to_foundry_walls(contours, image_shape, simplify_tolerance=0.0, max_wall_length=50, max_walls=5000, merge_distance=1.0, angle_tolerance=0.5, max_gap=5.0):
     """
     Convert OpenCV contours to Foundry VTT wall data format with intelligent segmentation.
     
@@ -262,18 +262,20 @@ def contours_to_foundry_walls(contours, image_shape, simplify_tolerance=0.0, max
     print(f"Generated {wall_count} wall segments for Foundry VTT")
     
     # Perform connectivity check - merge segments with endpoints very close to each other
-    connected_walls = ensure_wall_connectivity(foundry_walls)
+    connected_walls = ensure_wall_connectivity(foundry_walls, merge_distance=merge_distance, angle_tolerance=angle_tolerance, max_gap=max_gap)
     
     return connected_walls
 
-def ensure_wall_connectivity(walls, proximity_threshold=1.0):
+def ensure_wall_connectivity(walls, merge_distance=1.0, angle_tolerance=0.5, max_gap=5.0):
     """
     Ensure walls are properly connected by merging endpoints that are very close to each other.
     Also removes duplicate walls after points have been merged.
     
     Parameters:
     - walls: List of wall segments
-    - proximity_threshold: Maximum distance between endpoints to be considered for merging
+    - merge_distance: Maximum distance between endpoints to be considered for merging
+    - angle_tolerance: Maximum angle difference to consider walls collinear (degrees)
+    - max_gap: Maximum gap between walls to be considered for merging
     
     Returns:
     - List of connected walls with duplicates removed
@@ -288,7 +290,7 @@ def ensure_wall_connectivity(walls, proximity_threshold=1.0):
         all_points.append((wall["c"][2], wall["c"][3]))  # End point
     
     # Find clusters of nearby points
-    merged_points = merge_nearby_points(all_points, proximity_threshold)
+    merged_points = merge_nearby_points(all_points, merge_distance)
     
     # Create new walls with merged points
     new_walls = []
@@ -323,7 +325,7 @@ def ensure_wall_connectivity(walls, proximity_threshold=1.0):
     print(f"Wall connectivity: {len(walls)} original walls reduced to {len(new_walls)} walls")
     
     # Further optimize by merging collinear walls (straight lines)
-    optimized_walls = merge_collinear_walls(new_walls, angle_tolerance=0.5, max_gap=5.0)
+    optimized_walls = merge_collinear_walls(new_walls, angle_tolerance=angle_tolerance, max_gap=max_gap)
     
     print(f"Collinear merging: {len(new_walls)} connected walls reduced to {len(optimized_walls)} walls")
     
@@ -449,13 +451,13 @@ def merge_collinear_walls(walls, angle_tolerance=0.5, max_gap=5.0):
   
   return result_walls
 
-def merge_nearby_points(points, proximity_threshold):
+def merge_nearby_points(points, merge_distance):
     """
-    Merge points that are within proximity_threshold distance of each other.
+    Merge points that are within merge_distance distance of each other.
     
     Parameters:
     - points: List of (x, y) tuples
-    - proximity_threshold: Distance threshold for merging
+    - merge_distance: Distance threshold for merging
     
     Returns:
     - Dictionary mapping original points to their merged positions
@@ -476,7 +478,7 @@ def merge_nearby_points(points, proximity_threshold):
         # Find all points within threshold distance
         if len(points_array) > 0:
             distances = np.sqrt(np.sum((points_array - np.array(point))**2, axis=1))
-            nearby_indices = np.where(distances <= proximity_threshold)[0]
+            nearby_indices = np.where(distances <= merge_distance)[0]
             
             if len(nearby_indices) > 0:
                 # Calculate the average position for the cluster
@@ -565,13 +567,13 @@ def export_mask_to_foundry_json(mask_or_contours, image_shape, filename,
             simplify_tolerance=simplify_tolerance,
             max_wall_length=max_wall_length,
             max_walls=max_walls,
+            merge_distance=merge_distance,
             angle_tolerance=angle_tolerance,
             max_gap=max_gap
         )
         
-        # Optimize walls by merging nearby points, removing duplicates,
-        # and merging collinear walls (straight lines)
-        foundry_walls = ensure_wall_connectivity(foundry_walls, proximity_threshold=merge_distance)
+        # We don't need to run ensure_wall_connectivity again, as it's already done in contours_to_foundry_walls
+        # Just use the walls directly
         
         # Write the list of walls directly to the JSON file
         with open(filename, 'w') as f:
