@@ -8,7 +8,7 @@ from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QVBoxLayout, QHBoxLayout, QLabel, QSlider, QPushButton, QWidget, 
     QFileDialog, QCheckBox, QRadioButton, QButtonGroup
 )
-from PyQt6.QtCore import Qt, QPoint
+from PyQt6.QtCore import Qt, QPoint, QRect
 from PyQt6.QtGui import QPixmap, QImage, QPainter, QPen, QColor, QMouseEvent
 import cv2
 import numpy as np
@@ -27,20 +27,50 @@ class InteractiveImageLabel(QLabel):
         self.setMouseTracking(True)
         # Enable mouse interaction
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        # For drag selection
+        self.selection_start = None
+        self.selection_current = None
         
     def mousePressEvent(self, event):
         """Handle mouse click events."""
         if self.parent_app and self.parent_app.deletion_mode_enabled:
             pos = event.position()
-            self.parent_app.handle_deletion_click(pos.x(), pos.y())
+            self.selection_start = QPoint(int(pos.x()), int(pos.y()))
+            self.selection_current = self.selection_start
+            
+            # If not dragging, handle as a normal click
+            if event.button() == Qt.MouseButton.LeftButton:
+                self.parent_app.start_selection(self.selection_start.x(), self.selection_start.y())
+                
         super().mousePressEvent(event)
     
     def mouseMoveEvent(self, event):
-        """Handle mouse move events for hover highlighting."""
+        """Handle mouse move events for hover highlighting and drag selection."""
         if self.parent_app and self.parent_app.deletion_mode_enabled:
             pos = event.position()
-            self.parent_app.handle_hover(pos.x(), pos.y())
+            
+            # If dragging for selection
+            if self.selection_start and event.buttons() & Qt.MouseButton.LeftButton:
+                self.selection_current = QPoint(int(pos.x()), int(pos.y()))
+                self.parent_app.update_selection(self.selection_current.x(), self.selection_current.y())
+            else:  # Just hovering
+                self.parent_app.handle_hover(pos.x(), pos.y())
+                
         super().mouseMoveEvent(event)
+    
+    def mouseReleaseEvent(self, event):
+        """Handle mouse release events for completing drag selection."""
+        if self.parent_app and self.parent_app.deletion_mode_enabled:
+            if self.selection_start and event.button() == Qt.MouseButton.LeftButton:
+                pos = event.position()
+                self.selection_current = QPoint(int(pos.x()), int(pos.y()))
+                self.parent_app.end_selection(self.selection_current.x(), self.selection_current.y())
+                
+                # Clear selection points
+                self.selection_start = None
+                self.selection_current = None
+                
+        super().mouseReleaseEvent(event)
     
     def leaveEvent(self, event):
         """Handle mouse leaving the widget."""
@@ -141,6 +171,12 @@ class WallDetectionApp(QMainWindow):
         self.highlighted_contour_index = -1  # -1 means no contour is highlighted
         self.original_processed_image = None  # Store original image without highlight
 
+        # Additional state for drag selection
+        self.selecting = False
+        self.selection_start_img = None
+        self.selection_current_img = None
+        self.selected_contour_indices = []
+
     def add_slider(self, label, min_val, max_val, initial_val, step=1, scale_factor=None):
         """Add a slider with a label."""
         slider_layout = QHBoxLayout()
@@ -193,6 +229,152 @@ class WallDetectionApp(QMainWindow):
             self.setStatusTip("")
             # Clear any highlighting
             self.clear_hover()
+        
+        # Clear any selection when switching modes
+        self.clear_selection()
+    
+    def clear_selection(self):
+        """Clear the current selection."""
+        self.selecting = False
+        self.selection_start_img = None
+        self.selection_current_img = None
+        self.selected_contour_indices = []
+        
+        # Redraw without selection rectangle
+        if self.processed_image is not None and self.original_processed_image is not None:
+            self.processed_image = self.original_processed_image.copy()
+            self.display_image(self.processed_image)
+
+    def start_selection(self, x, y):
+        """Start a selection rectangle at the given coordinates."""
+        # Convert to image coordinates
+        img_x, img_y = self.convert_to_image_coordinates(x, y)
+        
+        if img_x is None or img_y is None:
+            return
+            
+        # Check if click is inside or on a contour - if so, handle as single click
+        for i, contour in enumerate(self.current_contours):
+            if cv2.pointPolygonTest(contour, (img_x, img_y), False) >= 0:
+                self.handle_deletion_click(x, y)
+                return
+                
+        # Otherwise, start a selection
+        self.selecting = True
+        self.selection_start_img = (img_x, img_y)
+        self.selection_current_img = (img_x, img_y)
+        self.selected_contour_indices = []
+
+    def update_selection(self, x, y):
+        """Update the current selection rectangle to the given coordinates."""
+        if not self.selecting:
+            return
+            
+        # Convert to image coordinates
+        img_x, img_y = self.convert_to_image_coordinates(x, y)
+        
+        if img_x is None or img_y is None:
+            return
+            
+        self.selection_current_img = (img_x, img_y)
+        
+        # Draw the selection rectangle
+        self.update_selection_display()
+
+    def end_selection(self, x, y):
+        """Complete the selection and identify selected contours."""
+        if not self.selecting:
+            return
+            
+        # Convert to image coordinates
+        img_x, img_y = self.convert_to_image_coordinates(x, y)
+        
+        if img_x is None or img_y is None:
+            self.clear_selection()
+            return
+            
+        self.selection_current_img = (img_x, img_y)
+        
+        # Calculate selection rectangle
+        x1 = min(self.selection_start_img[0], self.selection_current_img[0])
+        y1 = min(self.selection_start_img[1], self.selection_current_img[1])
+        x2 = max(self.selection_start_img[0], self.selection_current_img[0])
+        y2 = max(self.selection_start_img[1], self.selection_current_img[1])
+        
+        # Find contours within the selection
+        self.selected_contour_indices = []
+        
+        for i, contour in enumerate(self.current_contours):
+            # Check if contour is at least partially within selection rectangle
+            for point in contour:
+                px, py = point[0]
+                if x1 <= px <= x2 and y1 <= py <= y2:
+                    self.selected_contour_indices.append(i)
+                    break
+        
+        # If we have selected contours, delete them immediately
+        if self.selected_contour_indices:
+            self.delete_selected_contours()
+        else:
+            # If no contours were selected, just clear the selection
+            self.clear_selection()
+
+    def update_selection_display(self):
+        """Update the display with the selection rectangle and highlighted contours."""
+        if not self.selecting or self.original_processed_image is None:
+            return
+            
+        # Start with the original image
+        self.processed_image = self.original_processed_image.copy()
+        
+        # Calculate selection rectangle
+        x1 = min(self.selection_start_img[0], self.selection_current_img[0])
+        y1 = min(self.selection_start_img[1], self.selection_current_img[1])
+        x2 = max(self.selection_start_img[0], self.selection_current_img[0])
+        y2 = max(self.selection_start_img[1], self.selection_current_img[1])
+        
+        # Draw semi-transparent selection rectangle
+        overlay = self.processed_image.copy()
+        cv2.rectangle(overlay, (x1, y1), (x2, y2), (0, 100, 200), 2)
+        cv2.rectangle(overlay, (x1, y1), (x2, y2), (0, 100, 200), -1)
+        cv2.addWeighted(overlay, 0.3, self.processed_image, 0.7, 0, self.processed_image)
+        
+        # Find and highlight contours within the selection
+        self.selected_contour_indices = []
+        
+        for i, contour in enumerate(self.current_contours):
+            # Check if contour is at least partially within selection rectangle
+            for point in contour:
+                px, py = point[0]
+                if x1 <= px <= x2 and y1 <= py <= y2:
+                    self.selected_contour_indices.append(i)
+                    # Highlight this contour
+                    cv2.drawContours(self.processed_image, [contour], 0, (0, 0, 255), 2)
+                    break
+                    
+        # Display the updated image
+        self.display_image(self.processed_image)
+
+    def delete_selected_contours(self):
+        """Delete all selected contours."""
+        if not self.selected_contour_indices:
+            return
+            
+        # Sort indices in descending order to avoid index shifting during removal
+        sorted_indices = sorted(self.selected_contour_indices, reverse=True)
+        
+        # Remove contours
+        for idx in sorted_indices:
+            if idx < len(self.current_contours):
+                self.current_contours.pop(idx)
+                
+        print(f"Deleted {len(sorted_indices)} contours")
+        
+        # Clear selection
+        self.clear_selection()
+        
+        # Update display
+        self.update_display_from_contours()
 
     def handle_hover(self, x, y):
         """Handle mouse hover events for highlighting contours."""
@@ -305,6 +487,9 @@ class WallDetectionApp(QMainWindow):
         if img_x is None or img_y is None:
             return
             
+        # Clear any existing selection when handling a single click
+        self.clear_selection()
+        
         # Use the highlighted contour if available
         if self.highlighted_contour_index != -1:
             print(f"Deleting highlighted contour {self.highlighted_contour_index}")
@@ -471,6 +656,9 @@ class WallDetectionApp(QMainWindow):
         if self.processed_image is not None:
             self.original_processed_image = self.processed_image.copy()
             
+        # Clear any existing selection when re-detecting
+        self.clear_selection()
+        
         # Reset highlighted contour when re-detecting
         self.highlighted_contour_index = -1
 
