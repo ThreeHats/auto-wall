@@ -10,7 +10,7 @@ from PyQt6.QtWidgets import (
     QScrollArea, QSizePolicy, QDialog, QDialogButtonBox, QFrame, QSpinBox
 )
 from PyQt6.QtCore import Qt, QPoint, QRect
-from PyQt6.QtGui import QPixmap, QImage, QPainter, QPen, QColor, QMouseEvent
+from PyQt6.QtGui import QPixmap, QImage, QPainter, QPen, QColor, QMouseEvent, QCursor
 import cv2
 import numpy as np
 import math
@@ -71,9 +71,13 @@ class InteractiveImageLabel(QLabel):
                     current_point = QPoint(x, y)
                     self.parent_app.continue_drawing(self.last_point.x(), self.last_point.y(), x, y)
                     self.last_point = current_point
-            # Just hovering in deletion mode
-            elif self.parent_app.deletion_mode_enabled:
-                self.parent_app.handle_hover(pos.x(), pos.y())
+            # Just hovering - this always runs for any mouse movement
+            else:
+                if self.parent_app.deletion_mode_enabled:
+                    self.parent_app.handle_hover(pos.x(), pos.y())
+                elif self.parent_app.edit_mask_mode_enabled:
+                    # Always update brush preview when hovering in edit mask mode
+                    self.parent_app.update_brush_preview(x, y)
                 
         super().mouseMoveEvent(event)
     
@@ -100,8 +104,12 @@ class InteractiveImageLabel(QLabel):
     
     def leaveEvent(self, event):
         """Handle mouse leaving the widget."""
-        if self.parent_app and self.parent_app.deletion_mode_enabled:
-            self.parent_app.clear_hover()
+        if self.parent_app:
+            if self.parent_app.deletion_mode_enabled:
+                self.parent_app.clear_hover()
+            elif self.parent_app.edit_mask_mode_enabled:
+                # Clear brush preview when mouse leaves the widget
+                self.parent_app.clear_brush_preview()
         super().leaveEvent(event)
 
 
@@ -407,6 +415,10 @@ class WallDetectionApp(QMainWindow):
         self.brush_size = 10
         self.drawing_mode = True  # True for draw, False for erase
 
+        # Add these new variables to track the brush preview state
+        self.brush_preview_active = False
+        self.last_preview_image = None
+
     # Then add this new method:
     def reload_working_image(self):
         """Reload the working image when resolution setting changes."""
@@ -492,6 +504,15 @@ class WallDetectionApp(QMainWindow):
                 self.original_processed_image = self.processed_image.copy()
                 # Display the mask with the image
                 self.update_display_with_mask()
+                
+            # Reset brush preview state when entering edit mode
+            self.brush_preview_active = False
+            
+            # Get current cursor position to start showing brush immediately
+            if self.current_image is not None:
+                cursor_pos = self.image_label.mapFromGlobal(QCursor.pos())
+                if self.image_label.rect().contains(cursor_pos):
+                    self.update_brush_preview(cursor_pos.x(), cursor_pos.y())
         else:
             self.setStatusTip("")
             # Clear any highlighting
@@ -513,6 +534,65 @@ class WallDetectionApp(QMainWindow):
         """Update the brush size."""
         self.brush_size = value
         self.brush_size_value.setText(str(value))
+        
+        # Update brush preview if in edit mode
+        if self.edit_mask_mode_enabled:
+            # Get current cursor position relative to the image label
+            cursor_pos = self.image_label.mapFromGlobal(QCursor.pos())
+            if self.image_label.rect().contains(cursor_pos):
+                self.update_brush_preview(cursor_pos.x(), cursor_pos.y())
+
+    def update_brush_preview(self, x, y):
+        """Show a preview of the brush outline at the current mouse position."""
+        if not self.edit_mask_mode_enabled or self.current_image is None:
+            return
+        
+        # Convert display coordinates to image coordinates
+        img_x, img_y = self.convert_to_image_coordinates(x, y)
+        if img_x is None or img_y is None:
+            return
+        
+        # Make a copy of the blended image with mask
+        if self.mask_layer is not None:
+            # Create the blended image (original + current mask)
+            blended_image = blend_image_with_mask(self.current_image, self.mask_layer)
+            
+            # Draw brush outline with different colors for draw/erase mode
+            color = (0, 255, 0) if self.draw_radio.isChecked() else (0, 0, 255)  # Green for draw, Red for erase
+            cv2.circle(blended_image, (img_x, img_y), self.brush_size, color, 1)
+            
+            # Store this as our preview image
+            self.last_preview_image = blended_image.copy()
+            self.brush_preview_active = True
+            
+            # Display the image with brush preview
+            self.display_image(blended_image)
+        elif self.original_processed_image is not None:
+            # If no mask exists yet, draw on the original image
+            preview_image = self.original_processed_image.copy()
+            
+            # Draw brush outline
+            color = (0, 255, 0) if self.draw_radio.isChecked() else (0, 0, 255)
+            cv2.circle(preview_image, (img_x, img_y), self.brush_size, color, 1)
+            
+            # Store this as our preview image
+            self.last_preview_image = preview_image.copy()
+            self.brush_preview_active = True
+            
+            # Display the preview
+            self.display_image(preview_image)
+
+    def clear_brush_preview(self):
+        """Clear the brush preview when mouse leaves the widget."""
+        self.brush_preview_active = False
+        
+        # Restore the original display
+        if self.edit_mask_mode_enabled and self.mask_layer is not None:
+            # Redraw the blend without the brush preview
+            self.update_display_with_mask()
+        elif self.original_processed_image is not None:
+            # Restore the original image
+            self.display_image(self.original_processed_image)
 
     def create_empty_mask(self):
         """Create an empty transparent mask layer."""
@@ -545,12 +625,15 @@ class WallDetectionApp(QMainWindow):
         """Update the display to show the image with the mask overlay."""
         if self.current_image is None or self.mask_layer is None:
             return
-            
+        
         # Blend the image with the mask
         display_image = blend_image_with_mask(self.current_image, self.mask_layer)
         
         # Display the blended image
         self.display_image(display_image)
+        
+        # Store this as the baseline image for brush preview
+        self.last_preview_image = display_image.copy()
 
     def start_drawing(self, x, y):
         """Start drawing on the mask at the given point."""
@@ -577,6 +660,9 @@ class WallDetectionApp(QMainWindow):
             color=(0, 255, 0, 255),  # Green
             erase=not self.drawing_mode
         )
+        
+        # Clear the brush preview while actively drawing
+        self.brush_preview_active = False
         
         # Initialize drawing throttling variables
         self.drawing_update_counter = 0
@@ -655,6 +741,12 @@ class WallDetectionApp(QMainWindow):
         
         # Always update display at the end of drawing
         self.update_display_with_mask()
+        
+        # Restore brush preview after drawing ends
+        # Get current cursor position relative to the image label
+        cursor_pos = self.image_label.mapFromGlobal(QCursor.pos())
+        if self.image_label.rect().contains(cursor_pos):
+            self.update_brush_preview(cursor_pos.x(), cursor_pos.y())
 
     def toggle_detection_mode(self, use_color):
         """Toggle between color-based and edge detection modes."""
