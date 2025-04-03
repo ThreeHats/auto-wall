@@ -209,6 +209,7 @@ class WallDetectionApp(QMainWindow):
         self.high_res_checkbox = QCheckBox("Process at Full Resolution")
         self.high_res_checkbox.setChecked(False)
         self.high_res_checkbox.setToolTip("Process at full resolution (slower but more accurate)")
+        self.high_res_checkbox.stateChanged.connect(self.reload_working_image)
         self.merge_options_layout.addWidget(self.high_res_checkbox)
         
         # Add color detection section
@@ -329,6 +330,19 @@ class WallDetectionApp(QMainWindow):
         self.selecting_colors = False
         self.color_selection_start = None
         self.color_selection_current = None
+
+    # Then add this new method:
+    def reload_working_image(self):
+        """Reload the working image when resolution setting changes."""
+        if self.original_image is None:
+            return
+        
+        # Recreate the working image with the current checkbox state
+        self.current_image, self.scale_factor = self.create_working_image(self.original_image)
+        print(f"Resolution changed: Working size {self.current_image.shape}, Scale factor {self.scale_factor}")
+        
+        # Update the image with new resolution
+        self.update_image()
 
     def add_slider(self, label, min_val, max_val, initial_val, step=1, scale_factor=None):
         """Add a slider with a label."""
