@@ -436,3 +436,26 @@ def split_edge_contours(image, contours):
           f"{new_contours_count} new contours created, {unchanged_count} kept unchanged, {len(result_contours)} total")
     
     return result_contours
+
+def scale_contours(contours, scale_factor):
+    """
+    Scale contours by the given factor.
+    
+    Parameters:
+    - contours: List of contours to scale
+    - scale_factor: Factor to scale by (>1 enlarges, <1 shrinks)
+    
+    Returns:
+    - List of scaled contours
+    """
+    if scale_factor == 1.0:
+        return contours.copy()
+        
+    scaled_contours = []
+    for contour in contours:
+        # Create a scaled copy
+        scaled_contour = contour.copy().astype(np.float32)
+        scaled_contour *= scale_factor
+        scaled_contours.append(scaled_contour.astype(np.int32))
+        
+    return scaled_contours

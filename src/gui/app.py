@@ -102,7 +102,6 @@ class WallDetectionApp(QMainWindow):
         # Sliders
         self.sliders = {}
         self.add_slider("Min Area", 0, 10000, 100)
-        self.add_slider("Max Area", 0, 100000, 10000)
         self.add_slider("Blur", 1, 21, 5, step=2)
         self.add_slider("Canny1", 0, 255, 50)
         self.add_slider("Canny2", 0, 255, 150)
@@ -160,8 +159,17 @@ class WallDetectionApp(QMainWindow):
         self.merge_after_min_area.setChecked(False)
         self.merge_options_layout.addWidget(self.merge_after_min_area)
 
+        # Add a checkbox for high-resolution processing
+        self.high_res_checkbox = QCheckBox("Process at Full Resolution")
+        self.high_res_checkbox.setChecked(False)
+        self.high_res_checkbox.setToolTip("Process at full resolution (slower but more accurate)")
+        self.merge_options_layout.addWidget(self.high_res_checkbox)
+
         # State
-        self.current_image = None
+        self.original_image = None  # Original full-size image
+        self.current_image = None   # Working image (possibly scaled down)
+        self.max_working_dimension = 1500  # Maximum dimension for processing
+        self.scale_factor = 1.0     # Scale factor between original and working image
         self.processed_image = None
         self.current_contours = []
         self.display_scale_factor = 1.0
@@ -569,18 +577,91 @@ class WallDetectionApp(QMainWindow):
         self.image_label.setPixmap(pixmap.scaled(self.image_label.size(), Qt.AspectRatioMode.KeepAspectRatio))
 
     def open_image(self):
-        """Open an image file."""
+        """Open an image file and prepare scaled versions for processing."""
         file_path, _ = QFileDialog.getOpenFileName(self, "Open Image", "", "Images (*.png *.jpg *.jpeg *.bmp)")
         if file_path:
-            self.current_image = load_image(file_path)
+            # Load the original full-resolution image
+            self.original_image = load_image(file_path)
+            
+            # Create a scaled down version for processing if needed
+            self.current_image, self.scale_factor = self.create_working_image(self.original_image)
+            
+            print(f"Image loaded: Original size {self.original_image.shape}, Working size {self.current_image.shape}, Scale factor {self.scale_factor}")
+            
             self.update_image()
 
+    def create_working_image(self, image):
+        """Create a working copy of the image, scaling it down if it's too large."""
+        # Check if we should use full resolution
+        if self.high_res_checkbox.isChecked():
+            return image.copy(), 1.0
+            
+        # Get image dimensions
+        height, width = image.shape[:2]
+        
+        # Calculate scale factor if image is larger than the maximum working dimension
+        max_dim = max(width, height)
+        if max_dim <= self.max_working_dimension:
+            # Image is already small enough - use as is
+            return image.copy(), 1.0
+        
+        # Calculate scale factor and new dimensions
+        scale_factor = self.max_working_dimension / max_dim
+        new_width = int(width * scale_factor)
+        new_height = int(height * scale_factor)
+        
+        # Resize the image
+        resized = cv2.resize(image, (new_width, new_height), interpolation=cv2.INTER_AREA)
+        
+        return resized, scale_factor
+
+    def scale_contours_to_original(self, contours, scale_factor):
+        """Scale contours back to the original image size."""
+        if scale_factor == 1.0:
+            # No scaling needed
+            return contours
+            
+        scaled_contours = []
+        for contour in contours:
+            # Create a scaled copy of the contour
+            scaled_contour = contour.copy().astype(np.float32)
+            scaled_contour /= scale_factor  # Scale coordinates
+            scaled_contours.append(scaled_contour.astype(np.int32))
+        
+        return scaled_contours
+        
+    def scale_contours_to_working(self, contours, scale_factor):
+        """Scale contours to the working image size."""
+        if scale_factor == 1.0:
+            # No scaling needed
+            return contours
+            
+        scaled_contours = []
+        for contour in contours:
+            # Create a scaled copy of the contour
+            scaled_contour = contour.copy().astype(np.float32)
+            scaled_contour *= scale_factor  # Scale coordinates
+            scaled_contours.append(scaled_contour.astype(np.int32))
+        
+        return scaled_contours
+
     def save_image(self):
-        """Save the processed image."""
-        if self.processed_image is not None:
+        """Save the processed image at full resolution."""
+        if self.original_image is not None and self.current_contours:
             file_path, _ = QFileDialog.getSaveFileName(self, "Save Image", "", "Images (*.png *.jpg *.jpeg *.bmp)")
             if file_path:
-                save_image(self.processed_image, file_path)
+                # Scale contours back to original image size if needed
+                if self.scale_factor != 1.0:
+                    full_res_contours = self.scale_contours_to_original(self.current_contours, self.scale_factor)
+                else:
+                    full_res_contours = self.current_contours
+                    
+                # Draw walls on the original high-resolution image
+                high_res_result = draw_walls(self.original_image, full_res_contours)
+                
+                # Save the high-resolution result
+                save_image(high_res_result, file_path)
+                print(f"Saved high-resolution image ({self.original_image.shape[:2]}) to {file_path}")
 
     def update_image(self):
         """Update the displayed image based on the current settings."""
@@ -589,7 +670,6 @@ class WallDetectionApp(QMainWindow):
 
         # Get slider values
         min_area = self.sliders["Min Area"].value()
-        max_area = self.sliders["Max Area"].value()
         blur = self.sliders["Blur"].value()
         
         # Handle special case for blur=1 (no blur) and ensure odd values
@@ -603,14 +683,21 @@ class WallDetectionApp(QMainWindow):
         # Get min_merge_distance as a float value
         min_merge_distance = self.sliders["Min Merge Distance"].value() * 0.1
         
+        # Adjust area thresholds based on scale factor (for downscaled processing)
+        if self.scale_factor != 1.0:
+            working_min_area = int(min_area * self.scale_factor * self.scale_factor)
+        else:
+            working_min_area = min_area
+        
         # Debug output of parameters
-        print(f"Parameters: min_area={min_area}, blur={blur}, canny1={canny1}, canny2={canny2}, edge_margin={edge_margin}")
+        print(f"Parameters: min_area={min_area} (working: {working_min_area}), "
+              f"blur={blur}, canny1={canny1}, canny2={canny2}, edge_margin={edge_margin}")
 
         # Process the image directly with detect_walls
         contours = detect_walls(
             self.current_image,
-            min_contour_area=min_area,
-            max_contour_area=max_area,
+            min_contour_area=working_min_area,
+            max_contour_area=None,  # Always use None for max_contour_area
             blur_kernel_size=blur,
             canny_threshold1=canny1,
             canny_threshold2=canny2,
@@ -629,16 +716,15 @@ class WallDetectionApp(QMainWindow):
             print(f"After merge before min area: {len(contours)} contours")
         
         # Filter contours by area BEFORE splitting edges
-        contours = [c for c in contours if cv2.contourArea(c) >= min_area]
+        contours = [c for c in contours if cv2.contourArea(c) >= working_min_area]
         print(f"After min area filter: {len(contours)} contours")
 
         # Split contours that touch image edges AFTER area filtering
-        # but don't filter the resulting contours as aggressively
         split_contours = split_edge_contours(self.current_image, contours)
         
         # Use a much lower threshold for split contours to keep them all
         # Use absolute minimum value instead of relative to min_area
-        min_split_area = 5.0  # Very permissive - just filter out tiny noise
+        min_split_area = 5.0 * (self.scale_factor * self.scale_factor)  # Scale with image
         filtered_contours = []
         
         # Keep track of how many contours were kept vs filtered
