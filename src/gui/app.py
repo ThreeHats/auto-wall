@@ -34,6 +34,19 @@ class InteractiveImageLabel(QLabel):
             pos = event.position()
             self.parent_app.handle_deletion_click(pos.x(), pos.y())
         super().mousePressEvent(event)
+    
+    def mouseMoveEvent(self, event):
+        """Handle mouse move events for hover highlighting."""
+        if self.parent_app and self.parent_app.deletion_mode_enabled:
+            pos = event.position()
+            self.parent_app.handle_hover(pos.x(), pos.y())
+        super().mouseMoveEvent(event)
+    
+    def leaveEvent(self, event):
+        """Handle mouse leaving the widget."""
+        if self.parent_app and self.parent_app.deletion_mode_enabled:
+            self.parent_app.clear_hover()
+        super().leaveEvent(event)
 
 
 class WallDetectionApp(QMainWindow):
@@ -123,6 +136,10 @@ class WallDetectionApp(QMainWindow):
         self.current_contours = []
         self.display_scale_factor = 1.0
         self.display_offset = (0, 0)
+        
+        # Additional state for hover highlighting
+        self.highlighted_contour_index = -1  # -1 means no contour is highlighted
+        self.original_processed_image = None  # Store original image without highlight
 
     def add_slider(self, label, min_val, max_val, initial_val, step=1, scale_factor=None):
         """Add a slider with a label."""
@@ -169,15 +186,91 @@ class WallDetectionApp(QMainWindow):
         self.deletion_mode_enabled = self.deletion_mode_radio.isChecked()
         if self.deletion_mode_enabled:
             self.setStatusTip("Deletion Mode: Click inside contours or on lines to delete them")
+            # Store original image for highlighting
+            if self.processed_image is not None:
+                self.original_processed_image = self.processed_image.copy()
         else:
             self.setStatusTip("")
+            # Clear any highlighting
+            self.clear_hover()
 
-    def handle_deletion_click(self, x, y):
-        """Handle clicks for deletion mode."""
+    def handle_hover(self, x, y):
+        """Handle mouse hover events for highlighting contours."""
         if not self.current_contours or self.current_image is None:
             return
+            
+        # Convert display coordinates to image coordinates
+        img_x, img_y = self.convert_to_image_coordinates(x, y)
         
-        # Convert click coordinates from display to image coordinates
+        # Check if coordinates are valid
+        if img_x is None or img_y is None:
+            self.clear_hover()
+            return
+            
+        # Find the contour under the cursor
+        found_index = -1
+        
+        # First check if cursor is inside any contour
+        for i, contour in enumerate(self.current_contours):
+            if cv2.pointPolygonTest(contour, (img_x, img_y), False) >= 0:
+                found_index = i
+                break
+                
+        # If not inside any contour, check if cursor is on a line
+        if found_index == -1:
+            for i, contour in enumerate(self.current_contours):
+                contour_points = contour.reshape(-1, 2)
+                
+                for j in range(len(contour_points)):
+                    p1 = contour_points[j]
+                    p2 = contour_points[(j + 1) % len(contour_points)]
+                    distance = self.point_to_line_distance(img_x, img_y, p1[0], p1[1], p2[0], p2[1])
+                    
+                    # If point is close enough to a line segment
+                    if distance < 5:  # Threshold for line detection (pixels)
+                        found_index = i
+                        break
+                        
+                if found_index != -1:
+                    break
+        
+        # Update highlight if needed
+        if found_index != self.highlighted_contour_index:
+            self.highlighted_contour_index = found_index
+            self.update_highlight()
+
+    def clear_hover(self):
+        """Clear any contour highlighting."""
+        if self.highlighted_contour_index != -1:
+            self.highlighted_contour_index = -1
+            self.update_highlight()
+
+    def update_highlight(self):
+        """Update the display with highlighted contour."""
+        if self.original_processed_image is None:
+            return
+            
+        # Start with the original image (without highlights)
+        self.processed_image = self.original_processed_image.copy()
+        
+        # If a contour is highlighted, draw it with a different color/thickness
+        if self.highlighted_contour_index != -1 and self.highlighted_contour_index < len(self.current_contours):
+            highlight_color = (0, 0, 255)  # Highlight in red
+            highlight_thickness = 3
+            cv2.drawContours(
+                self.processed_image, 
+                [self.current_contours[self.highlighted_contour_index]], 
+                0, highlight_color, highlight_thickness
+            )
+            
+        # Update the display
+        self.display_image(self.processed_image)
+
+    def convert_to_image_coordinates(self, display_x, display_y):
+        """Convert display coordinates to image coordinates."""
+        if self.current_image is None:
+            return None, None
+            
         img_height, img_width = self.current_image.shape[:2]
         display_width = self.image_label.width()
         display_height = self.image_label.height()
@@ -191,13 +284,35 @@ class WallDetectionApp(QMainWindow):
         offset_y = (display_height - img_height * scale) / 2
         
         # Convert to image coordinates
-        img_x = int((x - offset_x) / scale)
-        img_y = int((y - offset_y) / scale)
+        img_x = int((display_x - offset_x) / scale)
+        img_y = int((display_y - offset_y) / scale)
         
         # Check if click is out of bounds
         if img_x < 0 or img_x >= img_width or img_y < 0 or img_y >= img_height:
+            return None, None
+            
+        return img_x, img_y
+
+    def handle_deletion_click(self, x, y):
+        """Handle clicks for deletion mode."""
+        if not self.current_contours or self.current_image is None:
             return
+            
+        # Convert display coordinates to image coordinates
+        img_x, img_y = self.convert_to_image_coordinates(x, y)
         
+        # Check if coordinates are valid
+        if img_x is None or img_y is None:
+            return
+            
+        # Use the highlighted contour if available
+        if self.highlighted_contour_index != -1:
+            print(f"Deleting highlighted contour {self.highlighted_contour_index}")
+            self.current_contours.pop(self.highlighted_contour_index)
+            self.highlighted_contour_index = -1  # Reset highlight
+            self.update_display_from_contours()
+            return
+            
         # First, check if click is inside any contour
         for i, contour in enumerate(self.current_contours):
             if cv2.pointPolygonTest(contour, (img_x, img_y), False) >= 0:
@@ -252,9 +367,11 @@ class WallDetectionApp(QMainWindow):
         """Update the display with the current contours."""
         if self.current_image is not None and self.current_contours:
             self.processed_image = draw_walls(self.current_image, self.current_contours)
+            self.original_processed_image = self.processed_image.copy()
             self.display_image(self.processed_image)
         elif self.current_image is not None:
             self.processed_image = self.current_image.copy()
+            self.original_processed_image = self.processed_image.copy()
             self.display_image(self.processed_image)
 
     def display_image(self, image):
@@ -349,6 +466,13 @@ class WallDetectionApp(QMainWindow):
         else:
             # Draw merged contours
             self.processed_image = draw_walls(self.current_image, contours)
+
+        # Save the original image for highlighting
+        if self.processed_image is not None:
+            self.original_processed_image = self.processed_image.copy()
+            
+        # Reset highlighted contour when re-detecting
+        self.highlighted_contour_index = -1
 
         # Convert to QPixmap and display
         self.display_image(self.processed_image)
