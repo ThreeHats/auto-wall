@@ -43,6 +43,7 @@ class WallDetectionApp(QMainWindow):
         self.add_slider("Blur", 1, 21, 5, step=2)
         self.add_slider("Canny1", 0, 255, 50)
         self.add_slider("Canny2", 0, 255, 150)
+        self.add_slider("Edge Margin", 0, 50, 5)  # New slider for edge margin
         
         # Use a scaling factor of 10 for float values (0.1 to 10.0 with 0.1 precision)
         self.add_slider("Min Merge Distance", 1, 100, 30, scale_factor=0.1)  # Default 3.0
@@ -145,18 +146,26 @@ class WallDetectionApp(QMainWindow):
         
         canny1 = self.sliders["Canny1"].value()
         canny2 = self.sliders["Canny2"].value()
+        edge_margin = self.sliders["Edge Margin"].value()
         
         # Get min_merge_distance as a float value
         min_merge_distance = self.sliders["Min Merge Distance"].value() * 0.1
+        
+        # Debug output of parameters
+        print(f"Parameters: min_area={min_area}, blur={blur}, canny1={canny1}, canny2={canny2}, edge_margin={edge_margin}")
 
-        # Preprocess the image
-        blurred_image = cv2.GaussianBlur(cv2.cvtColor(self.current_image, cv2.COLOR_BGR2GRAY), (blur, blur), 0)
-
-        # Apply Canny edge detection
-        edges = cv2.Canny(blurred_image, canny1, canny2)
-
-        # Find contours from the edges
-        contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        # Process the image directly with detect_walls
+        contours = detect_walls(
+            self.current_image,
+            min_contour_area=min_area,
+            max_contour_area=max_area,
+            blur_kernel_size=blur,
+            canny_threshold1=canny1,
+            canny_threshold2=canny2,
+            edge_margin=edge_margin
+        )
+        
+        print(f"Detected {len(contours)} contours before merging")
 
         # Merge before Min Area if specified
         if self.merge_before_min_area.isChecked():
@@ -165,9 +174,11 @@ class WallDetectionApp(QMainWindow):
                 contours, 
                 min_merge_distance=min_merge_distance
             )
+            print(f"After merge before min area: {len(contours)} contours")
 
         # Filter contours by area
         contours = [c for c in contours if cv2.contourArea(c) >= min_area]
+        print(f"After min area filter: {len(contours)} contours")
 
         # Merge after Min Area if specified
         if self.merge_after_min_area.isChecked():
@@ -176,6 +187,7 @@ class WallDetectionApp(QMainWindow):
                 contours, 
                 min_merge_distance=min_merge_distance
             )
+            print(f"After merge after min area: {len(contours)} contours")
 
         # Ensure contours are not empty
         if not contours:
