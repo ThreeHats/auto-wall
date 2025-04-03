@@ -193,8 +193,8 @@ class WallDetectionApp(QMainWindow):
         self.use_color_detection.toggled.connect(self.toggle_detection_mode)
         self.color_section_layout.addWidget(self.use_color_detection)
         
-        # Add slider for color threshold
-        self.add_slider("Color Threshold", 1, 100, 20)
+        # Add slider for color threshold with float values (0.1 - 30.0)
+        self.add_slider("Color Threshold", 1, 300, 100, scale_factor=0.1)
         
         # Label for edge detection section
         self.edge_section_title = QLabel("Edge Detection Settings:")
@@ -763,7 +763,7 @@ class WallDetectionApp(QMainWindow):
         
         # Set up color detection parameters
         wall_color = None
-        color_threshold = self.sliders["Color Threshold"].value()
+        color_threshold = self.sliders["Color Threshold"].value() * 0.1
         
         if self.use_color_detection.isChecked():
             # Convert Qt QColor to OpenCV BGR color
@@ -772,7 +772,7 @@ class WallDetectionApp(QMainWindow):
                 self.wall_color.green(),
                 self.wall_color.red()
             )
-            print(f"Using wall color detection: {wall_color} with threshold: {color_threshold}")
+            print(f"Using wall color detection: {wall_color} with threshold: {color_threshold:.1f}")
         
         # Debug output of parameters
         print(f"Parameters: min_area={min_area} (working: {working_min_area}), "
