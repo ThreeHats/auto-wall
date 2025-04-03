@@ -38,12 +38,14 @@ class WallDetectionApp(QMainWindow):
 
         # Sliders
         self.sliders = {}
-        self.add_slider("Min Area", 0, 1000, 100)
-        self.add_slider("Max Area", 0, 10000, 10000)
-        self.add_slider("Blur", 1, 21, 5, step=2)  # Changed min value from 3 to 1
+        self.add_slider("Min Area", 0, 10000, 100)
+        self.add_slider("Max Area", 0, 100000, 10000)
+        self.add_slider("Blur", 1, 21, 5, step=2)
         self.add_slider("Canny1", 0, 255, 50)
         self.add_slider("Canny2", 0, 255, 150)
-        self.add_slider("Min Merge Distance", 1, 20, 3)  # Default is 3 to match original behavior
+        
+        # Use a scaling factor of 10 for float values (0.1 to 10.0 with 0.1 precision)
+        self.add_slider("Min Merge Distance", 1, 100, 30, scale_factor=0.1)  # Default 3.0
 
         # Buttons
         self.buttons_layout = QHBoxLayout()
@@ -73,16 +75,30 @@ class WallDetectionApp(QMainWindow):
         self.current_image = None
         self.processed_image = None
 
-    def add_slider(self, label, min_val, max_val, initial_val, step=1):
+    def add_slider(self, label, min_val, max_val, initial_val, step=1, scale_factor=None):
         """Add a slider with a label."""
         slider_layout = QHBoxLayout()
-        slider_label = QLabel(f"{label}: {initial_val}")
+        
+        # Store scale factor if provided
+        if scale_factor:
+            display_value = initial_val * scale_factor
+            display_text = f"{label}: {display_value:.1f}"
+        else:
+            display_value = initial_val
+            display_text = f"{label}: {display_value}"
+            
+        slider_label = QLabel(display_text)
         slider = QSlider(Qt.Orientation.Horizontal)
         slider.setMinimum(min_val)
         slider.setMaximum(max_val)
         slider.setValue(initial_val)
         slider.setSingleStep(step)
-        slider.valueChanged.connect(lambda value, lbl=slider_label, lbl_text=label: self.update_slider(lbl, lbl_text, value))
+        
+        # Connect with scale factor handling
+        slider.valueChanged.connect(
+            lambda value, lbl=slider_label, lbl_text=label, sf=scale_factor: 
+            self.update_slider(lbl, lbl_text, value, sf)
+        )
         slider.valueChanged.connect(self.update_image)
 
         slider_layout.addWidget(slider_label)
@@ -91,9 +107,13 @@ class WallDetectionApp(QMainWindow):
 
         self.sliders[label] = slider
 
-    def update_slider(self, label, label_text, value):
+    def update_slider(self, label, label_text, value, scale_factor=None):
         """Update the slider label."""
-        label.setText(f"{label_text}: {value}")
+        if scale_factor:
+            scaled_value = value * scale_factor
+            label.setText(f"{label_text}: {scaled_value:.1f}")
+        else:
+            label.setText(f"{label_text}: {value}")
 
     def open_image(self):
         """Open an image file."""
@@ -125,7 +145,9 @@ class WallDetectionApp(QMainWindow):
         
         canny1 = self.sliders["Canny1"].value()
         canny2 = self.sliders["Canny2"].value()
-        min_merge_distance = self.sliders["Min Merge Distance"].value()
+        
+        # Get min_merge_distance as a float value
+        min_merge_distance = self.sliders["Min Merge Distance"].value() * 0.1
 
         # Preprocess the image
         blurred_image = cv2.GaussianBlur(cv2.cvtColor(self.current_image, cv2.COLOR_BGR2GRAY), (blur, blur), 0)

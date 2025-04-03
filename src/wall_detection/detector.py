@@ -56,7 +56,7 @@ def draw_walls(image, contours, color=(0, 255, 0), thickness=2):
     cv2.drawContours(image_with_walls, contours, -1, color, thickness)
     return image_with_walls
 
-def merge_contours(image, contours, dilation_iterations=2, min_merge_distance=3):
+def merge_contours(image, contours, dilation_iterations=2, min_merge_distance=3.0):
     """
     Merge nearby or overlapping contours by dilating and re-detecting contours.
     
@@ -65,7 +65,7 @@ def merge_contours(image, contours, dilation_iterations=2, min_merge_distance=3)
     - contours: List of contours to merge
     - dilation_iterations: Number of dilation iterations to perform
     - min_merge_distance: Minimum distance (in pixels) between contours to be merged
-                          Controls the kernel size for dilation
+                          Controls the kernel size for dilation (can be float)
     
     Returns:
     - List of merged contours
@@ -77,10 +77,11 @@ def merge_contours(image, contours, dilation_iterations=2, min_merge_distance=3)
     cv2.drawContours(mask, contours, -1, 255, thickness=cv2.FILLED)
 
     # Adjust kernel size based on min_merge_distance
-    # Use default 3x3 kernel for min_merge_distance=3 to maintain backward compatibility
-    kernel_size = max(3, min_merge_distance)
+    # Round to nearest odd integer to ensure valid kernel size
+    kernel_size = max(3, int(round(min_merge_distance)))
     if kernel_size % 2 == 0:  # Ensure kernel size is odd
         kernel_size += 1
+    
     kernel = np.ones((kernel_size, kernel_size), np.uint8)
 
     # Dilate the mask to merge nearby contours
