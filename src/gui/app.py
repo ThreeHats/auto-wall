@@ -18,10 +18,11 @@ from sklearn.cluster import KMeans
 
 from src.wall_detection.detector import detect_walls, draw_walls, merge_contours, split_edge_contours
 from src.wall_detection.image_utils import load_image, save_image, convert_to_rgb
+from src.wall_detection.mask_editor import create_mask_from_contours, blend_image_with_mask, draw_on_mask
 
 
 class InteractiveImageLabel(QLabel):
-    """Custom QLabel that handles mouse events for contour/line deletion."""
+    """Custom QLabel that handles mouse events for contour/line deletion and mask editing."""
     def __init__(self, parent=None):
         super().__init__(parent)
         self.parent_app = parent
@@ -32,29 +33,44 @@ class InteractiveImageLabel(QLabel):
         # For drag selection
         self.selection_start = None
         self.selection_current = None
+        # For drawing
+        self.last_point = None
         
     def mousePressEvent(self, event):
         """Handle mouse click events."""
-        if self.parent_app and (self.parent_app.deletion_mode_enabled or self.parent_app.color_selection_mode_enabled):
+        if self.parent_app:
             pos = event.position()
-            self.selection_start = QPoint(int(pos.x()), int(pos.y()))
+            x, y = int(pos.x()), int(pos.y())
+            self.selection_start = QPoint(x, y)
             self.selection_current = self.selection_start
             
-            # If not dragging, handle as a normal click
+            # Handle left button clicks
             if event.button() == Qt.MouseButton.LeftButton:
-                self.parent_app.start_selection(self.selection_start.x(), self.selection_start.y())
+                if self.parent_app.deletion_mode_enabled or self.parent_app.color_selection_mode_enabled:
+                    self.parent_app.start_selection(x, y)
+                elif self.parent_app.edit_mask_mode_enabled:
+                    # Start drawing on mask
+                    self.last_point = QPoint(x, y)
+                    self.parent_app.start_drawing(x, y)
                 
         super().mousePressEvent(event)
     
     def mouseMoveEvent(self, event):
-        """Handle mouse move events for hover highlighting and drag selection."""
+        """Handle mouse move events for hover highlighting, drag selection, and drawing."""
         if self.parent_app:
             pos = event.position()
+            x, y = int(pos.x()), int(pos.y())
             
-            # If dragging for selection
+            # If dragging with left button
             if self.selection_start and event.buttons() & Qt.MouseButton.LeftButton:
-                self.selection_current = QPoint(int(pos.x()), int(pos.y()))
-                self.parent_app.update_selection(self.selection_current.x(), self.selection_current.y())
+                self.selection_current = QPoint(x, y)
+                if self.parent_app.deletion_mode_enabled or self.parent_app.color_selection_mode_enabled:
+                    self.parent_app.update_selection(x, y)
+                elif self.parent_app.edit_mask_mode_enabled and self.last_point:
+                    # Continue drawing on mask
+                    current_point = QPoint(x, y)
+                    self.parent_app.continue_drawing(self.last_point.x(), self.last_point.y(), x, y)
+                    self.last_point = current_point
             # Just hovering in deletion mode
             elif self.parent_app.deletion_mode_enabled:
                 self.parent_app.handle_hover(pos.x(), pos.y())
@@ -62,12 +78,19 @@ class InteractiveImageLabel(QLabel):
         super().mouseMoveEvent(event)
     
     def mouseReleaseEvent(self, event):
-        """Handle mouse release events for completing drag selection."""
-        if self.parent_app and (self.parent_app.deletion_mode_enabled or self.parent_app.color_selection_mode_enabled):
+        """Handle mouse release events for completing drag selection or drawing."""
+        if self.parent_app:
             if self.selection_start and event.button() == Qt.MouseButton.LeftButton:
                 pos = event.position()
-                self.selection_current = QPoint(int(pos.x()), int(pos.y()))
-                self.parent_app.end_selection(self.selection_current.x(), self.selection_current.y())
+                x, y = int(pos.x()), int(pos.y())
+                self.selection_current = QPoint(x, y)
+                
+                if self.parent_app.deletion_mode_enabled or self.parent_app.color_selection_mode_enabled:
+                    self.parent_app.end_selection(x, y)
+                elif self.parent_app.edit_mask_mode_enabled:
+                    # End drawing on mask
+                    self.parent_app.end_drawing()
+                    self.last_point = None
                 
                 # Clear selection points
                 self.selection_start = None
@@ -134,7 +157,7 @@ class WallDetectionApp(QMainWindow):
         # Use a scaling factor of 10 for float values (0 to 10.0 with 0.1 precision)
         self.add_slider("Min Merge Distance", 0, 100, 30, scale_factor=0.1)  # Default 3.0
 
-        # Mode selection (Detection/Deletion/Color Selection)
+        # Mode selection (Detection/Deletion/Color Selection/Edit Mask)
         self.mode_layout = QHBoxLayout()
         self.controls_layout.addLayout(self.mode_layout)
         
@@ -144,24 +167,28 @@ class WallDetectionApp(QMainWindow):
         self.detection_mode_radio = QRadioButton("Detection")
         self.deletion_mode_radio = QRadioButton("Deletion")
         self.color_selection_mode_radio = QRadioButton("Color Pick")
+        self.edit_mask_mode_radio = QRadioButton("Edit Mask")
         self.detection_mode_radio.setChecked(True)
         
         self.mode_group = QButtonGroup()
         self.mode_group.addButton(self.detection_mode_radio)
         self.mode_group.addButton(self.deletion_mode_radio)
         self.mode_group.addButton(self.color_selection_mode_radio)
+        self.mode_group.addButton(self.edit_mask_mode_radio)
         
         # Add mode options vertically to save horizontal space
         self.mode_radios_layout = QVBoxLayout()
         self.mode_radios_layout.addWidget(self.detection_mode_radio)
         self.mode_radios_layout.addWidget(self.deletion_mode_radio)
         self.mode_radios_layout.addWidget(self.color_selection_mode_radio)
+        self.mode_radios_layout.addWidget(self.edit_mask_mode_radio)
         self.mode_layout.addLayout(self.mode_radios_layout)
         
         # Connect mode radio buttons
         self.detection_mode_radio.toggled.connect(self.toggle_mode)
         self.deletion_mode_radio.toggled.connect(self.toggle_mode)
         self.color_selection_mode_radio.toggled.connect(self.toggle_mode)
+        self.edit_mask_mode_radio.toggled.connect(self.toggle_mode)
         
         # Add color selection options
         self.color_selection_options = QWidget()
@@ -181,9 +208,53 @@ class WallDetectionApp(QMainWindow):
         self.controls_layout.addWidget(self.color_selection_options)
         self.color_selection_options.setVisible(False)
         
+        # Add mask editing options
+        self.mask_edit_options = QWidget()
+        self.mask_edit_layout = QVBoxLayout(self.mask_edit_options)
+        self.mask_edit_layout.setContentsMargins(0, 0, 0, 0)
+        
+        # Brush size control
+        self.brush_size_layout = QHBoxLayout()
+        self.brush_size_label = QLabel("Brush Size:")
+        self.brush_size_layout.addWidget(self.brush_size_label)
+        
+        self.brush_size_slider = QSlider(Qt.Orientation.Horizontal)
+        self.brush_size_slider.setMinimum(1)
+        self.brush_size_slider.setMaximum(50)
+        self.brush_size_slider.setValue(10)
+        self.brush_size_slider.valueChanged.connect(self.update_brush_size)
+        self.brush_size_layout.addWidget(self.brush_size_slider)
+        
+        self.brush_size_value = QLabel("10")
+        self.brush_size_layout.addWidget(self.brush_size_value)
+        self.mask_edit_layout.addLayout(self.brush_size_layout)
+        
+        # Draw/Erase mode
+        self.draw_mode_layout = QHBoxLayout()
+        self.draw_radio = QRadioButton("Draw")
+        self.erase_radio = QRadioButton("Erase")
+        self.draw_radio.setChecked(True)
+        
+        self.draw_mode_group = QButtonGroup()
+        self.draw_mode_group.addButton(self.draw_radio)
+        self.draw_mode_group.addButton(self.erase_radio)
+        
+        self.draw_mode_layout.addWidget(self.draw_radio)
+        self.draw_mode_layout.addWidget(self.erase_radio)
+        self.mask_edit_layout.addLayout(self.draw_mode_layout)
+        
+        # Bake button
+        self.bake_button = QPushButton("Bake Contours to Mask")
+        self.bake_button.clicked.connect(self.bake_contours_to_mask)
+        self.mask_edit_layout.addWidget(self.bake_button)
+        
+        self.controls_layout.addWidget(self.mask_edit_options)
+        self.mask_edit_options.setVisible(False)
+        
         # Deletion mode is initially disabled
         self.deletion_mode_enabled = False
         self.color_selection_mode_enabled = False
+        self.edit_mask_mode_enabled = False
 
         # Buttons
         self.buttons_layout = QHBoxLayout()
@@ -331,6 +402,11 @@ class WallDetectionApp(QMainWindow):
         self.color_selection_start = None
         self.color_selection_current = None
 
+        # Additional state for mask editing
+        self.mask_layer = None  # Will hold the editable mask
+        self.brush_size = 10
+        self.drawing_mode = True  # True for draw, False for erase
+
     # Then add this new method:
     def reload_working_image(self):
         """Reload the working image when resolution setting changes."""
@@ -385,12 +461,16 @@ class WallDetectionApp(QMainWindow):
             label.setText(f"{label_text}: {value}")
 
     def toggle_mode(self):
-        """Toggle between detection, deletion, and color selection modes."""
+        """Toggle between detection, deletion, color selection, and edit mask modes."""
         self.deletion_mode_enabled = self.deletion_mode_radio.isChecked()
         self.color_selection_mode_enabled = self.color_selection_mode_radio.isChecked()
+        self.edit_mask_mode_enabled = self.edit_mask_mode_radio.isChecked()
         
         # Show/hide color selection options
         self.color_selection_options.setVisible(self.color_selection_mode_enabled)
+        
+        # Show/hide mask edit options
+        self.mask_edit_options.setVisible(self.edit_mask_mode_enabled)
         
         if self.deletion_mode_enabled:
             self.setStatusTip("Deletion Mode: Click inside contours or on lines to delete them")
@@ -402,13 +482,132 @@ class WallDetectionApp(QMainWindow):
             # Store original image for selection rectangle
             if self.processed_image is not None:
                 self.original_processed_image = self.processed_image.copy()
+        elif self.edit_mask_mode_enabled:
+            self.setStatusTip("Edit Mask Mode: Draw or erase on the mask layer")
+            # Make sure we have a mask to edit
+            if self.mask_layer is None and self.current_image is not None:
+                # Create an empty mask if none exists
+                self.create_empty_mask()
+            if self.processed_image is not None:
+                self.original_processed_image = self.processed_image.copy()
+                # Display the mask with the image
+                self.update_display_with_mask()
         else:
             self.setStatusTip("")
             # Clear any highlighting
             self.clear_hover()
+            # Display normal image without mask
+            if self.processed_image is not None:
+                self.display_image(self.processed_image)
         
         # Clear any selection when switching modes
         self.clear_selection()
+
+    def update_brush_size(self, value):
+        """Update the brush size."""
+        self.brush_size = value
+        self.brush_size_value.setText(str(value))
+
+    def create_empty_mask(self):
+        """Create an empty transparent mask layer."""
+        if self.current_image is None:
+            return
+            
+        height, width = self.current_image.shape[:2]
+        # Create a transparent mask (4th channel is alpha, all 0 = fully transparent)
+        self.mask_layer = np.zeros((height, width, 4), dtype=np.uint8)
+
+    def bake_contours_to_mask(self):
+        """Bake the current contours to the mask layer."""
+        if self.current_image is None or not self.current_contours:
+            return
+            
+        # Create the mask from contours
+        self.mask_layer = create_mask_from_contours(
+            self.current_image.shape, 
+            self.current_contours,
+            color=(0, 255, 0, 255)  # Green
+        )
+        
+        # Switch to mask editing mode
+        self.edit_mask_mode_radio.setChecked(True)
+        
+        # Update display
+        self.update_display_with_mask()
+
+    def update_display_with_mask(self):
+        """Update the display to show the image with the mask overlay."""
+        if self.current_image is None or self.mask_layer is None:
+            return
+            
+        # Blend the image with the mask
+        display_image = blend_image_with_mask(self.current_image, self.mask_layer)
+        
+        # Display the blended image
+        self.display_image(display_image)
+
+    def start_drawing(self, x, y):
+        """Start drawing on the mask at the given point."""
+        if self.mask_layer is None:
+            self.create_empty_mask()
+            
+        # Convert display coordinates to image coordinates
+        img_x, img_y = self.convert_to_image_coordinates(x, y)
+        if img_x is None or img_y is None:
+            return
+            
+        # Get drawing/erasing mode
+        self.drawing_mode = self.draw_radio.isChecked()
+        
+        # Draw on the mask
+        draw_on_mask(
+            self.mask_layer,
+            img_x,
+            img_y,
+            self.brush_size,
+            color=(0, 255, 0, 255),  # Green
+            erase=not self.drawing_mode
+        )
+        
+        # Update display
+        self.update_display_with_mask()
+
+    def continue_drawing(self, x1, y1, x2, y2):
+        """Continue drawing on the mask between two points."""
+        # Convert display coordinates to image coordinates
+        img_x1, img_y1 = self.convert_to_image_coordinates(x1, y1)
+        img_x2, img_y2 = self.convert_to_image_coordinates(x2, y2)
+        
+        if img_x1 is None or img_y1 is None or img_x2 is None or img_y2 is None:
+            return
+            
+        # Get drawing/erasing mode
+        self.drawing_mode = self.draw_radio.isChecked()
+        
+        # Calculate points along the line to ensure continuous drawing
+        num_points = max(int(np.sqrt((img_x2-img_x1)**2 + (img_y2-img_y1)**2)), 1)
+        for i in range(num_points + 1):
+            t = i / num_points
+            x = int(img_x1 + t * (img_x2 - img_x1))
+            y = int(img_y1 + t * (img_y2 - img_y1))
+            
+            # Draw on the mask
+            draw_on_mask(
+                self.mask_layer,
+                x,
+                y,
+                self.brush_size,
+                color=(0, 255, 0, 255),  # Green
+                erase=not self.drawing_mode
+            )
+            
+        # Update display
+        self.update_display_with_mask()
+
+    def end_drawing(self):
+        """End drawing on the mask."""
+        # Just update the display
+        self.update_display_with_mask()
 
     def toggle_detection_mode(self, use_color):
         """Toggle between color-based and edge detection modes."""
@@ -924,21 +1123,40 @@ class WallDetectionApp(QMainWindow):
 
     def save_image(self):
         """Save the processed image at full resolution."""
-        if self.original_image is not None and self.current_contours:
+        if self.original_image is not None:
             file_path, _ = QFileDialog.getSaveFileName(self, "Save Image", "", "Images (*.png *.jpg *.jpeg *.bmp)")
             if file_path:
-                # Scale contours back to original image size if needed
-                if self.scale_factor != 1.0:
-                    full_res_contours = self.scale_contours_to_original(self.current_contours, self.scale_factor)
-                else:
-                    full_res_contours = self.current_contours
+                if self.edit_mask_mode_enabled and self.mask_layer is not None:
+                    # Save image with mask overlay
+                    if self.scale_factor != 1.0:
+                        # Scale mask to original resolution
+                        orig_h, orig_w = self.original_image.shape[:2]
+                        full_res_mask = cv2.resize(self.mask_layer, (orig_w, orig_h), 
+                                               interpolation=cv2.INTER_NEAREST)
+                    else:
+                        full_res_mask = self.mask_layer
+                        
+                    # Blend mask with original image
+                    result = blend_image_with_mask(self.original_image, full_res_mask)
                     
-                # Draw walls on the original high-resolution image
-                high_res_result = draw_walls(self.original_image, full_res_contours)
-                
-                # Save the high-resolution result
-                save_image(high_res_result, file_path)
-                print(f"Saved high-resolution image ({self.original_image.shape[:2]}) to {file_path}")
+                    # Save the result
+                    cv2.imwrite(file_path, result)
+                    print(f"Saved image with mask overlay to {file_path}")
+                else:
+                    # Normal save with contours
+                    if self.original_image is not None and self.current_contours:
+                        # Scale contours back to original image size if needed
+                        if self.scale_factor != 1.0:
+                            full_res_contours = self.scale_contours_to_original(self.current_contours, self.scale_factor)
+                        else:
+                            full_res_contours = self.current_contours
+                            
+                        # Draw walls on the original high-resolution image
+                        high_res_result = draw_walls(self.original_image, full_res_contours)
+                        
+                        # Save the high-resolution result
+                        save_image(high_res_result, file_path)
+                        print(f"Saved high-resolution image ({self.original_image.shape[:2]}) to {file_path}")
 
     def add_wall_color(self):
         """Open a color dialog to add a new wall color."""
