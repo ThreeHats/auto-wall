@@ -12,7 +12,7 @@ from PyQt6.QtGui import QPixmap, QImage
 import cv2
 import numpy as np
 
-from src.wall_detection.detector import detect_walls, draw_walls
+from src.wall_detection.detector import detect_walls, draw_walls, merge_contours
 from src.wall_detection.image_utils import load_image, save_image, convert_to_rgb
 
 
@@ -119,7 +119,12 @@ class WallDetectionApp(QMainWindow):
             canny_threshold1=canny1,
             canny_threshold2=canny2,
         )
-        self.processed_image = draw_walls(self.current_image, contours)
+
+        # Merge nearby contours
+        merged_contours = merge_contours(self.current_image, contours)
+
+        # Draw merged contours
+        self.processed_image = draw_walls(self.current_image, merged_contours)
 
         # Convert to QPixmap and display
         rgb_image = convert_to_rgb(self.processed_image)
