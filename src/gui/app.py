@@ -131,8 +131,8 @@ class WallDetectionApp(QMainWindow):
         self.add_slider("Canny2", 0, 255, 150)
         self.add_slider("Edge Margin", 0, 50, 5)
         
-        # Use a scaling factor of 10 for float values (0.1 to 10.0 with 0.1 precision)
-        self.add_slider("Min Merge Distance", 1, 100, 30, scale_factor=0.1)  # Default 3.0
+        # Use a scaling factor of 10 for float values (0 to 10.0 with 0.1 precision)
+        self.add_slider("Min Merge Distance", 0, 100, 30, scale_factor=0.1)  # Default 3.0
 
         # Mode selection (Detection/Deletion/Color Selection)
         self.mode_layout = QHBoxLayout()

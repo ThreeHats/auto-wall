@@ -53,11 +53,7 @@ def detect_walls(image, min_contour_area=100, max_contour_area=None, blur_kernel
         color_contours, _ = cv2.findContours(color_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         
         # Filter contours by area
-        result_contours = []
-        for contour in color_contours:
-            area = cv2.contourArea(contour)
-            if area >= min_contour_area and (max_contour_area is None or area <= max_contour_area):
-                result_contours.append(contour)
+        result_contours = color_contours
         
         print(f"Color-based detection found {len(color_contours)} contours, {len(result_contours)} after filtering by area")
         
@@ -372,6 +368,7 @@ def merge_contours(image, contours, dilation_iterations=2, min_merge_distance=3.
     - dilation_iterations: Number of dilation iterations to perform
     - min_merge_distance: Minimum distance (in pixels) between contours to be merged
                           Controls the kernel size for dilation (can be float)
+                          If 0, only overlapping contours will be merged
     
     Returns:
     - List of merged contours
@@ -382,7 +379,13 @@ def merge_contours(image, contours, dilation_iterations=2, min_merge_distance=3.
     # Draw the contours onto the mask
     cv2.drawContours(mask, contours, -1, 255, thickness=cv2.FILLED)
 
-    # Handle the float value for min_merge_distance
+    # Special case for min_merge_distance = 0: only merge overlapping contours
+    if min_merge_distance == 0:
+        # Find contours without any dilation
+        merged_contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        return merged_contours
+
+    # Handle the float value for min_merge_distance for non-zero values
     # Calculate base kernel size and iterations to account for fractional distances
     base_kernel_size = max(3, int(min_merge_distance))
     if base_kernel_size % 2 == 0:
