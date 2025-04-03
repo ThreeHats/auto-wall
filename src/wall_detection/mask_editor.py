@@ -134,10 +134,7 @@ def contours_to_foundry_walls(contours, image_shape, simplify_tolerance=0.0, max
     
     # Use extremely minimal tolerance if no simplification is wanted
     # This helps eliminate microscopic gaps without visibly affecting shape
-    if simplify_tolerance <= 0:
-        minimal_tolerance = 0.0005  # Extremely small tolerance
-    else:
-        minimal_tolerance = simplify_tolerance
+    minimal_tolerance = simplify_tolerance
     
     # Sort contours by area (largest first) to prioritize main walls
     contours = sorted(contours, key=cv2.contourArea, reverse=True)
@@ -332,124 +329,135 @@ def ensure_wall_connectivity(walls, merge_distance=1.0, angle_tolerance=0.5, max
     return optimized_walls
 
 def merge_collinear_walls(walls, angle_tolerance=0.5, max_gap=5.0):
-  """
-  Merge walls that form straight lines (collinear walls) into single walls.
-  
-  Parameters:
-  - walls: List of wall segments
-  - angle_tolerance: Maximum angle difference in degrees to consider walls collinear
-  - max_gap: Maximum gap between walls to be considered for merging
-  
-  Returns:
-  - List of walls with collinear segments merged
-  """
-  if len(walls) <= 1:
-    return walls
-  
-  # Function to calculate a wall's angle (0-180 degrees)
-  def calculate_angle(wall):
-    x1, y1, x2, y2 = wall["c"]
-    dx, dy = x2 - x1, y2 - y1
-    angle = np.degrees(np.arctan2(dy, dx)) % 180
-    return round(angle, 2)  # Round to 2 decimal places for grouping
-  
-  # Function to check if two walls can be merged (close enough and collinear)
-  def can_merge(wall1, wall2):
-    # Get endpoints
-    x1a, y1a, x2a, y2a = wall1["c"]
-    x1b, y1b, x2b, y2b = wall2["c"]
+    """
+    Merge walls that form straight lines (collinear walls) into single walls.
     
-    # Calculate distances between endpoints
-    dist1 = np.sqrt((x2a - x1b)**2 + (y2a - y1b)**2)  # End of wall1 to start of wall2
-    dist2 = np.sqrt((x2b - x1a)**2 + (y2b - y1a)**2)  # End of wall2 to start of wall1
-    dist3 = np.sqrt((x1a - x1b)**2 + (y1a - y1b)**2)  # Start of wall1 to start of wall2
-    dist4 = np.sqrt((x2a - x2b)**2 + (y2a - y2b)**2)  # End of wall1 to end of wall2
+    Parameters:
+    - walls: List of wall segments
+    - angle_tolerance: Maximum angle difference in degrees to consider walls collinear
+                       Set to 0 to only merge perfectly aligned walls
+    - max_gap: Maximum gap between walls to be considered for merging
+               Set to 0 to disable gap merging
     
-    # If any pair of endpoints is close enough, consider them connectible
-    min_dist = min(dist1, dist2, dist3, dist4)
-    if min_dist > max_gap:
-      return False
-    
-    # Check if the walls are collinear (angle difference within tolerance)
-    angle1 = calculate_angle(wall1)
-    angle2 = calculate_angle(wall2)
-    angle_diff = abs(angle1 - angle2)
-    return angle_diff <= angle_tolerance or abs(angle_diff - 180) <= angle_tolerance
-  
-  # Function to merge two walls into one
-  def merge_walls(wall1, wall2):
-    # Get endpoints of both walls
-    x1a, y1a, x2a, y2a = wall1["c"]
-    x1b, y1b, x2b, y2b = wall2["c"]
-    
-    # Determine which endpoints to use based on which are farthest apart
-    points = [(x1a, y1a), (x2a, y2a), (x1b, y1b), (x2b, y2b)]
-    
-    # Find the two points that are farthest apart
-    max_dist = 0
-    best_pair = (0, 0)
-    
-    for i in range(len(points)):
-      for j in range(i+1, len(points)):
-        dist = (points[j][0] - points[i][0])**2 + (points[j][1] - points[i][1])**2
-        if dist > max_dist:
-          max_dist = dist
-          best_pair = (i, j)
-    
-    # Create a new wall using the farthest endpoints
-    merged_wall = wall1.copy()
-    merged_wall["c"] = [
-      float(points[best_pair[0]][0]),
-      float(points[best_pair[0]][1]),
-      float(points[best_pair[1]][0]),
-      float(points[best_pair[1]][1])
-    ]
-    
-    return merged_wall
-  
-  # Group walls by their angle
-  angle_groups = defaultdict(list)
-  for wall in walls:
-    angle = calculate_angle(wall)
-    angle_groups[angle].append(wall)
-  
-  result_walls = []
-  
-  # Process each group of walls with similar angles
-  for angle, group_walls in angle_groups.items():
-    if len(group_walls) <= 1:
-      # If only one wall in group, add it directly
-      result_walls.extend(group_walls)
-      continue
-    
-    # For each group, create a list of walls that need processing
-    remaining_walls = deque(group_walls)
-    
-    while remaining_walls:
-      current_wall = remaining_walls.popleft()
-      merged = False
-      
-      # Try to merge with each other wall in the group
-      for i in range(len(remaining_walls)):
-        other_wall = remaining_walls[0]  # Always check the first wall
-        remaining_walls.popleft()  # Remove it for checking
+    Returns:
+    - List of walls with collinear segments merged
+    """
+    # If both parameters are 0, no merging will occur, so return early
+    if angle_tolerance <= 0 and max_gap <= 0:
+        return walls
         
-        if can_merge(current_wall, other_wall):
-          # Merge walls and put back in queue for further merging
-          current_wall = merge_walls(current_wall, other_wall)
-          merged = True
+    if len(walls) <= 1:
+        return walls
+    
+    # Function to calculate a wall's angle (0-180 degrees)
+    def calculate_angle(wall):
+        x1, y1, x2, y2 = wall["c"]
+        dx, dy = x2 - x1, y2 - y1
+        angle = np.degrees(np.arctan2(dy, dx)) % 180
+        return round(angle, 2)  # Round to 2 decimal places for grouping
+    
+    # Function to check if two walls can be merged (close enough and collinear)
+    def can_merge(wall1, wall2):
+        # Get endpoints
+        x1a, y1a, x2a, y2a = wall1["c"]
+        x1b, y1b, x2b, y2b = wall2["c"]
+        
+        # Calculate distances between endpoints
+        dist1 = np.sqrt((x2a - x1b)**2 + (y2a - y1b)**2)  # End of wall1 to start of wall2
+        dist2 = np.sqrt((x2b - x1a)**2 + (y2b - y1a)**2)  # End of wall2 to start of wall1
+        dist3 = np.sqrt((x1a - x1b)**2 + (y1a - y1b)**2)  # Start of wall1 to start of wall2
+        dist4 = np.sqrt((x2a - x2b)**2 + (y2a - y2b)**2)  # End of wall1 to end of wall2
+        
+        # If any pair of endpoints is close enough, consider them connectible
+        min_dist = min(dist1, dist2, dist3, dist4)
+        if max_gap <= 0 or min_dist > max_gap:
+            return False
+        
+        # Check if the walls are collinear (angle difference within tolerance)
+        angle1 = calculate_angle(wall1)
+        angle2 = calculate_angle(wall2)
+        angle_diff = abs(angle1 - angle2)
+        
+        if angle_tolerance <= 0:
+            # Require exact match if tolerance is 0
+            return angle_diff == 0 or angle_diff == 180
         else:
-          # Can't merge, put back at the end of the queue
-          remaining_walls.append(other_wall)
-      
-      # If we didn't merge with any wall, this wall is done
-      if not merged:
-        result_walls.append(current_wall)
-      else:
-        # Try to merge with more walls
-        remaining_walls.append(current_wall)
-  
-  return result_walls
+            return angle_diff <= angle_tolerance or abs(angle_diff - 180) <= angle_tolerance
+    
+    # Function to merge two walls into one
+    def merge_walls(wall1, wall2):
+        # Get endpoints of both walls
+        x1a, y1a, x2a, y2a = wall1["c"]
+        x1b, y1b, x2b, y2b = wall2["c"]
+        
+        # Determine which endpoints to use based on which are farthest apart
+        points = [(x1a, y1a), (x2a, y2a), (x1b, y1b), (x2b, y2b)]
+        
+        # Find the two points that are farthest apart
+        max_dist = 0
+        best_pair = (0, 0)
+        
+        for i in range(len(points)):
+            for j in range(i+1, len(points)):
+                dist = (points[j][0] - points[i][0])**2 + (points[j][1] - points[i][1])**2
+                if dist > max_dist:
+                    max_dist = dist
+                    best_pair = (i, j)
+        
+        # Create a new wall using the farthest endpoints
+        merged_wall = wall1.copy()
+        merged_wall["c"] = [
+            float(points[best_pair[0]][0]),
+            float(points[best_pair[0]][1]),
+            float(points[best_pair[1]][0]),
+            float(points[best_pair[1]][1])
+        ]
+        
+        return merged_wall
+    
+    # Group walls by their angle
+    angle_groups = defaultdict(list)
+    for wall in walls:
+        angle = calculate_angle(wall)
+        angle_groups[angle].append(wall)
+    
+    result_walls = []
+    
+    # Process each group of walls with similar angles
+    for angle, group_walls in angle_groups.items():
+        if len(group_walls) <= 1:
+            # If only one wall in group, add it directly
+            result_walls.extend(group_walls)
+            continue
+        
+        # For each group, create a list of walls that need processing
+        remaining_walls = deque(group_walls)
+        
+        while remaining_walls:
+            current_wall = remaining_walls.popleft()
+            merged = False
+            
+            # Try to merge with each other wall in the group
+            for i in range(len(remaining_walls)):
+                other_wall = remaining_walls[0]  # Always check the first wall
+                remaining_walls.popleft()  # Remove it for checking
+                
+                if can_merge(current_wall, other_wall):
+                    # Merge walls and put back in queue for further merging
+                    current_wall = merge_walls(current_wall, other_wall)
+                    merged = True
+                else:
+                    # Can't merge, put back at the end of the queue
+                    remaining_walls.append(other_wall)
+            
+            # If we didn't merge with any wall, this wall is done
+            if not merged:
+                result_walls.append(current_wall)
+            else:
+                # Try to merge with more walls
+                remaining_walls.append(current_wall)
+    
+    return result_walls
 
 def merge_nearby_points(points, merge_distance):
     """
@@ -462,6 +470,10 @@ def merge_nearby_points(points, merge_distance):
     Returns:
     - Dictionary mapping original points to their merged positions
     """
+    # If merge_distance is 0, don't merge any points
+    if merge_distance <= 0:
+        return {}  # Empty dictionary means no points are merged
+        
     # Convert to numpy array for faster calculations
     points = [tuple(map(float, p)) for p in points]
     points_array = np.array(points)

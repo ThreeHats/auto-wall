@@ -1616,7 +1616,7 @@ class WallDetectionApp(QMainWindow):
         angle_tolerance, ok = QInputDialog.getDouble(
             self, "Angle Tolerance", 
             "Maximum angle difference to merge straight walls (degrees):\n(0.5-2.0 recommended, higher values merge more aggressively)",
-            1.0, 0.0, 5.0, 2  # Default 0.5, range 0-5 with 2 decimal places
+            1.0, 0.0, 30.0, 2  # Default 0.5, range 0-5 with 2 decimal places
         )
         if not ok:
             return
