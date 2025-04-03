@@ -32,6 +32,24 @@ auto-wall
 └── README.md
 ```
 
+## Features
+
+### Automated Wall Detection
+- Edge-based detection for walls and boundaries
+- Color-based detection for specific wall colors
+- Adjustable parameters for fine-tuning
+
+### Manual Editing
+- Draw and erase tools for manual wall creation
+- Contour deletion for removing unwanted walls
+- Color picking from the image for better detection
+
+### Foundry VTT Integration
+- Export walls directly to Foundry VTT compatible JSON format
+- Control wall density and complexity
+- Segment walls for better Foundry performance
+- Limit total wall count to prevent performance issues
+
 ## Installation
 1. Clone the repository:
    ```
@@ -54,6 +72,10 @@ auto-wall
 - To run the automated wall detection script:
   ```
   python scripts/detect_walls.py
+  ```
+- To run the full GUI application:
+  ```
+  python src/gui/app.py
   ```
 
 ## Contributing

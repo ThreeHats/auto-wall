@@ -7,7 +7,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../.
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QVBoxLayout, QHBoxLayout, QLabel, QSlider, QPushButton, QWidget, 
     QFileDialog, QCheckBox, QRadioButton, QButtonGroup, QColorDialog, QListWidget, QListWidgetItem,
-    QScrollArea, QSizePolicy, QDialog, QDialogButtonBox, QFrame, QSpinBox
+    QScrollArea, QSizePolicy, QDialog, QDialogButtonBox, QFrame, QSpinBox, QInputDialog
 )
 from PyQt6.QtCore import Qt, QPoint, QRect
 from PyQt6.QtGui import QPixmap, QImage, QPainter, QPen, QColor, QMouseEvent, QCursor
@@ -18,7 +18,7 @@ from sklearn.cluster import KMeans
 
 from src.wall_detection.detector import detect_walls, draw_walls, merge_contours, split_edge_contours
 from src.wall_detection.image_utils import load_image, save_image, convert_to_rgb
-from src.wall_detection.mask_editor import create_mask_from_contours, blend_image_with_mask, draw_on_mask
+from src.wall_detection.mask_editor import create_mask_from_contours, blend_image_with_mask, draw_on_mask, export_mask_to_foundry_json, contours_to_foundry_walls
 
 
 class InteractiveImageLabel(QLabel):
@@ -255,6 +255,12 @@ class WallDetectionApp(QMainWindow):
         self.bake_button = QPushButton("Bake Contours to Mask")
         self.bake_button.clicked.connect(self.bake_contours_to_mask)
         self.mask_edit_layout.addWidget(self.bake_button)
+        
+        # Add export button for Foundry VTT
+        self.export_foundry_button = QPushButton("Export to Foundry VTT")
+        self.export_foundry_button.clicked.connect(self.export_to_foundry_vtt)
+        self.export_foundry_button.setToolTip("Export walls as JSON for Foundry VTT")
+        self.mask_edit_layout.addWidget(self.export_foundry_button)
         
         self.controls_layout.addWidget(self.mask_edit_options)
         self.mask_edit_options.setVisible(False)
@@ -1530,6 +1536,91 @@ class WallDetectionApp(QMainWindow):
 
         # Convert to QPixmap and display
         self.display_image(self.processed_image)
+
+    def export_to_foundry_vtt(self):
+        """Export the current walls to Foundry VTT JSON format."""
+        if self.current_image is None:
+            return
+            
+        # Determine which walls to export (contours or mask)
+        walls_to_export = None
+        
+        if self.mask_layer is not None and self.edit_mask_mode_enabled:
+            # Extract contours from the mask - use alpha channel to determine walls
+            alpha_mask = self.mask_layer[:, :, 3].copy()
+            walls_to_export = alpha_mask
+        elif self.current_contours:
+            # Use detected contours directly
+            walls_to_export = self.current_contours
+        else:
+            print("No walls to export.")
+            return
+            
+        # Ask for simplification tolerance
+        tolerance, ok = QInputDialog.getDouble(
+            self, "Wall Simplification", 
+            "Enter simplification tolerance (lower = more detail):",
+            0.1, 0.01, 1.0, 2
+        )
+        if not ok:
+            return
+            
+        # Ask for maximum wall length
+        max_length, ok = QInputDialog.getInt(
+            self, "Maximum Wall Length", 
+            "Enter maximum wall segment length (pixels):",
+            50, 10, 500, 10
+        )
+        if not ok:
+            return
+            
+        # Ask for maximum number of walls
+        max_walls, ok = QInputDialog.getInt(
+            self, "Maximum Walls", 
+            "Enter maximum number of walls to generate:",
+            5000, 100, 20000, 100
+        )
+        if not ok:
+            return
+            
+        # Get file path for saving
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, "Export Walls for Foundry VTT", "", "JSON Files (*.json)"
+        )
+        if not file_path:
+            return
+            
+        # Add .json extension if not present
+        if not file_path.lower().endswith('.json'):
+            file_path += '.json'
+            
+        # Get original image dimensions for proper scaling
+        if self.original_image is not None:
+            image_shape = self.original_image.shape
+        else:
+            image_shape = self.current_image.shape
+            
+        # If using working image, need to scale contours back to original size
+        if isinstance(walls_to_export, list) and self.scale_factor != 1.0:
+            # Scale contours back to original image size
+            walls_to_export = self.scale_contours_to_original(walls_to_export, self.scale_factor)
+            
+        # Export to JSON
+        success = export_mask_to_foundry_json(
+            walls_to_export, 
+            image_shape, 
+            file_path,
+            simplify_tolerance=tolerance,
+            max_wall_length=max_length,
+            max_walls=max_walls
+        )
+        
+        if success:
+            print(f"Successfully exported walls to {file_path}")
+            self.setStatusTip(f"Exported {max_walls} walls to {file_path}")
+        else:
+            print(f"Failed to export walls to {file_path}")
+            self.setStatusTip(f"Failed to export walls")
 
 
 if __name__ == "__main__":
