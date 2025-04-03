@@ -7,13 +7,14 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../.
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QVBoxLayout, QHBoxLayout, QLabel, QSlider, QPushButton, QWidget, 
     QFileDialog, QCheckBox, QRadioButton, QButtonGroup, QColorDialog, QListWidget, QListWidgetItem,
-    QScrollArea, QSizePolicy, QDialog, QDialogButtonBox, QFrame
+    QScrollArea, QSizePolicy, QDialog, QDialogButtonBox, QFrame, QSpinBox
 )
 from PyQt6.QtCore import Qt, QPoint, QRect
 from PyQt6.QtGui import QPixmap, QImage, QPainter, QPen, QColor, QMouseEvent
 import cv2
 import numpy as np
 import math
+from sklearn.cluster import KMeans
 
 from src.wall_detection.detector import detect_walls, draw_walls, merge_contours, split_edge_contours
 from src.wall_detection.image_utils import load_image, save_image, convert_to_rgb
@@ -34,7 +35,7 @@ class InteractiveImageLabel(QLabel):
         
     def mousePressEvent(self, event):
         """Handle mouse click events."""
-        if self.parent_app and self.parent_app.deletion_mode_enabled:
+        if self.parent_app and (self.parent_app.deletion_mode_enabled or self.parent_app.color_selection_mode_enabled):
             pos = event.position()
             self.selection_start = QPoint(int(pos.x()), int(pos.y()))
             self.selection_current = self.selection_start
@@ -47,21 +48,22 @@ class InteractiveImageLabel(QLabel):
     
     def mouseMoveEvent(self, event):
         """Handle mouse move events for hover highlighting and drag selection."""
-        if self.parent_app and self.parent_app.deletion_mode_enabled:
+        if self.parent_app:
             pos = event.position()
             
             # If dragging for selection
             if self.selection_start and event.buttons() & Qt.MouseButton.LeftButton:
                 self.selection_current = QPoint(int(pos.x()), int(pos.y()))
                 self.parent_app.update_selection(self.selection_current.x(), self.selection_current.y())
-            else:  # Just hovering
+            # Just hovering in deletion mode
+            elif self.parent_app.deletion_mode_enabled:
                 self.parent_app.handle_hover(pos.x(), pos.y())
                 
         super().mouseMoveEvent(event)
     
     def mouseReleaseEvent(self, event):
         """Handle mouse release events for completing drag selection."""
-        if self.parent_app and self.parent_app.deletion_mode_enabled:
+        if self.parent_app and (self.parent_app.deletion_mode_enabled or self.parent_app.color_selection_mode_enabled):
             if self.selection_start and event.button() == Qt.MouseButton.LeftButton:
                 pos = event.position()
                 self.selection_current = QPoint(int(pos.x()), int(pos.y()))
@@ -132,7 +134,7 @@ class WallDetectionApp(QMainWindow):
         # Use a scaling factor of 10 for float values (0.1 to 10.0 with 0.1 precision)
         self.add_slider("Min Merge Distance", 1, 100, 30, scale_factor=0.1)  # Default 3.0
 
-        # Mode selection (Detection/Deletion)
+        # Mode selection (Detection/Deletion/Color Selection)
         self.mode_layout = QHBoxLayout()
         self.controls_layout.addLayout(self.mode_layout)
         
@@ -141,21 +143,47 @@ class WallDetectionApp(QMainWindow):
         
         self.detection_mode_radio = QRadioButton("Detection")
         self.deletion_mode_radio = QRadioButton("Deletion")
+        self.color_selection_mode_radio = QRadioButton("Color Pick")
         self.detection_mode_radio.setChecked(True)
         
         self.mode_group = QButtonGroup()
         self.mode_group.addButton(self.detection_mode_radio)
         self.mode_group.addButton(self.deletion_mode_radio)
+        self.mode_group.addButton(self.color_selection_mode_radio)
         
-        self.mode_layout.addWidget(self.detection_mode_radio)
-        self.mode_layout.addWidget(self.deletion_mode_radio)
+        # Add mode options vertically to save horizontal space
+        self.mode_radios_layout = QVBoxLayout()
+        self.mode_radios_layout.addWidget(self.detection_mode_radio)
+        self.mode_radios_layout.addWidget(self.deletion_mode_radio)
+        self.mode_radios_layout.addWidget(self.color_selection_mode_radio)
+        self.mode_layout.addLayout(self.mode_radios_layout)
         
         # Connect mode radio buttons
         self.detection_mode_radio.toggled.connect(self.toggle_mode)
         self.deletion_mode_radio.toggled.connect(self.toggle_mode)
+        self.color_selection_mode_radio.toggled.connect(self.toggle_mode)
+        
+        # Add color selection options
+        self.color_selection_options = QWidget()
+        self.color_selection_layout = QHBoxLayout(self.color_selection_options)
+        self.color_selection_layout.setContentsMargins(0, 0, 0, 0)
+        
+        self.color_count_label = QLabel("Colors:")
+        self.color_selection_layout.addWidget(self.color_count_label)
+        
+        self.color_count_spinner = QSpinBox()
+        self.color_count_spinner.setMinimum(1)
+        self.color_count_spinner.setMaximum(10)
+        self.color_count_spinner.setValue(3)
+        self.color_count_spinner.setToolTip("Number of colors to extract")
+        self.color_selection_layout.addWidget(self.color_count_spinner)
+        
+        self.controls_layout.addWidget(self.color_selection_options)
+        self.color_selection_options.setVisible(False)
         
         # Deletion mode is initially disabled
         self.deletion_mode_enabled = False
+        self.color_selection_mode_enabled = False
 
         # Buttons
         self.buttons_layout = QHBoxLayout()
@@ -297,6 +325,11 @@ class WallDetectionApp(QMainWindow):
         self.selection_current_img = None
         self.selected_contour_indices = []
 
+        # Additional state for color selection
+        self.selecting_colors = False
+        self.color_selection_start = None
+        self.color_selection_current = None
+
     def add_slider(self, label, min_val, max_val, initial_val, step=1, scale_factor=None):
         """Add a slider with a label."""
         slider_layout = QHBoxLayout()
@@ -338,11 +371,21 @@ class WallDetectionApp(QMainWindow):
             label.setText(f"{label_text}: {value}")
 
     def toggle_mode(self):
-        """Toggle between detection and deletion modes."""
+        """Toggle between detection, deletion, and color selection modes."""
         self.deletion_mode_enabled = self.deletion_mode_radio.isChecked()
+        self.color_selection_mode_enabled = self.color_selection_mode_radio.isChecked()
+        
+        # Show/hide color selection options
+        self.color_selection_options.setVisible(self.color_selection_mode_enabled)
+        
         if self.deletion_mode_enabled:
             self.setStatusTip("Deletion Mode: Click inside contours or on lines to delete them")
             # Store original image for highlighting
+            if self.processed_image is not None:
+                self.original_processed_image = self.processed_image.copy()
+        elif self.color_selection_mode_enabled:
+            self.setStatusTip("Color Selection Mode: Drag to select an area for color extraction")
+            # Store original image for selection rectangle
             if self.processed_image is not None:
                 self.original_processed_image = self.processed_image.copy()
         else:
@@ -352,7 +395,7 @@ class WallDetectionApp(QMainWindow):
         
         # Clear any selection when switching modes
         self.clear_selection()
-    
+
     def toggle_detection_mode(self, use_color):
         """Toggle between color-based and edge detection modes."""
         # Enable/disable edge detection settings based on color detection mode
@@ -378,6 +421,10 @@ class WallDetectionApp(QMainWindow):
         self.selection_current_img = None
         self.selected_contour_indices = []
         
+        self.selecting_colors = False
+        self.color_selection_start = None
+        self.color_selection_current = None
+        
         # Redraw without selection rectangle
         if self.processed_image is not None and self.original_processed_image is not None:
             self.processed_image = self.original_processed_image.copy()
@@ -391,71 +438,40 @@ class WallDetectionApp(QMainWindow):
         if img_x is None or img_y is None:
             return
             
-        # Check if click is inside or on a contour - if so, handle as single click
-        for i, contour in enumerate(self.current_contours):
-            if cv2.pointPolygonTest(contour, (img_x, img_y), False) >= 0:
-                self.handle_deletion_click(x, y)
-                return
-                
-        # Otherwise, start a selection
-        self.selecting = True
-        self.selection_start_img = (img_x, img_y)
-        self.selection_current_img = (img_x, img_y)
-        self.selected_contour_indices = []
+        if self.deletion_mode_enabled:
+            # Check if click is inside or on a contour - if so, handle as single click
+            for i, contour in enumerate(self.current_contours):
+                if cv2.pointPolygonTest(contour, (img_x, img_y), False) >= 0:
+                    self.handle_deletion_click(x, y)
+                    return
+                    
+            # Otherwise, start a selection
+            self.selecting = True
+            self.selection_start_img = (img_x, img_y)
+            self.selection_current_img = (img_x, img_y)
+            self.selected_contour_indices = []
+            
+        elif self.color_selection_mode_enabled:
+            # Start color selection rectangle
+            self.selecting_colors = True
+            self.color_selection_start = (img_x, img_y)
+            self.color_selection_current = (img_x, img_y)
 
     def update_selection(self, x, y):
         """Update the current selection rectangle to the given coordinates."""
-        if not self.selecting:
-            return
-            
         # Convert to image coordinates
         img_x, img_y = self.convert_to_image_coordinates(x, y)
         
         if img_x is None or img_y is None:
             return
             
-        self.selection_current_img = (img_x, img_y)
-        
-        # Draw the selection rectangle
-        self.update_selection_display()
-
-    def end_selection(self, x, y):
-        """Complete the selection and identify selected contours."""
-        if not self.selecting:
-            return
+        if self.deletion_mode_enabled and self.selecting:
+            self.selection_current_img = (img_x, img_y)
+            self.update_selection_display()
             
-        # Convert to image coordinates
-        img_x, img_y = self.convert_to_image_coordinates(x, y)
-        
-        if img_x is None or img_y is None:
-            self.clear_selection()
-            return
-            
-        self.selection_current_img = (img_x, img_y)
-        
-        # Calculate selection rectangle
-        x1 = min(self.selection_start_img[0], self.selection_current_img[0])
-        y1 = min(self.selection_start_img[1], self.selection_current_img[1])
-        x2 = max(self.selection_start_img[0], self.selection_current_img[0])
-        y2 = max(self.selection_start_img[1], self.selection_current_img[1])
-        
-        # Find contours within the selection
-        self.selected_contour_indices = []
-        
-        for i, contour in enumerate(self.current_contours):
-            # Check if contour is at least partially within selection rectangle
-            for point in contour:
-                px, py = point[0]
-                if x1 <= px <= x2 and y1 <= py <= y2:
-                    self.selected_contour_indices.append(i)
-                    break
-        
-        # If we have selected contours, delete them immediately
-        if self.selected_contour_indices:
-            self.delete_selected_contours()
-        else:
-            # If no contours were selected, just clear the selection
-            self.clear_selection()
+        elif self.color_selection_mode_enabled and self.selecting_colors:
+            self.color_selection_current = (img_x, img_y)
+            self.update_color_selection_display()
 
     def update_selection_display(self):
         """Update the display with the selection rectangle and highlighted contours."""
@@ -493,25 +509,142 @@ class WallDetectionApp(QMainWindow):
         # Display the updated image
         self.display_image(self.processed_image)
 
-    def delete_selected_contours(self):
-        """Delete all selected contours."""
-        if not self.selected_contour_indices:
+    def update_color_selection_display(self):
+        """Update the display with the color selection rectangle."""
+        if not self.selecting_colors or self.original_processed_image is None:
             return
             
-        # Sort indices in descending order to avoid index shifting during removal
-        sorted_indices = sorted(self.selected_contour_indices, reverse=True)
+        # Start with the original image
+        self.processed_image = self.original_processed_image.copy()
         
-        # Remove contours
-        for idx in sorted_indices:
-            if idx < len(self.current_contours):
-                self.current_contours.pop(idx)
+        # Calculate selection rectangle
+        x1 = min(self.color_selection_start[0], self.color_selection_current[0])
+        y1 = min(self.color_selection_start[1], self.color_selection_current[1])
+        x2 = max(self.color_selection_start[0], self.color_selection_current[0])
+        y2 = max(self.color_selection_start[1], self.color_selection_current[1])
+        
+        # Draw semi-transparent selection rectangle
+        overlay = self.processed_image.copy()
+        cv2.rectangle(overlay, (x1, y1), (x2, y2), (0, 200, 255), 2)
+        cv2.rectangle(overlay, (x1, y1), (x2, y2), (0, 200, 255), -1)
+        cv2.addWeighted(overlay, 0.3, self.processed_image, 0.7, 0, self.processed_image)
+                    
+        # Display the updated image
+        self.display_image(self.processed_image)
+
+    def end_selection(self, x, y):
+        """Complete the selection and process it according to the current mode."""
+        # Convert to image coordinates
+        img_x, img_y = self.convert_to_image_coordinates(x, y)
+        
+        if img_x is None or img_y is None:
+            self.clear_selection()
+            return
+            
+        if self.deletion_mode_enabled and self.selecting:
+            self.selection_current_img = (img_x, img_y)
+            
+            # Calculate selection rectangle
+            x1 = min(self.selection_start_img[0], self.selection_current_img[0])
+            y1 = min(self.selection_start_img[1], self.selection_current_img[1])
+            x2 = max(self.selection_start_img[0], self.selection_current_img[0])
+            y2 = max(self.selection_start_img[1], self.selection_current_img[1])
+            
+            # Find contours within the selection
+            self.selected_contour_indices = []
+            
+            for i, contour in enumerate(self.current_contours):
+                # Check if contour is at least partially within selection rectangle
+                for point in contour:
+                    px, py = point[0]
+                    if x1 <= px <= x2 and y1 <= py <= y2:
+                        self.selected_contour_indices.append(i)
+                        break
+            
+            # If we have selected contours, delete them immediately
+            if self.selected_contour_indices:
+                self.delete_selected_contours()
+            else:
+                # If no contours were selected, just clear the selection
+                self.clear_selection()
                 
-        print(f"Deleted {len(sorted_indices)} contours")
+        elif self.color_selection_mode_enabled and self.selecting_colors:
+            self.color_selection_current = (img_x, img_y)
+            
+            # Calculate selection rectangle
+            x1 = min(self.color_selection_start[0], self.color_selection_current[0])
+            y1 = min(self.color_selection_start[1], self.color_selection_current[1])
+            x2 = max(self.color_selection_start[0], self.color_selection_current[0])
+            y2 = max(self.color_selection_start[1], self.color_selection_current[1])
+            
+            # Make sure we have a valid selection area
+            if x1 < x2 and y1 < y2 and x2 - x1 > 5 and y2 - y1 > 5:
+                # Extract colors from the selected area
+                self.extract_colors_from_selection(x1, y1, x2, y2)
+            else:
+                print("Selection area too small")
+            
+            # Clear the selection
+            self.clear_selection()
+
+    def extract_colors_from_selection(self, x1, y1, x2, y2):
+        """Extract dominant colors from the selected region."""
+        if self.current_image is None:
+            return
+            
+        # Extract the selected region from the image
+        region = self.current_image[y1:y2, x1:x2]
         
-        # Clear selection
+        if region.size == 0:
+            print("Selected region is empty")
+            return
+            
+        # Reshape the region for clustering
+        pixels = region.reshape(-1, 3)
+        
+        # Get the number of colors to extract
+        num_colors = self.color_count_spinner.value()
+        
+        # Use K-means clustering to find the dominant colors
+        kmeans = KMeans(n_clusters=num_colors, n_init=10)
+        kmeans.fit(pixels)
+        
+        # Get the colors (cluster centers)
+        colors = kmeans.cluster_centers_
+        
+        # Add each color to the color list
+        for color in colors:
+            bgr_color = color.astype(int)
+            qt_color = QColor(bgr_color[2], bgr_color[1], bgr_color[0])  # Convert BGR to RGB
+            
+            # Add the color with a threshold of 0 (exact match) initially
+            item = self.add_wall_color_to_list(qt_color, 0)
+            
+            # Select the new color
+            self.wall_colors_list.setCurrentItem(item)
+            self.select_color(item)
+        
+        print(f"Extracted {num_colors} colors from selected region")
+        
+        # Enable color detection mode
+        self.use_color_detection.setChecked(True)
+        
+        # Update the image with the new colors
+        self.update_image()
+    
+    def delete_selected_contours(self):
+        """Delete the selected contours from the current image."""
+        if not self.selected_contour_indices:
+            return
+        
+        # Delete selected contours
+        for index in sorted(self.selected_contour_indices, reverse=True):
+            if 0 <= index < len(self.current_contours):
+                print(f"Deleting contour {index} (area: {cv2.contourArea(self.current_contours[index])})")
+                self.current_contours.pop(index)
+        
+        # Clear selection and update display
         self.clear_selection()
-        
-        # Update display
         self.update_display_from_contours()
 
     def handle_hover(self, x, y):

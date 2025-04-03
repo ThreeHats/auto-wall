@@ -4,3 +4,4 @@ matplotlib
 pygame
 Pillow
 pyQt6
+scikit-learn
