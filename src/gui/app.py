@@ -502,6 +502,12 @@ class WallDetectionApp(QMainWindow):
         
         # Clear any selection when switching modes
         self.clear_selection()
+        
+        # Make sure to initialize the drawing position attribute
+        if hasattr(self, 'last_drawing_position'):
+            self.last_drawing_position = None
+        else:
+            setattr(self, 'last_drawing_position', None)
 
     def update_brush_size(self, value):
         """Update the brush size."""
@@ -559,6 +565,9 @@ class WallDetectionApp(QMainWindow):
         # Get drawing/erasing mode
         self.drawing_mode = self.draw_radio.isChecked()
         
+        # Store the last drawing position for path tracking
+        self.last_drawing_position = (img_x, img_y)
+        
         # Draw on the mask
         draw_on_mask(
             self.mask_layer,
@@ -569,44 +578,82 @@ class WallDetectionApp(QMainWindow):
             erase=not self.drawing_mode
         )
         
+        # Initialize drawing throttling variables
+        self.drawing_update_counter = 0
+        self.drawing_update_threshold = 2  # Update display every N points
+        
         # Update display
         self.update_display_with_mask()
 
     def continue_drawing(self, x1, y1, x2, y2):
-        """Continue drawing on the mask between two points."""
+        """Continue drawing on the mask between two points (optimized)."""
         # Convert display coordinates to image coordinates
-        img_x1, img_y1 = self.convert_to_image_coordinates(x1, y1)
         img_x2, img_y2 = self.convert_to_image_coordinates(x2, y2)
         
-        if img_x1 is None or img_y1 is None or img_x2 is None or img_y2 is None:
+        if img_x2 is None or img_y2 is None:
             return
+            
+        # Check if last_drawing_position exists
+        if not hasattr(self, 'last_drawing_position') or self.last_drawing_position is None:
+            # If it doesn't exist yet, initialize it with the current position
+            self.last_drawing_position = (img_x2, img_y2)
+            return
+            
+        img_x1, img_y1 = self.last_drawing_position
             
         # Get drawing/erasing mode
         self.drawing_mode = self.draw_radio.isChecked()
         
-        # Calculate points along the line to ensure continuous drawing
-        num_points = max(int(np.sqrt((img_x2-img_x1)**2 + (img_y2-img_y1)**2)), 1)
-        for i in range(num_points + 1):
-            t = i / num_points
-            x = int(img_x1 + t * (img_x2 - img_x1))
-            y = int(img_y1 + t * (img_y2 - img_y1))
-            
-            # Draw on the mask
+        # Calculate the distance between points
+        distance = np.sqrt((img_x2 - img_x1)**2 + (img_y2 - img_y1)**2)
+        
+        # Determine number of intermediate points based on distance and brush size
+        # For small distances relative to brush size, just draw at the end point
+        if distance < (self.brush_size * 0.5):
             draw_on_mask(
                 self.mask_layer,
-                x,
-                y,
+                img_x2,
+                img_y2,
                 self.brush_size,
-                color=(0, 255, 0, 255),  # Green
+                color=(0, 255, 0, 255),
                 erase=not self.drawing_mode
             )
+        else:
+            # Calculate number of points needed for a continuous line
+            # Use brush_size/3 for smoother lines with less computation
+            step_size = self.brush_size / 3
+            num_steps = max(int(distance / step_size), 1)
             
-        # Update display
-        self.update_display_with_mask()
+            # Calculate and draw intermediate points along the line
+            for i in range(num_steps + 1):
+                t = i / num_steps
+                x = int(img_x1 + t * (img_x2 - img_x1))
+                y = int(img_y1 + t * (img_y2 - img_y1))
+                
+                draw_on_mask(
+                    self.mask_layer,
+                    x, y,
+                    self.brush_size,
+                    color=(0, 255, 0, 255),
+                    erase=not self.drawing_mode
+                )
+        
+        # Store the current position for next segment
+        self.last_drawing_position = (img_x2, img_y2)
+        
+        # Throttle display updates for smoother performance
+        self.drawing_update_counter += 1
+        if self.drawing_update_counter >= self.drawing_update_threshold:
+            self.drawing_update_counter = 0
+            self.update_display_with_mask()
 
     def end_drawing(self):
         """End drawing on the mask."""
-        # Just update the display
+        # Reset drawing variables
+        self.last_drawing_position = None
+        self.drawing_update_counter = 0
+        
+        # Always update display at the end of drawing
         self.update_display_with_mask()
 
     def toggle_detection_mode(self, use_color):
