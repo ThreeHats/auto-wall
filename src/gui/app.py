@@ -6,7 +6,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../.
 
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QVBoxLayout, QHBoxLayout, QLabel, QSlider, QPushButton, QWidget, 
-    QFileDialog, QCheckBox, QRadioButton, QButtonGroup
+    QFileDialog, QCheckBox, QRadioButton, QButtonGroup, QColorDialog
 )
 from PyQt6.QtCore import Qt, QPoint, QRect
 from PyQt6.QtGui import QPixmap, QImage, QPainter, QPen, QColor, QMouseEvent
@@ -151,19 +151,63 @@ class WallDetectionApp(QMainWindow):
         self.merge_options_layout = QVBoxLayout()
         self.controls_layout.addLayout(self.merge_options_layout)
 
-        self.merge_before_min_area = QCheckBox("Merge Before Min Area")
-        self.merge_before_min_area.setChecked(False)
-        self.merge_options_layout.addWidget(self.merge_before_min_area)
-
-        self.merge_after_min_area = QCheckBox("Merge After Min Area")
-        self.merge_after_min_area.setChecked(False)
-        self.merge_options_layout.addWidget(self.merge_after_min_area)
+        self.merge_contours = QCheckBox("Merge Contours")
+        self.merge_contours.setChecked(False)
+        self.merge_options_layout.addWidget(self.merge_contours)
 
         # Add a checkbox for high-resolution processing
         self.high_res_checkbox = QCheckBox("Process at Full Resolution")
         self.high_res_checkbox.setChecked(False)
         self.high_res_checkbox.setToolTip("Process at full resolution (slower but more accurate)")
         self.merge_options_layout.addWidget(self.high_res_checkbox)
+        
+        # Add color detection section
+        self.color_section_layout = QVBoxLayout()
+        self.controls_layout.addLayout(self.color_section_layout)
+        
+        self.color_section_title = QLabel("Color Detection:")
+        self.color_section_title.setStyleSheet("font-weight: bold;")
+        self.color_section_layout.addWidget(self.color_section_title)
+        
+        # Wall color selection
+        self.wall_color_layout = QHBoxLayout()
+        self.color_section_layout.addLayout(self.wall_color_layout)
+        
+        self.wall_color_label = QLabel("Wall Color:")
+        self.wall_color_layout.addWidget(self.wall_color_label)
+        
+        self.wall_color_display = QWidget()
+        self.wall_color_display.setMinimumSize(30, 20)
+        self.wall_color_display.setMaximumSize(30, 20)
+        self.wall_color_display.setStyleSheet("background-color: #000000; border: 1px solid #FFFFFF;")
+        self.wall_color_layout.addWidget(self.wall_color_display)
+        
+        self.pick_wall_color_button = QPushButton("Pick")
+        self.pick_wall_color_button.setMaximumWidth(50)
+        self.pick_wall_color_button.clicked.connect(self.pick_wall_color)
+        self.wall_color_layout.addWidget(self.pick_wall_color_button)
+        
+        # Color detection options
+        self.use_color_detection = QCheckBox("Enable Color Detection")
+        self.use_color_detection.setChecked(False)
+        self.use_color_detection.toggled.connect(self.toggle_detection_mode)
+        self.color_section_layout.addWidget(self.use_color_detection)
+        
+        # Add slider for color threshold
+        self.add_slider("Color Threshold", 1, 100, 20)
+        
+        # Label for edge detection section
+        self.edge_section_title = QLabel("Edge Detection Settings:")
+        self.edge_section_title.setStyleSheet("font-weight: bold;")
+        self.controls_layout.addWidget(self.edge_section_title)
+        
+        # Group edge detection settings
+        self.edge_detection_widgets = []
+        self.edge_detection_widgets.append(self.sliders["Canny1"])
+        self.edge_detection_widgets.append(self.sliders["Canny2"])
+        
+        # State for color detection
+        self.wall_color = QColor(0, 0, 0)  # Black
 
         # State
         self.original_image = None  # Original full-size image
@@ -241,6 +285,24 @@ class WallDetectionApp(QMainWindow):
         # Clear any selection when switching modes
         self.clear_selection()
     
+    def toggle_detection_mode(self, use_color):
+        """Toggle between color-based and edge detection modes."""
+        # Enable/disable edge detection settings based on color detection mode
+        for widget in self.edge_detection_widgets:
+            widget.setEnabled(not use_color)
+            
+        # Update labels to reflect active/inactive state
+        if use_color:
+            self.edge_section_title.setText("Edge Detection Settings (Inactive):")
+            self.edge_section_title.setStyleSheet("font-weight: bold; color: gray;")
+        else:
+            self.edge_section_title.setText("Edge Detection Settings:")
+            self.edge_section_title.setStyleSheet("font-weight: bold; color: black;")
+            
+        # Update the detection if an image is loaded
+        if self.current_image is not None:
+            self.update_image()
+
     def clear_selection(self):
         """Clear the current selection."""
         self.selecting = False
@@ -663,6 +725,16 @@ class WallDetectionApp(QMainWindow):
                 save_image(high_res_result, file_path)
                 print(f"Saved high-resolution image ({self.original_image.shape[:2]}) to {file_path}")
 
+    def pick_wall_color(self):
+        """Open a color dialog to select the wall color."""
+        color = QColorDialog.getColor(self.wall_color, self, "Select Wall Color")
+        if color.isValid():
+            self.wall_color = color
+            self.wall_color_display.setStyleSheet(f"background-color: {color.name()}; border: 1px solid #FFFFFF;")
+            # Update detection if image is loaded
+            if self.current_image is not None:
+                self.update_image()
+
     def update_image(self):
         """Update the displayed image based on the current settings."""
         if self.current_image is None:
@@ -689,6 +761,19 @@ class WallDetectionApp(QMainWindow):
         else:
             working_min_area = min_area
         
+        # Set up color detection parameters
+        wall_color = None
+        color_threshold = self.sliders["Color Threshold"].value()
+        
+        if self.use_color_detection.isChecked():
+            # Convert Qt QColor to OpenCV BGR color
+            wall_color = (
+                self.wall_color.blue(),
+                self.wall_color.green(),
+                self.wall_color.red()
+            )
+            print(f"Using wall color detection: {wall_color} with threshold: {color_threshold}")
+        
         # Debug output of parameters
         print(f"Parameters: min_area={min_area} (working: {working_min_area}), "
               f"blur={blur}, canny1={canny1}, canny2={canny2}, edge_margin={edge_margin}")
@@ -697,17 +782,19 @@ class WallDetectionApp(QMainWindow):
         contours = detect_walls(
             self.current_image,
             min_contour_area=working_min_area,
-            max_contour_area=None,  # Always use None for max_contour_area
+            max_contour_area=None,
             blur_kernel_size=blur,
             canny_threshold1=canny1,
             canny_threshold2=canny2,
-            edge_margin=edge_margin
+            edge_margin=edge_margin,
+            wall_color=wall_color,
+            color_threshold=color_threshold
         )
         
         print(f"Detected {len(contours)} contours before merging")
 
         # Merge before Min Area if specified
-        if self.merge_before_min_area.isChecked():
+        if self.merge_contours.isChecked():
             contours = merge_contours(
                 self.current_image, 
                 contours, 
@@ -719,8 +806,12 @@ class WallDetectionApp(QMainWindow):
         contours = [c for c in contours if cv2.contourArea(c) >= working_min_area]
         print(f"After min area filter: {len(contours)} contours")
 
-        # Split contours that touch image edges AFTER area filtering
-        split_contours = split_edge_contours(self.current_image, contours)
+        # Split contours that touch image edges AFTER area filtering, but only if not in color detection mode
+        if not self.use_color_detection.isChecked():
+          split_contours = split_edge_contours(self.current_image, contours)
+        else:
+          # In color detection mode, keep contours as they are
+          split_contours = contours
         
         # Use a much lower threshold for split contours to keep them all
         # Use absolute minimum value instead of relative to min_area
@@ -741,15 +832,6 @@ class WallDetectionApp(QMainWindow):
         
         contours = filtered_contours
         print(f"After edge splitting: kept {kept_count}, filtered {filtered_count} tiny fragments")
-
-        # Merge after Min Area if specified
-        if self.merge_after_min_area.isChecked():
-            contours = merge_contours(
-                self.current_image, 
-                contours, 
-                min_merge_distance=min_merge_distance
-            )
-            print(f"After merge after min area: {len(contours)} contours")
 
         # Save the current contours for interactive editing
         self.current_contours = contours

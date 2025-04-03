@@ -2,7 +2,8 @@ import cv2
 import numpy as np
 
 def detect_walls(image, min_contour_area=100, max_contour_area=None, blur_kernel_size=5, 
-                canny_threshold1=50, canny_threshold2=150, edge_margin=0):
+                canny_threshold1=50, canny_threshold2=150, edge_margin=0,
+                wall_color=None, color_threshold=20):
     """
     Detect walls in an image with adjustable parameters.
     
@@ -14,12 +15,44 @@ def detect_walls(image, min_contour_area=100, max_contour_area=None, blur_kernel
     - canny_threshold1: Lower threshold for Canny edge detection
     - canny_threshold2: Upper threshold for Canny edge detection
     - edge_margin: Number of pixels from the edge to place the cutting border (0 means no cutting)
+    - wall_color: (B,G,R) tuple for color-based wall detection (None to disable)
+    - color_threshold: How close a color needs to be to wall_color to be considered a wall (0-100)
     
     Returns:
     - List of contours representing walls
     """
+    # Create a copy of the image for processing
+    working_image = image.copy()
+    
+    # If wall color is provided, use direct color-based contour detection
+    if wall_color is not None:
+        # Create a mask of pixels that match the wall color
+        color_mask = create_color_mask(image, wall_color, color_threshold)
+        
+        # Save debug visualization
+        debug_image = image.copy()
+        debug_image[color_mask == 0] = [0, 0, 255]  # Color non-matching areas red
+        cv2.imwrite("wall_color_mask_debug.png", debug_image)
+        
+        # Find contours directly on the color mask
+        # Use RETR_EXTERNAL to get only external contours
+        color_contours, _ = cv2.findContours(color_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        
+        # Filter contours by area
+        result_contours = []
+        for contour in color_contours:
+            area = cv2.contourArea(contour)
+            if area >= min_contour_area and (max_contour_area is None or area <= max_contour_area):
+                result_contours.append(contour)
+        
+        print(f"Color-based detection found {len(color_contours)} contours, {len(result_contours)} after filtering by area")
+        
+        # Return the filtered contours
+        return result_contours
+    
+    # If no wall color provided, continue with standard edge detection approach
     # Convert to grayscale
-    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    gray = cv2.cvtColor(working_image, cv2.COLOR_BGR2GRAY)
 
     # Apply Gaussian Blur to reduce noise if blur_kernel_size > 1
     if blur_kernel_size > 1:
@@ -212,6 +245,51 @@ def detect_walls(image, min_contour_area=100, max_contour_area=None, blur_kernel
                 result_contours.extend(center_contours)
     
     return result_contours
+
+def create_color_mask(image, target_color, threshold):
+    """
+    Create a binary mask where pixels similar to target_color are white (255),
+    and all other pixels are black (0).
+    
+    Parameters:
+    - image: Input BGR image
+    - target_color: (B,G,R) tuple of the target color
+    - threshold: How close a color needs to be to target_color (0-100)
+                Higher values are more lenient, lower values more strict
+    
+    Returns:
+    - Binary mask with matching pixels as white (255)
+    """
+    # Convert threshold from percentage (0-100) to actual distance in color space
+    # Maximum possible distance in RGB space is sqrt(255²+255²+255²) ≈ 441.7
+    max_distance = 255.0 * np.sqrt(3)
+    distance_threshold = (threshold / 100.0) * (max_distance / 2)
+    
+    # Extract channels
+    b, g, r = cv2.split(image)
+    
+    # Calculate absolute difference from target color for each channel
+    b_diff = np.abs(b.astype(np.float32) - target_color[0])
+    g_diff = np.abs(g.astype(np.float32) - target_color[1])
+    r_diff = np.abs(r.astype(np.float32) - target_color[2])
+    
+    # Calculate Euclidean distance in color space
+    color_distance = np.sqrt(b_diff*b_diff + g_diff*g_diff + r_diff*r_diff)
+    
+    # Create binary mask where pixels closer than threshold are white (255)
+    mask = np.zeros_like(b, dtype=np.uint8)
+    mask[color_distance <= distance_threshold] = 255
+    
+    # Apply morphological operations to clean up the mask
+    kernel = np.ones((3,3), np.uint8)
+    
+    # First close to connect nearby areas (fills small holes)
+    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel, iterations=2)
+    
+    # Then open to remove small noise (removes small isolated areas)
+    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel, iterations=1)
+    
+    return mask
 
 def draw_walls(image, contours, color=(0, 255, 0), thickness=2):
     """
