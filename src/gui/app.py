@@ -1545,13 +1545,29 @@ class WallDetectionApp(QMainWindow):
         # Determine which walls to export (contours or mask)
         walls_to_export = None
         
+        # Get original image dimensions for proper scaling
+        if self.original_image is not None:
+            image_shape = self.original_image.shape
+        else:
+            image_shape = self.current_image.shape
+            
         if self.mask_layer is not None and self.edit_mask_mode_enabled:
             # Extract contours from the mask - use alpha channel to determine walls
             alpha_mask = self.mask_layer[:, :, 3].copy()
+            
+            # If we're working with a scaled image, we need to scale the mask back to original size
+            if self.scale_factor != 1.0:
+                orig_h, orig_w = image_shape[:2]
+                alpha_mask = cv2.resize(alpha_mask, (orig_w, orig_h), interpolation=cv2.INTER_NEAREST)
+                
             walls_to_export = alpha_mask
         elif self.current_contours:
             # Use detected contours directly
             walls_to_export = self.current_contours
+            
+            # If using working image, scale contours back to original size
+            if self.scale_factor != 1.0:
+                walls_to_export = self.scale_contours_to_original(walls_to_export, self.scale_factor)
         else:
             print("No walls to export.")
             return
@@ -1587,7 +1603,7 @@ class WallDetectionApp(QMainWindow):
         merge_distance, ok = QInputDialog.getDouble(
             self, "Point Merge Distance", 
             "Distance to merge nearby points (pixels):\n(Higher values reduce wall count but may change shape)",
-            1.0, 0.0, 10.0, 1  # Default 1.0, range 0-10 with 1 decimal place
+            25.0, 0.0, 100.0, 1  # Default 1.0, range 0-10 with 1 decimal place
         )
         if not ok:
             return
@@ -1602,17 +1618,6 @@ class WallDetectionApp(QMainWindow):
         # Add .json extension if not present
         if not file_path.lower().endswith('.json'):
             file_path += '.json'
-            
-        # Get original image dimensions for proper scaling
-        if self.original_image is not None:
-            image_shape = self.original_image.shape
-        else:
-            image_shape = self.current_image.shape
-            
-        # If using working image, need to scale contours back to original size
-        if isinstance(walls_to_export, list) and self.scale_factor != 1.0:
-            # Scale contours back to original image size
-            walls_to_export = self.scale_contours_to_original(walls_to_export, self.scale_factor)
             
         # Export to JSON
         success = export_mask_to_foundry_json(

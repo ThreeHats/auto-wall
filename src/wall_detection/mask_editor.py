@@ -383,13 +383,42 @@ def export_mask_to_foundry_json(mask_or_contours, image_shape, filename,
     try:
         # Determine if input is a mask or contours
         if isinstance(mask_or_contours, np.ndarray):
+            # Ensure the mask is properly sized for the target dimensions
+            mask = mask_or_contours
+            mask_h, mask_w = mask.shape[:2]
+            target_h, target_w = image_shape[:2]
+            
+            # Resize mask if dimensions don't match
+            if mask_h != target_h or mask_w != target_w:
+                print(f"Resizing mask from {mask_w}x{mask_h} to {target_w}x{target_h}")
+                mask = cv2.resize(mask, (target_w, target_h), interpolation=cv2.INTER_NEAREST)
+            
             # Extract contours from the mask
             contours, _ = cv2.findContours(
-                mask_or_contours, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+                mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
             )
         else:
             # Assume it's already a list of contours
             contours = mask_or_contours
+            
+            # Verify contours match image dimensions
+            all_points = []
+            for contour in contours:
+                contour_points = contour.reshape(-1, 2)
+                for point in contour_points:
+                    x, y = point
+                    # Keep track of max values to detect scaling issues
+                    all_points.append((x, y))
+            
+            if all_points:
+                max_x = max([p[0] for p in all_points])
+                max_y = max([p[1] for p in all_points])
+                target_h, target_w = image_shape[:2]
+                
+                # Print warning if contours seem to exceed image dimensions
+                if max_x > target_w * 1.1 or max_y > target_h * 1.1:
+                    print(f"WARNING: Contours exceed image dimensions. Max point: ({max_x}, {max_y}), Image: {target_w}x{target_h}")
+                    print("Coordinates may need to be scaled.")
         
         # Convert to Foundry walls format
         foundry_walls = contours_to_foundry_walls(
@@ -407,7 +436,10 @@ def export_mask_to_foundry_json(mask_or_contours, image_shape, filename,
         with open(filename, 'w') as f:
             json.dump(foundry_walls, f, indent=2)
         
+        print(f"Exported {len(foundry_walls)} walls to {filename}")
         return True
     except Exception as e:
         print(f"Error exporting to Foundry VTT format: {e}")
+        import traceback
+        traceback.print_exc()
         return False
