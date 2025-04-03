@@ -40,9 +40,10 @@ class WallDetectionApp(QMainWindow):
         self.sliders = {}
         self.add_slider("Min Area", 0, 1000, 100)
         self.add_slider("Max Area", 0, 10000, 10000)
-        self.add_slider("Blur", 3, 21, 5, step=2)
+        self.add_slider("Blur", 1, 21, 5, step=2)  # Changed min value from 3 to 1
         self.add_slider("Canny1", 0, 255, 50)
         self.add_slider("Canny2", 0, 255, 150)
+        self.add_slider("Min Merge Distance", 1, 20, 3)  # Default is 3 to match original behavior
 
         # Buttons
         self.buttons_layout = QHBoxLayout()
@@ -117,10 +118,14 @@ class WallDetectionApp(QMainWindow):
         min_area = self.sliders["Min Area"].value()
         max_area = self.sliders["Max Area"].value()
         blur = self.sliders["Blur"].value()
-        if blur % 2 == 0:
-            blur += 1  # Ensure blur kernel size is odd
+        
+        # Handle special case for blur=1 (no blur) and ensure odd values
+        if blur > 1 and blur % 2 == 0:
+            blur += 1  # Ensure kernel size is odd when > 1
+        
         canny1 = self.sliders["Canny1"].value()
         canny2 = self.sliders["Canny2"].value()
+        min_merge_distance = self.sliders["Min Merge Distance"].value()
 
         # Preprocess the image
         blurred_image = cv2.GaussianBlur(cv2.cvtColor(self.current_image, cv2.COLOR_BGR2GRAY), (blur, blur), 0)
@@ -133,17 +138,30 @@ class WallDetectionApp(QMainWindow):
 
         # Merge before Min Area if specified
         if self.merge_before_min_area.isChecked():
-            contours = merge_contours(self.current_image, contours)
+            contours = merge_contours(
+                self.current_image, 
+                contours, 
+                min_merge_distance=min_merge_distance
+            )
 
         # Filter contours by area
         contours = [c for c in contours if cv2.contourArea(c) >= min_area]
 
         # Merge after Min Area if specified
         if self.merge_after_min_area.isChecked():
-            contours = merge_contours(self.current_image, contours)
+            contours = merge_contours(
+                self.current_image, 
+                contours, 
+                min_merge_distance=min_merge_distance
+            )
 
-        # Draw merged contours
-        self.processed_image = draw_walls(self.current_image, contours)
+        # Ensure contours are not empty
+        if not contours:
+            print("No contours found after processing.")
+            self.processed_image = self.current_image.copy()
+        else:
+            # Draw merged contours
+            self.processed_image = draw_walls(self.current_image, contours)
 
         # Convert to QPixmap and display
         rgb_image = convert_to_rgb(self.processed_image)
