@@ -1585,7 +1585,7 @@ class WallDetectionApp(QMainWindow):
         max_length, ok = QInputDialog.getInt(
             self, "Maximum Wall Length", 
             "Enter maximum wall segment length (pixels):\n(Lower values ensure smoother curves)",
-            25, 5, 500, 5  # Default to shorter segments (25) to better maintain curves
+            50, 5, 500, 5  # Default to shorter segments (25) to better maintain curves
         )
         if not ok:
             return
@@ -1604,6 +1604,24 @@ class WallDetectionApp(QMainWindow):
             self, "Point Merge Distance", 
             "Distance to merge nearby points (pixels):\n(Higher values reduce wall count but may change shape)",
             25.0, 0.0, 100.0, 1  # Default 1.0, range 0-10 with 1 decimal place
+        )
+        if not ok:
+            return
+            
+        # Ask for angle tolerance for collinear wall merging
+        angle_tolerance, ok = QInputDialog.getDouble(
+            self, "Angle Tolerance", 
+            "Maximum angle difference to merge straight walls (degrees):\n(0.5-2.0 recommended, higher values merge more aggressively)",
+            1.0, 0.0, 5.0, 2  # Default 0.5, range 0-5 with 2 decimal places
+        )
+        if not ok:
+            return
+
+        # Ask for maximum gap for collinear wall merging
+        max_gap, ok = QInputDialog.getDouble(
+            self, "Maximum Gap", 
+            "Maximum gap between walls to merge (pixels):\n(Higher values bridge larger gaps between walls)",
+            10.0, 0.0, 50.0, 1  # Default 5.0, range 0-50 with 1 decimal place
         )
         if not ok:
             return
@@ -1627,7 +1645,9 @@ class WallDetectionApp(QMainWindow):
             simplify_tolerance=tolerance,
             max_wall_length=max_length,
             max_walls=max_walls,
-            merge_distance=merge_distance
+            merge_distance=merge_distance,
+            angle_tolerance=angle_tolerance,
+            max_gap=max_gap
         )
         
         if success:

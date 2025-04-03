@@ -99,7 +99,7 @@ def draw_on_mask(mask, x, y, brush_size, color=(0, 255, 0, 255), erase=False):
     
     return mask
 
-def contours_to_foundry_walls(contours, image_shape, simplify_tolerance=0.0, max_wall_length=50, max_walls=5000):
+def contours_to_foundry_walls(contours, image_shape, simplify_tolerance=0.0, max_wall_length=50, max_walls=5000, angle_tolerance=0.5, max_gap=5.0):
     """
     Convert OpenCV contours to Foundry VTT wall data format with intelligent segmentation.
     
@@ -311,124 +311,131 @@ def ensure_wall_connectivity(walls, proximity_threshold=1.0):
     print(f"Wall connectivity: {len(walls)} original walls reduced to {len(new_walls)} walls")
     
     # Further optimize by merging collinear walls (straight lines)
-    optimized_walls = merge_collinear_walls(new_walls)
+    optimized_walls = merge_collinear_walls(new_walls, angle_tolerance=0.5, max_gap=5.0)
     
     print(f"Collinear merging: {len(new_walls)} connected walls reduced to {len(optimized_walls)} walls")
     
     return optimized_walls
 
 def merge_collinear_walls(walls, angle_tolerance=0.5, max_gap=5.0):
-    """
-    Merge walls that form straight lines (collinear walls) into single walls.
+  """
+  Merge walls that form straight lines (collinear walls) into single walls.
+  
+  Parameters:
+  - walls: List of wall segments
+  - angle_tolerance: Maximum angle difference in degrees to consider walls collinear
+  - max_gap: Maximum gap between walls to be considered for merging
+  
+  Returns:
+  - List of walls with collinear segments merged
+  """
+  if len(walls) <= 1:
+    return walls
+  
+  # Function to calculate a wall's angle (0-180 degrees)
+  def calculate_angle(wall):
+    x1, y1, x2, y2 = wall["c"]
+    dx, dy = x2 - x1, y2 - y1
+    angle = np.degrees(np.arctan2(dy, dx)) % 180
+    return round(angle, 2)  # Round to 2 decimal places for grouping
+  
+  # Function to check if two walls can be merged (close enough and collinear)
+  def can_merge(wall1, wall2):
+    # Get endpoints
+    x1a, y1a, x2a, y2a = wall1["c"]
+    x1b, y1b, x2b, y2b = wall2["c"]
     
-    Parameters:
-    - walls: List of wall segments
-    - angle_tolerance: Maximum angle difference in degrees to consider walls collinear
-    - max_gap: Maximum gap between walls to be considered for merging
+    # Calculate distances between endpoints
+    dist1 = np.sqrt((x2a - x1b)**2 + (y2a - y1b)**2)  # End of wall1 to start of wall2
+    dist2 = np.sqrt((x2b - x1a)**2 + (y2b - y1a)**2)  # End of wall2 to start of wall1
+    dist3 = np.sqrt((x1a - x1b)**2 + (y1a - y1b)**2)  # Start of wall1 to start of wall2
+    dist4 = np.sqrt((x2a - x2b)**2 + (y2a - y2b)**2)  # End of wall1 to end of wall2
     
-    Returns:
-    - List of walls with collinear segments merged
-    """
-    if len(walls) <= 1:
-        return walls
+    # If any pair of endpoints is close enough, consider them connectible
+    min_dist = min(dist1, dist2, dist3, dist4)
+    if min_dist > max_gap:
+      return False
     
-    # Function to calculate a wall's angle (0-180 degrees)
-    def calculate_angle(wall):
-        x1, y1, x2, y2 = wall["c"]
-        dx, dy = x2 - x1, y2 - y1
-        angle = np.degrees(np.arctan2(dy, dx)) % 180
-        return round(angle, 2)  # Round to 2 decimal places for grouping
+    # Check if the walls are collinear (angle difference within tolerance)
+    angle1 = calculate_angle(wall1)
+    angle2 = calculate_angle(wall2)
+    angle_diff = abs(angle1 - angle2)
+    return angle_diff <= angle_tolerance or abs(angle_diff - 180) <= angle_tolerance
+  
+  # Function to merge two walls into one
+  def merge_walls(wall1, wall2):
+    # Get endpoints of both walls
+    x1a, y1a, x2a, y2a = wall1["c"]
+    x1b, y1b, x2b, y2b = wall2["c"]
     
-    # Function to check if two walls can be merged (close enough and collinear)
-    def can_merge(wall1, wall2):
-        # Get endpoints
-        x1a, y1a, x2a, y2a = wall1["c"]
-        x1b, y1b, x2b, y2b = wall2["c"]
-        
-        # Calculate distances between endpoints
-        dist1 = np.sqrt((x2a - x1b)**2 + (y2a - y1b)**2)  # End of wall1 to start of wall2
-        dist2 = np.sqrt((x2b - x1a)**2 + (y2b - y1a)**2)  # End of wall2 to start of wall1
-        dist3 = np.sqrt((x1a - x1b)**2 + (y1a - y1b)**2)  # Start of wall1 to start of wall2
-        dist4 = np.sqrt((x2a - x2b)**2 + (y2a - y2b)**2)  # End of wall1 to end of wall2
-        
-        # If any pair of endpoints is close enough, consider them connectible
-        min_dist = min(dist1, dist2, dist3, dist4)
-        return min_dist <= max_gap
+    # Determine which endpoints to use based on which are farthest apart
+    points = [(x1a, y1a), (x2a, y2a), (x1b, y1b), (x2b, y2b)]
     
-    # Function to merge two walls into one
-    def merge_walls(wall1, wall2):
-        # Get endpoints of both walls
-        x1a, y1a, x2a, y2a = wall1["c"]
-        x1b, y1b, x2b, y2b = wall2["c"]
-        
-        # Determine which endpoints to use based on which are farthest apart
-        points = [(x1a, y1a), (x2a, y2a), (x1b, y1b), (x2b, y2b)]
-        
-        # Find the two points that are farthest apart
-        max_dist = 0
-        best_pair = (0, 0)
-        
-        for i in range(len(points)):
-            for j in range(i+1, len(points)):
-                dist = (points[j][0] - points[i][0])**2 + (points[j][1] - points[i][1])**2
-                if dist > max_dist:
-                    max_dist = dist
-                    best_pair = (i, j)
-        
-        # Create a new wall using the farthest endpoints
-        merged_wall = wall1.copy()
-        merged_wall["c"] = [
-            float(points[best_pair[0]][0]),
-            float(points[best_pair[0]][1]),
-            float(points[best_pair[1]][0]),
-            float(points[best_pair[1]][1])
-        ]
-        
-        return merged_wall
+    # Find the two points that are farthest apart
+    max_dist = 0
+    best_pair = (0, 0)
     
-    # Group walls by their angle
-    angle_groups = defaultdict(list)
-    for wall in walls:
-        angle = calculate_angle(wall)
-        angle_groups[angle].append(wall)
+    for i in range(len(points)):
+      for j in range(i+1, len(points)):
+        dist = (points[j][0] - points[i][0])**2 + (points[j][1] - points[i][1])**2
+        if dist > max_dist:
+          max_dist = dist
+          best_pair = (i, j)
     
-    result_walls = []
+    # Create a new wall using the farthest endpoints
+    merged_wall = wall1.copy()
+    merged_wall["c"] = [
+      float(points[best_pair[0]][0]),
+      float(points[best_pair[0]][1]),
+      float(points[best_pair[1]][0]),
+      float(points[best_pair[1]][1])
+    ]
     
-    # Process each group of walls with similar angles
-    for angle, group_walls in angle_groups.items():
-        if len(group_walls) <= 1:
-            # If only one wall in group, add it directly
-            result_walls.extend(group_walls)
-            continue
+    return merged_wall
+  
+  # Group walls by their angle
+  angle_groups = defaultdict(list)
+  for wall in walls:
+    angle = calculate_angle(wall)
+    angle_groups[angle].append(wall)
+  
+  result_walls = []
+  
+  # Process each group of walls with similar angles
+  for angle, group_walls in angle_groups.items():
+    if len(group_walls) <= 1:
+      # If only one wall in group, add it directly
+      result_walls.extend(group_walls)
+      continue
+    
+    # For each group, create a list of walls that need processing
+    remaining_walls = deque(group_walls)
+    
+    while remaining_walls:
+      current_wall = remaining_walls.popleft()
+      merged = False
+      
+      # Try to merge with each other wall in the group
+      for i in range(len(remaining_walls)):
+        other_wall = remaining_walls[0]  # Always check the first wall
+        remaining_walls.popleft()  # Remove it for checking
         
-        # For each group, create a list of walls that need processing
-        remaining_walls = deque(group_walls)
-        
-        while remaining_walls:
-            current_wall = remaining_walls.popleft()
-            merged = False
-            
-            # Try to merge with each other wall in the group
-            for i in range(len(remaining_walls)):
-                other_wall = remaining_walls[0]  # Always check the first wall
-                remaining_walls.popleft()  # Remove it for checking
-                
-                if can_merge(current_wall, other_wall):
-                    # Merge walls and put back in queue for further merging
-                    current_wall = merge_walls(current_wall, other_wall)
-                    merged = True
-                else:
-                    # Can't merge, put back at the end of the queue
-                    remaining_walls.append(other_wall)
-            
-            # If we didn't merge with any wall, this wall is done
-            if not merged:
-                result_walls.append(current_wall)
-            else:
-                # Try to merge with more walls
-                remaining_walls.append(current_wall)
-    
-    return result_walls
+        if can_merge(current_wall, other_wall):
+          # Merge walls and put back in queue for further merging
+          current_wall = merge_walls(current_wall, other_wall)
+          merged = True
+        else:
+          # Can't merge, put back at the end of the queue
+          remaining_walls.append(other_wall)
+      
+      # If we didn't merge with any wall, this wall is done
+      if not merged:
+        result_walls.append(current_wall)
+      else:
+        # Try to merge with more walls
+        remaining_walls.append(current_wall)
+  
+  return result_walls
 
 def merge_nearby_points(points, proximity_threshold):
     """
@@ -483,7 +490,7 @@ def generate_foundry_id():
 
 def export_mask_to_foundry_json(mask_or_contours, image_shape, filename, 
                                simplify_tolerance=0.0, max_wall_length=50, 
-                               max_walls=5000, merge_distance=1.0):
+                               max_walls=5000, merge_distance=1.0, angle_tolerance=0.5, max_gap=5.0):
     """
     Export a mask or contours to a Foundry VTT compatible JSON file.
     
@@ -545,7 +552,9 @@ def export_mask_to_foundry_json(mask_or_contours, image_shape, filename,
             image_shape, 
             simplify_tolerance=simplify_tolerance,
             max_wall_length=max_wall_length,
-            max_walls=max_walls
+            max_walls=max_walls,
+            angle_tolerance=angle_tolerance,
+            max_gap=max_gap
         )
         
         # Optimize walls by merging nearby points, removing duplicates,
