@@ -57,20 +57,16 @@ class WallDetectionApp(QMainWindow):
         self.buttons_layout.addWidget(self.save_button)
 
         # Checkboxes for merge options
-        self.merge_options_layout = QHBoxLayout()
+        self.merge_options_layout = QVBoxLayout()
         self.controls_layout.addLayout(self.merge_options_layout)
 
         self.merge_before_min_area = QCheckBox("Merge Before Min Area")
         self.merge_before_min_area.setChecked(False)
         self.merge_options_layout.addWidget(self.merge_before_min_area)
 
-        self.merge_before_canny1 = QCheckBox("Merge Before Canny1")
-        self.merge_before_canny1.setChecked(False)
-        self.merge_options_layout.addWidget(self.merge_before_canny1)
-
-        self.merge_before_canny2 = QCheckBox("Merge Before Canny2")
-        self.merge_before_canny2.setChecked(False)
-        self.merge_options_layout.addWidget(self.merge_before_canny2)
+        self.merge_after_min_area = QCheckBox("Merge After Min Area")
+        self.merge_after_min_area.setChecked(False)
+        self.merge_options_layout.addWidget(self.merge_after_min_area)
 
         # State
         self.current_image = None
@@ -126,26 +122,25 @@ class WallDetectionApp(QMainWindow):
         canny1 = self.sliders["Canny1"].value()
         canny2 = self.sliders["Canny2"].value()
 
-        # Process the image
-        contours = detect_walls(
-            self.current_image,
-            min_contour_area=min_area if not self.merge_before_min_area.isChecked() else 0,
-            max_contour_area=max_area,
-            blur_kernel_size=blur,
-            canny_threshold1=canny1 if not self.merge_before_canny1.isChecked() else 0,
-            canny_threshold2=canny2 if not self.merge_before_canny2.isChecked() else 255,
-        )
+        # Preprocess the image
+        blurred_image = cv2.GaussianBlur(cv2.cvtColor(self.current_image, cv2.COLOR_BGR2GRAY), (blur, blur), 0)
 
-        # Merge nearby contours if specified
-        if self.merge_before_min_area.isChecked() or self.merge_before_canny1.isChecked() or self.merge_before_canny2.isChecked():
+        # Apply Canny edge detection
+        edges = cv2.Canny(blurred_image, canny1, canny2)
+
+        # Find contours from the edges
+        contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+        # Merge before Min Area if specified
+        if self.merge_before_min_area.isChecked():
             contours = merge_contours(self.current_image, contours)
 
-        # Apply additional filtering if merging occurred before thresholds
-        if self.merge_before_min_area.isChecked():
-            contours = [c for c in contours if cv2.contourArea(c) >= min_area]
-        if self.merge_before_canny1.isChecked() or self.merge_before_canny2.isChecked():
-            edges = cv2.Canny(cv2.drawContours(np.zeros_like(self.current_image), contours, -1, 255, thickness=cv2.FILLED), canny1, canny2)
-            contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        # Filter contours by area
+        contours = [c for c in contours if cv2.contourArea(c) >= min_area]
+
+        # Merge after Min Area if specified
+        if self.merge_after_min_area.isChecked():
+            contours = merge_contours(self.current_image, contours)
 
         # Draw merged contours
         self.processed_image = draw_walls(self.current_image, contours)

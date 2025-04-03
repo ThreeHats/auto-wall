@@ -53,7 +53,7 @@ def draw_walls(image, contours, color=(0, 255, 0), thickness=2):
     cv2.drawContours(image_with_walls, contours, -1, color, thickness)
     return image_with_walls
 
-def merge_contours(image, contours, dilation_iterations=2):
+def merge_contours(image, contours, dilation_iterations=2, return_dilated_image=False):
     """
     Merge nearby or overlapping contours by dilating and re-detecting contours.
     
@@ -61,9 +61,10 @@ def merge_contours(image, contours, dilation_iterations=2):
     - image: Input image (used for dimensions)
     - contours: List of contours to merge
     - dilation_iterations: Number of dilation iterations to perform
+    - return_dilated_image: If True, return the dilated image instead of contours
     
     Returns:
-    - List of merged contours
+    - List of merged contours or the dilated image (if return_dilated_image is True)
     """
     # Create an empty mask
     mask = np.zeros(image.shape[:2], dtype=np.uint8)
@@ -74,6 +75,9 @@ def merge_contours(image, contours, dilation_iterations=2):
     # Dilate the mask to merge nearby contours
     kernel = np.ones((3, 3), np.uint8)
     dilated_mask = cv2.dilate(mask, kernel, iterations=dilation_iterations)
+
+    if return_dilated_image:
+        return dilated_mask
 
     # Find contours again from the dilated mask
     merged_contours, _ = cv2.findContours(dilated_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
