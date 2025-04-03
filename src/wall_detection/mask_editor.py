@@ -1,6 +1,7 @@
 import cv2
 import numpy as np
 import json
+import uuid
 
 def create_mask_from_contours(image_shape, contours, color=(0, 255, 0, 255)):
     """
@@ -110,10 +111,10 @@ def contours_to_foundry_walls(contours, image_shape, simplify_tolerance=0.1, max
     - max_walls: Maximum number of walls to generate
     
     Returns:
-    - Dictionary with walls data in Foundry VTT format
+    - List of walls in Foundry VTT format
     """
     height, width = image_shape[:2]
-    foundry_data = {"walls": []}
+    foundry_walls = []
     wall_count = 0
     current_tolerance = simplify_tolerance
     
@@ -170,14 +171,24 @@ def contours_to_foundry_walls(contours, image_shape, simplify_tolerance=0.1, max
                     end_x = p1[0] + t_end * (p2[0] - p1[0])
                     end_y = p1[1] + t_end * (p2[1] - p1[1])
                     
-                    # Create wall segment
+                    # Create wall segment using Foundry VTT format
+                    wall_id = generate_foundry_id()
                     wall = {
+                        "light": 20,
+                        "sight": 20,
+                        "sound": 20,
+                        "move": 20,
                         "c": [float(start_x), float(start_y), float(end_x), float(end_y)],
-                        "move": 1,  # Movement restriction
-                        "sense": 1,  # Light restriction
+                        "_id": wall_id,
                         "dir": 0,    # Bidirectional wall
                         "door": 0,   # Not a door
                         "ds": 0,     # Door state (closed)
+                        "threshold": {
+                            "light": None,
+                            "sight": None,
+                            "sound": None,
+                            "attenuation": False
+                        },
                         "flags": {}  # No special flags
                     }
                     
@@ -185,13 +196,23 @@ def contours_to_foundry_walls(contours, image_shape, simplify_tolerance=0.1, max
                     wall_count += 1
             else:
                 # Create a single wall segment
+                wall_id = generate_foundry_id()
                 wall = {
+                    "light": 20,
+                    "sight": 20,
+                    "sound": 20,
+                    "move": 20,
                     "c": [float(p1[0]), float(p1[1]), float(p2[0]), float(p2[1])],
-                    "move": 1,
-                    "sense": 1,
+                    "_id": wall_id,
                     "dir": 0,
                     "door": 0,
                     "ds": 0,
+                    "threshold": {
+                        "light": None,
+                        "sight": None,
+                        "sound": None,
+                        "attenuation": False
+                    },
                     "flags": {}
                 }
                 
@@ -199,14 +220,19 @@ def contours_to_foundry_walls(contours, image_shape, simplify_tolerance=0.1, max
                 wall_count += 1
         
         # Add all segments from this contour
-        foundry_data["walls"].extend(segments_from_contour)
+        foundry_walls.extend(segments_from_contour)
         
         # If approaching the wall limit, increase simplification to reduce wall count
         if wall_count > 0.8 * max_walls and current_tolerance < 1.0:
             current_tolerance *= 1.5
     
     print(f"Generated {wall_count} wall segments for Foundry VTT")
-    return foundry_data
+    return foundry_walls
+
+def generate_foundry_id():
+    """Generate a unique ID for a Foundry VTT wall."""
+    # Generate a random UUID and format it to match Foundry's ID format
+    return ''.join(uuid.uuid4().hex.upper()[0:16])
 
 def export_mask_to_foundry_json(mask_or_contours, image_shape, filename, 
                                simplify_tolerance=0.1, max_wall_length=50, 
@@ -236,8 +262,8 @@ def export_mask_to_foundry_json(mask_or_contours, image_shape, filename,
             # Assume it's already a list of contours
             contours = mask_or_contours
         
-        # Convert to Foundry walls format
-        foundry_data = contours_to_foundry_walls(
+        # Convert to Foundry walls format (now returns a list, not a dict)
+        foundry_walls = contours_to_foundry_walls(
             contours, 
             image_shape, 
             simplify_tolerance=simplify_tolerance,
@@ -245,9 +271,9 @@ def export_mask_to_foundry_json(mask_or_contours, image_shape, filename,
             max_walls=max_walls
         )
         
-        # Write to JSON file
+        # Write the list of walls directly to the JSON file (no outer "walls" key)
         with open(filename, 'w') as f:
-            json.dump(foundry_data, f, indent=2)
+            json.dump(foundry_walls, f, indent=2)
         
         return True
     except Exception as e:
