@@ -14,7 +14,7 @@ import cv2
 import numpy as np
 import math
 
-from src.wall_detection.detector import detect_walls, draw_walls, merge_contours
+from src.wall_detection.detector import detect_walls, draw_walls, merge_contours, split_edge_contours
 from src.wall_detection.image_utils import load_image, save_image, convert_to_rgb
 
 
@@ -627,10 +627,34 @@ class WallDetectionApp(QMainWindow):
                 min_merge_distance=min_merge_distance
             )
             print(f"After merge before min area: {len(contours)} contours")
-
-        # Filter contours by area
+        
+        # Filter contours by area BEFORE splitting edges
         contours = [c for c in contours if cv2.contourArea(c) >= min_area]
         print(f"After min area filter: {len(contours)} contours")
+
+        # Split contours that touch image edges AFTER area filtering
+        # but don't filter the resulting contours as aggressively
+        split_contours = split_edge_contours(self.current_image, contours)
+        
+        # Use a much lower threshold for split contours to keep them all
+        # Use absolute minimum value instead of relative to min_area
+        min_split_area = 5.0  # Very permissive - just filter out tiny noise
+        filtered_contours = []
+        
+        # Keep track of how many contours were kept vs filtered
+        kept_count = 0
+        filtered_count = 0
+        
+        for contour in split_contours:
+            area = cv2.contourArea(contour)
+            if area >= min_split_area:
+                filtered_contours.append(contour)
+                kept_count += 1
+            else:
+                filtered_count += 1
+        
+        contours = filtered_contours
+        print(f"After edge splitting: kept {kept_count}, filtered {filtered_count} tiny fragments")
 
         # Merge after Min Area if specified
         if self.merge_after_min_area.isChecked():

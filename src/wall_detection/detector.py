@@ -273,3 +273,166 @@ def merge_contours(image, contours, dilation_iterations=2, min_merge_distance=3.
     merged_contours, _ = cv2.findContours(dilated_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
     return merged_contours
+
+def split_edge_contours(image, contours):
+    """
+    Split contours that touch the image edges by cutting and closing them.
+    
+    Parameters:
+    - image: Input image (used for dimensions)
+    - contours: List of contours to process
+    
+    Returns:
+    - List of contours with edge-touching contours split
+    """
+    height, width = image.shape[:2]
+    result_contours = []
+    
+    # Define edge boundaries
+    edge_border = 1  # How many pixels from the actual edge to consider "edge"
+    
+    # Create a mask of the edge region
+    edge_mask = np.zeros((height, width), dtype=np.uint8)
+    cv2.rectangle(edge_mask, (0, 0), (width-1, height-1), 255, edge_border)
+    
+    # Track statistics
+    original_count = len(contours)
+    edge_touching_count = 0
+    new_contours_count = 0
+    unchanged_count = 0
+    
+    # Process each contour
+    for contour in contours:
+        # Create mask for this contour
+        contour_mask = np.zeros((height, width), dtype=np.uint8)
+        cv2.drawContours(contour_mask, [contour], -1, 255, 1)  # Draw just the contour lines
+        
+        # Check if contour touches edge
+        edge_intersection = cv2.bitwise_and(contour_mask, edge_mask)
+        if cv2.countNonZero(edge_intersection) > 0:
+            edge_touching_count += 1
+            
+            # Find points where contour intersects the edge
+            intersect_points = []
+            contour_array = contour.reshape(-1, 2)
+            
+            # Check each point in the contour
+            for i, point in enumerate(contour_array):
+                x, y = point
+                
+                # Check if point is on edge
+                if (x < edge_border or x >= width - edge_border or 
+                    y < edge_border or y >= height - edge_border):
+                    
+                    # Find the adjacent points
+                    prev_idx = (i - 1) % len(contour_array)
+                    next_idx = (i + 1) % len(contour_array)
+                    
+                    # Only consider points where one adjacent point is inside
+                    prev_inside = (edge_border <= contour_array[prev_idx][0] < width - edge_border and 
+                                   edge_border <= contour_array[prev_idx][1] < height - edge_border)
+                    
+                    next_inside = (edge_border <= contour_array[next_idx][0] < width - edge_border and 
+                                   edge_border <= contour_array[next_idx][1] < height - edge_border)
+                    
+                    if prev_inside or next_inside:
+                        intersect_points.append((i, x, y))
+            
+            # If we found intersection points, create new contours
+            if len(intersect_points) >= 2:  # Need at least 2 points to form a new contour
+                # Find segments of the contour that don't touch the edge
+                segments = []
+                current_segment = []
+                in_segment = False
+                
+                # Go through the entire contour
+                total_points = len(contour_array)
+                intersection_indices = [p[0] for p in intersect_points]
+                
+                for i in range(total_points + len(intersection_indices)):
+                    idx = i % total_points
+                    
+                    # Check if this is an intersection point
+                    is_intersection = idx in intersection_indices
+                    
+                    # Check if point is on interior (away from edge)
+                    x, y = contour_array[idx]
+                    is_interior = (edge_border <= x < width - edge_border and 
+                                  edge_border <= y < height - edge_border)
+                    
+                    if is_interior and not in_segment:
+                        # Start a new segment
+                        in_segment = True
+                        current_segment = [contour_array[idx].tolist()]
+                    elif is_interior:
+                        # Continue the segment
+                        current_segment.append(contour_array[idx].tolist())
+                    elif in_segment:
+                        # End the segment
+                        in_segment = False
+                        if len(current_segment) >= 3:  # Need at least 3 points for a valid contour
+                            segments.append(np.array(current_segment, dtype=np.int32))
+                            current_segment = []
+                
+                # Add any valid segments as new contours
+                new_segments_count = 0
+                for segment in segments:
+                    if len(segment) >= 3:  # Make sure it's a valid contour
+                        # Convert segment to contour format
+                        new_contour = segment.reshape(-1, 1, 2)
+                        
+                        # Extend the segment slightly to ensure it's closed away from the edges
+                        # This simply duplicates the end points to create a loop
+                        if len(segment) >= 2:
+                            # Draw a line between the end points of the segment
+                            segment_mask = np.zeros((height, width), dtype=np.uint8)
+                            for i in range(len(segment) - 1):
+                                cv2.line(segment_mask, tuple(segment[i]), tuple(segment[i+1]), 255, 2)
+                            
+                            # Find the contours in the mask - this will give us a closed contour
+                            closed_contours, _ = cv2.findContours(segment_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                            
+                            for closed_contour in closed_contours:
+                                if len(closed_contour) >= 4:  # Ensure it's valid
+                                    result_contours.append(closed_contour)
+                                    new_segments_count += 1
+                
+                # If we created new contours, we're done with this contour
+                if new_segments_count > 0:
+                    new_contours_count += new_segments_count
+                    continue
+                
+            # If we couldn't create new contours, try the mask-based approach as fallback
+            interior_mask = np.zeros((height, width), dtype=np.uint8)
+            cv2.drawContours(interior_mask, [contour], 0, 255, cv2.FILLED)
+            
+            # Remove the edge regions
+            cv2.rectangle(interior_mask, (0, 0), (width-1, height-1), 0, edge_border)
+            
+            # Find contours in the interior mask
+            interior_contours, _ = cv2.findContours(interior_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            
+            # Add any valid interior contours
+            interior_added = 0
+            for interior_contour in interior_contours:
+                if len(interior_contour) >= 4:  # Minimum meaningful contour
+                    result_contours.append(interior_contour)
+                    interior_added += 1
+                    
+            if interior_added > 0:
+                new_contours_count += interior_added
+                continue
+            
+            # If all else fails, keep the original contour
+            result_contours.append(contour)
+            unchanged_count += 1
+        else:
+            # Contour doesn't touch edge, keep as-is
+            result_contours.append(contour)
+            unchanged_count += 1
+    
+    # Print detailed statistics
+    print(f"Split edge contours: {original_count} original, {edge_touching_count} edge-touching, "
+          f"{new_contours_count} new contours created, {unchanged_count} kept unchanged, {len(result_contours)} total")
+    
+    return result_contours
