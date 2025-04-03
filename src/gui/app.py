@@ -1559,8 +1559,8 @@ class WallDetectionApp(QMainWindow):
         # Ask for simplification tolerance
         tolerance, ok = QInputDialog.getDouble(
             self, "Wall Simplification", 
-            "Enter simplification tolerance (lower = more detail):",
-            0.1, 0.01, 1.0, 2
+            "Enter simplification tolerance (lower = more detail):\n(0.01-0.2 recommended)",
+            0.05, 0.01, 1.0, 2
         )
         if not ok:
             return
@@ -1568,7 +1568,7 @@ class WallDetectionApp(QMainWindow):
         # Ask for maximum wall length
         max_length, ok = QInputDialog.getInt(
             self, "Maximum Wall Length", 
-            "Enter maximum wall segment length (pixels):",
+            "Enter maximum wall segment length (pixels):\n(Lower values create more wall segments)",
             50, 10, 500, 10
         )
         if not ok:
@@ -1577,7 +1577,7 @@ class WallDetectionApp(QMainWindow):
         # Ask for maximum number of walls
         max_walls, ok = QInputDialog.getInt(
             self, "Maximum Walls", 
-            "Enter maximum number of walls to generate:",
+            "Enter maximum number of walls to generate:\n(5000-10000 recommended for performance)",
             5000, 100, 20000, 100
         )
         if not ok:
@@ -1617,7 +1617,7 @@ class WallDetectionApp(QMainWindow):
         
         if success:
             print(f"Successfully exported walls to {file_path}")
-            self.setStatusTip(f"Exported {max_walls} walls to {file_path}")
+            self.setStatusTip(f"Walls exported to {file_path}. Import in Foundry using Walls > Import")
         else:
             print(f"Failed to export walls to {file_path}")
             self.setStatusTip(f"Failed to export walls")

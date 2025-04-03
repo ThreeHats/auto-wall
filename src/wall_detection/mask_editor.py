@@ -171,14 +171,19 @@ def contours_to_foundry_walls(contours, image_shape, simplify_tolerance=0.1, max
                     end_x = p1[0] + t_end * (p2[0] - p1[0])
                     end_y = p1[1] + t_end * (p2[1] - p1[1])
                     
-                    # Create wall segment using Foundry VTT format
+                    # Create wall segment using Foundry VTT format with exact coordinate format
                     wall_id = generate_foundry_id()
                     wall = {
                         "light": 20,
                         "sight": 20,
                         "sound": 20,
                         "move": 20,
-                        "c": [float(start_x), float(start_y), float(end_x), float(end_y)],
+                        "c": [
+                            float(start_x),
+                            float(start_y),
+                            float(end_x),
+                            float(end_y)
+                        ],
                         "_id": wall_id,
                         "dir": 0,    # Bidirectional wall
                         "door": 0,   # Not a door
@@ -195,14 +200,19 @@ def contours_to_foundry_walls(contours, image_shape, simplify_tolerance=0.1, max
                     segments_from_contour.append(wall)
                     wall_count += 1
             else:
-                # Create a single wall segment
+                # Create a single wall segment with exact coordinate format
                 wall_id = generate_foundry_id()
                 wall = {
                     "light": 20,
                     "sight": 20,
                     "sound": 20,
                     "move": 20,
-                    "c": [float(p1[0]), float(p1[1]), float(p2[0]), float(p2[1])],
+                    "c": [
+                        float(p1[0]),
+                        float(p1[1]),
+                        float(p2[0]),
+                        float(p2[1])
+                    ],
                     "_id": wall_id,
                     "dir": 0,
                     "door": 0,
@@ -231,7 +241,7 @@ def contours_to_foundry_walls(contours, image_shape, simplify_tolerance=0.1, max
 
 def generate_foundry_id():
     """Generate a unique ID for a Foundry VTT wall."""
-    # Generate a random UUID and format it to match Foundry's ID format
+    # Generate a random UUID in the correct format for Foundry
     return ''.join(uuid.uuid4().hex.upper()[0:16])
 
 def export_mask_to_foundry_json(mask_or_contours, image_shape, filename, 
