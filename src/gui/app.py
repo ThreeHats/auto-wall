@@ -1580,7 +1580,7 @@ class WallDetectionApp(QMainWindow):
         tolerance, ok = QInputDialog.getDouble(
             self, "Wall Simplification", 
             "Enter simplification tolerance (0 = maintain details):\n(0 best for detailed walls, higher = fewer walls)",
-            0.0, 0.0, 1.0, 3  # Increased precision to 3 decimal places
+            0.0005, 0.0, 1.0, 4  # Increased precision to 3 decimal places
         )
         if not ok:
             return
