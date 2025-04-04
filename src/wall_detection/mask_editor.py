@@ -263,6 +263,97 @@ def contours_to_foundry_walls(contours, image_shape, simplify_tolerance=0.0, max
     
     return connected_walls
 
+def thin_contour(input_data, target_width=5, max_iterations=3):
+    """
+    Thins a contour to approximately target_width pixels using controlled erosion.
+    
+    Parameters:
+    - input_data: Either an OpenCV contour or a binary mask
+    - target_width: Target width in pixels (default: 3)
+    - max_iterations: Maximum number of erosion iterations to prevent infinite loops
+    
+    Returns:
+    - Thinned contour
+    """
+    # Check if input is a binary mask (2D array with uint8 dtype)
+    if isinstance(input_data, np.ndarray) and len(input_data.shape) == 2 and input_data.dtype == np.uint8:
+        # Extract contours from the mask
+        contours, _ = cv2.findContours(input_data, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        if not contours:
+            print("No contours found in mask")
+            return None
+        # Use the largest contour
+        contour = max(contours, key=cv2.contourArea)
+    else:
+        contour = input_data
+    
+    # Find bounding rectangle to create an appropriate sized mask
+    x, y, w, h = cv2.boundingRect(contour)
+    # Add padding to avoid boundary issues
+    padding = 10
+    mask = np.zeros((h + 2*padding, w + 2*padding), dtype=np.uint8)
+    
+    # Shift contour to fit within the padded mask
+    shifted_contour = contour.copy()
+    shifted_contour[:, :, 0] = contour[:, :, 0] - x + padding
+    shifted_contour[:, :, 1] = contour[:, :, 1] - y + padding
+    
+    # Draw the contour on the mask
+    cv2.drawContours(mask, [shifted_contour], -1, 255, thickness=cv2.FILLED)
+    
+    # Create a copy for the iterative thinning
+    img1 = mask.copy()
+    
+    # Structuring Element - use a smaller kernel for more controlled erosion
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+    
+    # Keep track of width during erosion
+    thin = img1.copy()
+    iterations = 0
+    
+    while iterations < max_iterations:
+        # Calculate current contours and estimate width
+        temp_contours, _ = cv2.findContours(thin, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        
+        # If no contours left, break
+        if not temp_contours:
+            break
+            
+        # Find largest contour
+        largest = max(temp_contours, key=cv2.contourArea)
+        
+        # Calculate width
+        area = cv2.contourArea(largest)
+        perimeter = cv2.arcLength(largest, True)
+        est_width = 2 * area / perimeter if perimeter > 0 else 0
+        
+        # If width is at or below target, stop erosion
+        if est_width <= target_width:
+            break
+        
+        # Erode once more
+        thin = cv2.erode(thin, kernel)
+        iterations += 1
+    
+    print(f"Contour thinning stopped after {iterations} iterations")
+    
+    # Find contours of the thinned mask
+    thinned_contours, _ = cv2.findContours(thin, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    
+    if not thinned_contours:
+        print("No thinned contours found, returning original contour")
+        return contour
+        
+    # Find the largest thinned contour (in case multiple were created)
+    largest_contour = max(thinned_contours, key=cv2.contourArea)
+    
+    # Shift the contour back to original coordinates
+    largest_contour[:, :, 0] = largest_contour[:, :, 0] + x - padding
+    largest_contour[:, :, 1] = largest_contour[:, :, 1] + y - padding
+    
+    print(f"Thinned contour found with {len(largest_contour)} points")
+    return largest_contour
+
 def ensure_wall_connectivity(walls, merge_distance=1.0, angle_tolerance=0.5, max_gap=5.0):
     """
     Ensure walls are properly connected by merging endpoints that are very close to each other.

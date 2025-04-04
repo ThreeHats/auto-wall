@@ -18,7 +18,7 @@ from sklearn.cluster import KMeans
 
 from src.wall_detection.detector import detect_walls, draw_walls, merge_contours, split_edge_contours
 from src.wall_detection.image_utils import load_image, save_image, convert_to_rgb
-from src.wall_detection.mask_editor import create_mask_from_contours, blend_image_with_mask, draw_on_mask, export_mask_to_foundry_json, contours_to_foundry_walls
+from src.wall_detection.mask_editor import create_mask_from_contours, blend_image_with_mask, draw_on_mask, export_mask_to_foundry_json, contours_to_foundry_walls, thin_contour
 
 
 class InteractiveImageLabel(QLabel):
@@ -52,6 +52,8 @@ class InteractiveImageLabel(QLabel):
                     # Start drawing on mask
                     self.last_point = QPoint(x, y)
                     self.parent_app.start_drawing(x, y)
+                elif self.parent_app.thin_mode_enabled:
+                    self.parent_app.start_selection(x, y)
                 
         super().mousePressEvent(event)
     
@@ -71,6 +73,8 @@ class InteractiveImageLabel(QLabel):
                     current_point = QPoint(x, y)
                     self.parent_app.continue_drawing(self.last_point.x(), self.last_point.y(), x, y)
                     self.last_point = current_point
+                elif self.parent_app.thin_mode_enabled:
+                    self.parent_app.update_selection(x, y)
             # Just hovering - this always runs for any mouse movement
             else:
                 if self.parent_app.deletion_mode_enabled:
@@ -95,6 +99,8 @@ class InteractiveImageLabel(QLabel):
                     # End drawing on mask
                     self.parent_app.end_drawing()
                     self.last_point = None
+                elif self.parent_app.thin_mode_enabled:
+                    self.parent_app.end_selection(x, y)
                 
                 # Clear selection points
                 self.selection_start = None
@@ -156,10 +162,10 @@ class WallDetectionApp(QMainWindow):
 
         # Sliders
         self.sliders = {}
-        self.add_slider("Min Area", 0, 10000, 6000)
+        self.add_slider("Min Area", 0, 10000, 6170)
         self.add_slider("Blur", 1, 21, 5, step=2)
-        self.add_slider("Canny1", 0, 255, 209)
-        self.add_slider("Canny2", 0, 255, 72)
+        self.add_slider("Canny1", 0, 255, 255)
+        self.add_slider("Canny2", 0, 255, 106)
         self.add_slider("Edge Margin", 0, 50, 0)
         
         # Use a scaling factor of 10 for float values (0 to 10.0 with 0.1 precision)
@@ -175,16 +181,19 @@ class WallDetectionApp(QMainWindow):
         self.deletion_mode_radio = QRadioButton("Deletion")
         self.color_selection_mode_radio = QRadioButton("Color Pick")
         self.edit_mask_mode_radio = QRadioButton("Edit Mask")
+        self.thin_mode_radio = QRadioButton("Thin")  # New radio button for thinning mode
         self.deletion_mode_radio.setChecked(True)
 
         self.mode_layout.addWidget(self.deletion_mode_radio)
         self.mode_layout.addWidget(self.color_selection_mode_radio)
         self.mode_layout.addWidget(self.edit_mask_mode_radio)
+        self.mode_layout.addWidget(self.thin_mode_radio)  # Add the new radio button
         
         # Connect mode radio buttons
         self.deletion_mode_radio.toggled.connect(self.toggle_mode)
         self.color_selection_mode_radio.toggled.connect(self.toggle_mode)
         self.edit_mask_mode_radio.toggled.connect(self.toggle_mode)
+        self.thin_mode_radio.toggled.connect(self.toggle_mode)  # Connect new radio button
         
         # Add color selection options
         self.color_selection_options = QWidget()
@@ -257,6 +266,7 @@ class WallDetectionApp(QMainWindow):
         self.deletion_mode_enabled = True
         self.color_selection_mode_enabled = False
         self.edit_mask_mode_enabled = False
+        self.thin_mode_enabled = False  # Add new state variable for thin mode
 
         # Buttons
         self.buttons_layout = QHBoxLayout()
@@ -275,12 +285,12 @@ class WallDetectionApp(QMainWindow):
         self.controls_layout.addLayout(self.merge_options_layout)
 
         self.merge_contours = QCheckBox("Merge Contours")
-        self.merge_contours.setChecked(True)
+        self.merge_contours.setChecked(False)
         self.merge_options_layout.addWidget(self.merge_contours)
 
         # Add a checkbox for high-resolution processing
         self.high_res_checkbox = QCheckBox("Process at Full Resolution")
-        self.high_res_checkbox.setChecked(False)
+        self.high_res_checkbox.setChecked(True)
         self.high_res_checkbox.setToolTip("Process at full resolution (slower but more accurate)")
         self.high_res_checkbox.stateChanged.connect(self.reload_working_image)
         self.merge_options_layout.addWidget(self.high_res_checkbox)
@@ -467,10 +477,11 @@ class WallDetectionApp(QMainWindow):
             label.setText(f"{label_text}: {value}")
 
     def toggle_mode(self):
-        """Toggle between detection, deletion, color selection, and edit mask modes."""
+        """Toggle between detection, deletion, color selection, edit mask, and thinning modes."""
         self.deletion_mode_enabled = self.deletion_mode_radio.isChecked()
         self.color_selection_mode_enabled = self.color_selection_mode_radio.isChecked()
         self.edit_mask_mode_enabled = self.edit_mask_mode_radio.isChecked()
+        self.thin_mode_enabled = self.thin_mode_radio.isChecked()  # Add thin mode check
         
         # Show/hide color selection options
         self.color_selection_options.setVisible(self.color_selection_mode_enabled)
@@ -507,6 +518,11 @@ class WallDetectionApp(QMainWindow):
                 cursor_pos = self.image_label.mapFromGlobal(QCursor.pos())
                 if self.image_label.rect().contains(cursor_pos):
                     self.update_brush_preview(cursor_pos.x(), cursor_pos.y())
+        elif self.thin_mode_enabled:
+            self.setStatusTip("Thinning Mode: Click on contours to thin them")
+            # Store original image for highlighting
+            if self.processed_image is not None:
+                self.original_processed_image = self.processed_image.copy()
         else:
             self.setStatusTip("")
             # Clear any highlighting
@@ -802,6 +818,18 @@ class WallDetectionApp(QMainWindow):
             self.selecting_colors = True
             self.color_selection_start = (img_x, img_y)
             self.color_selection_current = (img_x, img_y)
+        elif self.thin_mode_enabled:
+            # Check if click is inside a contour - if so, handle as single click for thinning
+            for i, contour in enumerate(self.current_contours):
+                if cv2.pointPolygonTest(contour, (img_x, img_y), False) >= 0:
+                    self.handle_thinning_click(x, y)
+                    return
+                    
+            # Otherwise, start a selection for thinning multiple contours
+            self.selecting = True
+            self.selection_start_img = (img_x, img_y)
+            self.selection_current_img = (img_x, img_y)
+            self.selected_contour_indices = []
 
     def update_selection(self, x, y):
         """Update the current selection rectangle to the given coordinates."""
@@ -818,6 +846,9 @@ class WallDetectionApp(QMainWindow):
         elif self.color_selection_mode_enabled and self.selecting_colors:
             self.color_selection_current = (img_x, img_y)
             self.update_color_selection_display()
+        elif self.thin_mode_enabled and self.selecting:
+            self.selection_current_img = (img_x, img_y)
+            self.update_selection_display()
 
     def update_selection_display(self):
         """Update the display with the selection rectangle and highlighted contours."""
@@ -848,8 +879,9 @@ class WallDetectionApp(QMainWindow):
                 px, py = point[0]
                 if x1 <= px <= x2 and y1 <= py <= y2:
                     self.selected_contour_indices.append(i)
-                    # Highlight this contour
-                    cv2.drawContours(self.processed_image, [contour], 0, (0, 0, 255), 2)
+                    # Highlight with different colors based on mode
+                    highlight_color = (0, 0, 255) if self.deletion_mode_enabled else (255, 0, 255)  # Red for delete, Magenta for thin
+                    cv2.drawContours(self.processed_image, [contour], 0, highlight_color, 2)
                     break
                     
         # Display the updated image
@@ -932,6 +964,32 @@ class WallDetectionApp(QMainWindow):
             
             # Clear the selection
             self.clear_selection()
+        elif self.thin_mode_enabled and self.selecting:
+            self.selection_current_img = (img_x, img_y)
+            
+            # Calculate selection rectangle
+            x1 = min(self.selection_start_img[0], self.selection_current_img[0])
+            y1 = min(self.selection_start_img[1], self.selection_current_img[1])
+            x2 = max(self.selection_start_img[0], self.selection_current_img[0])
+            y2 = max(self.selection_start_img[1], self.selection_current_img[1])
+            
+            # Find contours within the selection
+            self.selected_contour_indices = []
+            
+            for i, contour in enumerate(self.current_contours):
+                # Check if contour is at least partially within selection rectangle
+                for point in contour:
+                    px, py = point[0]
+                    if x1 <= px <= x2 and y1 <= py <= y2:
+                        self.selected_contour_indices.append(i)
+                        break
+            
+            # If we have selected contours, thin them
+            if self.selected_contour_indices:
+                self.thin_selected_contours()
+            else:
+                # If no contours were selected, just clear the selection
+                self.clear_selection()
 
     def extract_colors_from_selection(self, x1, y1, x2, y2):
         """Extract dominant colors from the selected region."""
@@ -1142,6 +1200,83 @@ class WallDetectionApp(QMainWindow):
                     self.current_contours.pop(i)
                     self.update_display_from_contours()
                     return
+
+    # Thinning methods
+    def thin_selected_contour(self, contour):
+        """Thin a single contour using morphological thinning."""
+        # Create a mask for the contour
+        mask = np.zeros(self.current_image.shape[:2], dtype=np.uint8)
+        cv2.drawContours(mask, [contour], -1, 255, -1)
+        
+        # Apply the thinning operation using the imported function
+        thinned_contour = thin_contour(mask)
+        
+        # No need to extract contours, thin_contour() already returns a contour object
+        if thinned_contour is not None:
+            return thinned_contour
+        else:
+            # If thinning failed, return the original contour
+            return contour
+
+    def thin_selected_contours(self):
+        """Thin the selected contours."""
+        if not self.selected_contour_indices:
+            return
+        
+        # Thin each selected contour
+        for idx in sorted(self.selected_contour_indices):
+            if 0 <= idx < len(self.current_contours):
+                # Get the contour
+                contour = self.current_contours[idx]
+                # Apply thinning
+                thinned_contour = self.thin_selected_contour(contour)
+                # Replace the original with the thinned version
+                self.current_contours[idx] = thinned_contour
+        
+        # Clear selection and update display
+        self.clear_selection()
+        self.update_display_from_contours()
+
+    def handle_thinning_click(self, x, y):
+        """Handle clicks for thinning mode."""
+        if not self.current_contours or self.current_image is None:
+            return
+            
+        # Convert display coordinates to image coordinates
+        img_x, img_y = self.convert_to_image_coordinates(x, y)
+        
+        # Check if coordinates are valid
+        if img_x is None or img_y is None:
+            return
+            
+        # Clear any existing selection when handling a single click
+        self.clear_selection()
+        
+        # Use the highlighted contour if available
+        if self.highlighted_contour_index != -1:
+            print(f"Thinning highlighted contour {self.highlighted_contour_index}")
+            contour = self.current_contours[self.highlighted_contour_index]
+            thinned_contour = self.thin_selected_contour(contour)
+            self.current_contours[self.highlighted_contour_index] = thinned_contour
+            self.highlighted_contour_index = -1  # Reset highlight
+            self.update_display_from_contours()
+            return
+            
+        # First, check if click is inside any contour
+        for i, contour in enumerate(self.current_contours):
+            if cv2.pointPolygonTest(contour, (img_x, img_y), False) >= 0:
+                # Click is inside this contour - thin it
+                print(f"Thinning contour {i}")
+                thinned_contour = self.thin_selected_contour(contour)
+                self.current_contours[i] = thinned_contour
+                self.update_display_from_contours()
+                return
+
+    def thin_contour(self, contour):
+        """Thin a single contour using morphological thinning."""
+        # Create a mask for the contour
+        mask = np.zeros(self.current_image.shape[:2], dtype=np.uint8)
+        cv2.drawContours(mask, [contour], -1, 255, -1)
 
     def point_to_line_distance(self, x, y, x1, y1, x2, y2):
         """Calculate the distance from point (x,y) to line segment (x1,y1)-(x2,y2)."""
