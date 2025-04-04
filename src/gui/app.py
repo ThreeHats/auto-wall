@@ -1958,15 +1958,15 @@ class WallDetectionApp(QMainWindow):
         grid_size_label = QLabel("Grid Size (pixels, 0 to disable):")
         grid_size_input = QSpinBox()
         grid_size_input.setRange(0, 500)
-        grid_size_input.setSingleStep(5)
-        grid_size_input.setValue(70)  # Common grid size for VTTs
+        grid_size_input.setSingleStep(1)
+        grid_size_input.setValue(0)
         grid_size_layout.addWidget(grid_size_label)
         grid_size_layout.addWidget(grid_size_input)
         layout.addLayout(grid_size_layout)
 
         # Allow half grid checkbox
         allow_half_grid = QCheckBox("Allow Half-Grid Positions")
-        allow_half_grid.setChecked(True)
+        allow_half_grid.setChecked(False)
         allow_half_grid.setToolTip("If checked, walls can snap to half-grid positions, otherwise only to full grid intersections")
         layout.addWidget(allow_half_grid)
 
