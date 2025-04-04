@@ -247,18 +247,7 @@ class WallDetectionApp(QMainWindow):
         self.draw_mode_layout.addWidget(self.draw_radio)
         self.draw_mode_layout.addWidget(self.erase_radio)
         self.mask_edit_layout.addLayout(self.draw_mode_layout)
-        
-        # Bake button
-        self.bake_button = QPushButton("Bake Contours to Mask")
-        self.bake_button.clicked.connect(self.bake_contours_to_mask)
-        self.mask_edit_layout.addWidget(self.bake_button)
-        
-        # Add export button for Foundry VTT
-        self.export_foundry_button = QPushButton("Export to Foundry VTT")
-        self.export_foundry_button.clicked.connect(self.export_to_foundry_vtt)
-        self.export_foundry_button.setToolTip("Export walls as JSON for Foundry VTT")
-        self.mask_edit_layout.addWidget(self.export_foundry_button)
-        
+
         self.controls_layout.addWidget(self.mask_edit_options)
         self.mask_edit_options.setVisible(False)
         
@@ -467,6 +456,47 @@ class WallDetectionApp(QMainWindow):
         # Add these new variables to track the brush preview state
         self.brush_preview_active = False
         self.last_preview_image = None
+        self.foundry_preview_active = False 
+
+        # Create a new section for wall action buttons in the main sidebar
+        self.wall_actions_title = QLabel("Wall Actions")
+        self.wall_actions_title.setStyleSheet("font-weight: bold;")
+        self.controls_layout.addWidget(self.wall_actions_title)
+        
+        # Create a layout for the wall action buttons
+        self.wall_actions_layout = QVBoxLayout()
+        self.controls_layout.addLayout(self.wall_actions_layout)
+        
+        # Move the Bake button to the main sidebar
+        self.bake_button = QPushButton("Bake Contours to Mask")
+        self.bake_button.clicked.connect(self.bake_contours_to_mask)
+        self.wall_actions_layout.addWidget(self.bake_button)
+        
+        # Move the Export to Foundry button
+        self.export_foundry_button = QPushButton("Export to Foundry VTT")
+        self.export_foundry_button.clicked.connect(self.export_to_foundry_vtt)
+        self.export_foundry_button.setToolTip("Export walls as JSON for Foundry VTT")
+        self.export_foundry_button.setEnabled(False)  # Initially disabled
+        self.wall_actions_layout.addWidget(self.export_foundry_button)
+        
+        # Move the Save Foundry Walls and Cancel Preview buttons
+        self.save_foundry_button = QPushButton("Save Foundry Walls")
+        self.save_foundry_button.clicked.connect(self.save_foundry_preview)
+        self.save_foundry_button.setToolTip("Save the previewed walls to Foundry VTT JSON file")
+        self.save_foundry_button.setEnabled(False)
+        self.wall_actions_layout.addWidget(self.save_foundry_button)
+        
+        self.cancel_foundry_button = QPushButton("Cancel Preview")
+        self.cancel_foundry_button.clicked.connect(self.cancel_foundry_preview)
+        self.cancel_foundry_button.setToolTip("Return to normal view")
+        self.cancel_foundry_button.setEnabled(False)
+        self.wall_actions_layout.addWidget(self.cancel_foundry_button)
+        
+        # Add a separator between sections
+        separator = QFrame()
+        separator.setFrameShape(QFrame.Shape.HLine)
+        separator.setFrameShadow(QFrame.Shadow.Sunken)
+        self.controls_layout.addWidget(separator)
 
     # Then add this new method:
     def reload_working_image(self):
@@ -676,6 +706,9 @@ class WallDetectionApp(QMainWindow):
         # Switch to mask editing mode
         self.edit_mask_mode_radio.setChecked(True)
         
+        # Enable the Export to Foundry VTT button
+        self.export_foundry_button.setEnabled(True)
+        
         # Update display
         self.update_display_with_mask()
 
@@ -826,6 +859,13 @@ class WallDetectionApp(QMainWindow):
 
     def clear_selection(self):
         """Clear the current selection."""
+        # Also check if we're in Foundry preview mode
+        if self.foundry_preview_active and self.foundry_walls_preview:
+            # If in preview mode, redraw the preview instead
+            self.display_foundry_preview()
+            return
+        
+        # Original code for normal mode
         self.selecting = False
         self.selection_start_img = None
         self.selection_current_img = None
@@ -1391,6 +1431,11 @@ class WallDetectionApp(QMainWindow):
             # Reset the mask layer when loading a new image to prevent dimension mismatch
             self.mask_layer = None
             
+            # Reset button states when loading a new image
+            self.export_foundry_button.setEnabled(False)
+            self.save_foundry_button.setEnabled(False)
+            self.cancel_foundry_button.setEnabled(False)
+            
             # Update the display
             self.update_image()
 
@@ -1721,7 +1766,7 @@ class WallDetectionApp(QMainWindow):
         self.display_image(self.processed_image)
 
     def export_to_foundry_vtt(self):
-        """Export the current walls to Foundry VTT JSON format."""
+        """Prepare walls for export to Foundry VTT and show a preview."""
         if self.current_image is None:
             return
             
@@ -1859,6 +1904,127 @@ class WallDetectionApp(QMainWindow):
         max_gap = max_gap_input.value()
         grid_size = grid_size_input.value()
         half_grid_allowed = allow_half_grid.isChecked()
+        
+        # Store export parameters for later use when saving
+        self.foundry_export_params = {
+            'walls_to_export': walls_to_export,
+            'image_shape': image_shape,
+            'simplify_tolerance': tolerance,
+            'max_wall_length': max_length,
+            'max_walls': max_walls,
+            'merge_distance': merge_distance,
+            'angle_tolerance': angle_tolerance,
+            'max_gap': max_gap,
+            'grid_size': grid_size,
+            'allow_half_grid': half_grid_allowed
+        }
+        
+        # Generate walls for preview
+        self.preview_foundry_walls()
+
+    def preview_foundry_walls(self):
+        """Generate and display a preview of the Foundry VTT walls."""
+        if not self.foundry_export_params:
+            return
+            
+        params = self.foundry_export_params
+        
+        # Generate walls without saving to file
+        from src.wall_detection.mask_editor import contours_to_foundry_walls
+        
+        if isinstance(params['walls_to_export'], list):  # It's contours
+            contours = params['walls_to_export']
+            foundry_walls = contours_to_foundry_walls(
+                contours,
+                params['image_shape'],
+                simplify_tolerance=params['simplify_tolerance'],
+                max_wall_length=params['max_wall_length'],
+                max_walls=params['max_walls'],
+                merge_distance=params['merge_distance'],
+                angle_tolerance=params['angle_tolerance'],
+                max_gap=params['max_gap'],
+                grid_size=params['grid_size'],
+                allow_half_grid=params['allow_half_grid']
+            )
+        else:  # It's a mask
+            # Extract contours from the mask
+            mask = params['walls_to_export']
+            contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            foundry_walls = contours_to_foundry_walls(
+                contours,
+                params['image_shape'],
+                simplify_tolerance=params['simplify_tolerance'],
+                max_wall_length=params['max_wall_length'],
+                max_walls=params['max_walls'],
+                merge_distance=params['merge_distance'],
+                angle_tolerance=params['angle_tolerance'],
+                max_gap=params['max_gap'],
+                grid_size=params['grid_size'],
+                allow_half_grid=params['allow_half_grid']
+            )
+        
+        # Store the generated walls for later use
+        self.foundry_walls_preview = foundry_walls
+        
+        # Create a preview image showing the walls
+        self.display_foundry_preview()
+        
+        # Enable save/cancel buttons
+        self.save_foundry_button.setEnabled(True)
+        self.cancel_foundry_button.setEnabled(True)
+        
+        # Set flag for preview mode
+        self.foundry_preview_active = True
+        
+        # Update status
+        self.setStatusTip(f"Previewing {len(foundry_walls)} walls for Foundry VTT. Click 'Save Foundry Walls' to export.")
+
+    def display_foundry_preview(self):
+        """Display a preview of the Foundry VTT walls over the current image."""
+        if not self.foundry_walls_preview or self.current_image is None:
+            return
+            
+        # Make a copy of the current image for the preview
+        preview_image = self.current_image.copy()
+        
+        # Convert back to RGB for better visibility
+        if len(preview_image.shape) == 2:  # Grayscale
+            preview_image = cv2.cvtColor(preview_image, cv2.COLOR_GRAY2BGR)
+            
+        # Draw the walls on the preview image
+        for wall in self.foundry_walls_preview:
+            # Get wall coordinates
+            start_x, start_y, end_x, end_y = wall["c"]
+            
+            # Scale coordinates to match current image if needed
+            if self.scale_factor != 1.0:
+                start_x *= self.scale_factor
+                start_y *= self.scale_factor
+                end_x *= self.scale_factor
+                end_y *= self.scale_factor
+            
+            # Draw line for this wall segment
+            cv2.line(
+                preview_image,
+                (int(start_x), int(start_y)),
+                (int(end_x), int(end_y)),
+                (0, 255, 255),  # Yellow color for preview
+                2,  # Thickness
+                cv2.LINE_AA  # Anti-aliased line
+            )
+        
+        # Save a copy of the original processed image if not already saved
+        if self.original_processed_image is None:
+            self.original_processed_image = preview_image.copy()
+        
+        # Update the display with the preview
+        self.processed_image = preview_image
+        self.display_image(self.processed_image)
+
+    def save_foundry_preview(self):
+        """Save the previewed Foundry VTT walls to a JSON file."""
+        if not self.foundry_walls_preview:
+            return
             
         # Get file path for saving
         file_path, _ = QFileDialog.getSaveFileName(
@@ -1871,28 +2037,45 @@ class WallDetectionApp(QMainWindow):
         if not file_path.lower().endswith('.json'):
             file_path += '.json'
             
-        # Export to JSON
-        success = export_mask_to_foundry_json(
-            walls_to_export, 
-            image_shape, 
-            file_path,
-            simplify_tolerance=tolerance,
-            max_wall_length=max_length,
-            max_walls=max_walls,
-            merge_distance=merge_distance,
-            angle_tolerance=angle_tolerance,
-            max_gap=max_gap,
-            grid_size=grid_size,
-            allow_half_grid=half_grid_allowed
-        )
-        
-        if success:
-            print(f"Successfully exported walls to {file_path}")
+        # Save walls directly to JSON file
+        try:
+            with open(file_path, 'w') as f:
+                import json
+                json.dump(self.foundry_walls_preview, f, indent=2)
+                
+            print(f"Successfully exported {len(self.foundry_walls_preview)} walls to {file_path}")
             self.setStatusTip(f"Walls exported to {file_path}. Import in Foundry using Walls > Import")
-        else:
-            print(f"Failed to export walls to {file_path}")
-            self.setStatusTip(f"Failed to export walls")
-    
+            
+            # After successful saving:
+            # Disable save/cancel buttons
+            self.save_foundry_button.setEnabled(False)
+            self.cancel_foundry_button.setEnabled(False)
+            
+            # Exit preview mode
+            self.cancel_foundry_preview()
+        except Exception as e:
+            print(f"Failed to export walls: {e}")
+            self.setStatusTip(f"Failed to export walls: {e}")
+
+    def cancel_foundry_preview(self):
+        """Cancel the Foundry VTT wall preview and return to normal view."""
+        # Disable buttons
+        self.save_foundry_button.setEnabled(False)
+        self.cancel_foundry_button.setEnabled(False)
+        
+        # Clear preview-related data
+        self.foundry_walls_preview = None
+        self.foundry_export_params = None
+        self.foundry_preview_active = False
+        
+        # Restore original display
+        if self.original_processed_image is not None:
+            self.processed_image = self.original_processed_image.copy()
+            self.display_image(self.processed_image)
+        
+        # Update status
+        self.setStatusTip("Foundry VTT preview canceled")
+
     def update_target_width(self, value):
         """Update the target width parameter for thinning."""
         self.target_width = value
