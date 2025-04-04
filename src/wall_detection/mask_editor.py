@@ -111,7 +111,7 @@ def draw_on_mask(mask, x, y, brush_size, color=(0, 255, 0, 255), erase=False):
     
     return mask
 
-def contours_to_foundry_walls(contours, image_shape, simplify_tolerance=0.0, max_wall_length=50, max_walls=5000, merge_distance=1.0, angle_tolerance=0.5, max_gap=5.0):
+def contours_to_foundry_walls(contours, image_shape, simplify_tolerance=0.0, max_wall_length=50, max_walls=5000, merge_distance=1.0, angle_tolerance=0.5, max_gap=5.0, grid_size=0, allow_half_grid=True):
     """
     Convert OpenCV contours to Foundry VTT wall data format with intelligent segmentation.
     
@@ -123,6 +123,8 @@ def contours_to_foundry_walls(contours, image_shape, simplify_tolerance=0.0, max
                          Low values (0.01-0.2) create more detailed walls
     - max_wall_length: Maximum length for a single wall segment
     - max_walls: Maximum number of walls to generate
+    - grid_size: Size of the grid in pixels (0 to disable grid snapping)
+    - allow_half_grid: Whether to allow snapping to half-grid positions
     
     Returns:
     - List of walls in Foundry VTT format
@@ -257,6 +259,11 @@ def contours_to_foundry_walls(contours, image_shape, simplify_tolerance=0.0, max
             current_tolerance *= 1.5
     
     print(f"Generated {wall_count} wall segments for Foundry VTT")
+    
+    # Apply grid snapping if requested
+    if grid_size > 0:
+        foundry_walls = snap_walls_to_grid(foundry_walls, grid_size, allow_half_grid)
+        print(f"Snapped walls to grid (size={grid_size}, half-grid={allow_half_grid})")
     
     # Perform connectivity check - merge segments with endpoints very close to each other
     connected_walls = ensure_wall_connectivity(foundry_walls, merge_distance=merge_distance, angle_tolerance=angle_tolerance, max_gap=max_gap)
@@ -607,7 +614,8 @@ def generate_foundry_id():
 
 def export_mask_to_foundry_json(mask_or_contours, image_shape, filename, 
                                simplify_tolerance=0.0, max_wall_length=50, 
-                               max_walls=5000, merge_distance=1.0, angle_tolerance=0.5, max_gap=5.0):
+                               max_walls=5000, merge_distance=1.0, angle_tolerance=0.5, max_gap=5.0,
+                               grid_size=0, allow_half_grid=True):
     """
     Export a mask or contours to a Foundry VTT compatible JSON file.
     
@@ -619,6 +627,8 @@ def export_mask_to_foundry_json(mask_or_contours, image_shape, filename,
     - max_wall_length: Maximum length for a single wall segment
     - max_walls: Maximum number of walls to generate
     - merge_distance: Distance threshold for merging nearby wall endpoints (pixels)
+    - grid_size: Size of the grid in pixels (0 to disable grid snapping)
+    - allow_half_grid: Whether to allow snapping to half-grid positions
     
     Returns:
     - True if successful, False otherwise
@@ -672,7 +682,9 @@ def export_mask_to_foundry_json(mask_or_contours, image_shape, filename,
             max_walls=max_walls,
             merge_distance=merge_distance,
             angle_tolerance=angle_tolerance,
-            max_gap=max_gap
+            max_gap=max_gap,
+            grid_size=grid_size,
+            allow_half_grid=allow_half_grid
         )
         
         # We don't need to run ensure_wall_connectivity again, as it's already done in contours_to_foundry_walls
@@ -689,3 +701,55 @@ def export_mask_to_foundry_json(mask_or_contours, image_shape, filename,
         import traceback
         traceback.print_exc()
         return False
+
+def snap_walls_to_grid(walls, grid_size, allow_half_grid=True):
+    """
+    Snap wall endpoints to a grid.
+    
+    Parameters:
+    - walls: List of Foundry VTT wall objects
+    - grid_size: Grid size in pixels
+    - allow_half_grid: If True, points can snap to half grid positions
+    
+    Returns:
+    - List of walls with endpoints snapped to grid
+    """
+    if grid_size <= 0:
+        return walls  # No snapping if grid size is 0 or negative
+    
+    snapped_walls = []
+    
+    for wall in walls:
+        # Extract the wall coordinates
+        start_x, start_y, end_x, end_y = wall["c"]
+        
+        # Calculate the nearest grid position
+        if allow_half_grid:
+            # Snap to nearest half-grid position
+            snapped_start_x = round(start_x / (grid_size / 2)) * (grid_size / 2)
+            snapped_start_y = round(start_y / (grid_size / 2)) * (grid_size / 2)
+            snapped_end_x = round(end_x / (grid_size / 2)) * (grid_size / 2)
+            snapped_end_y = round(end_y / (grid_size / 2)) * (grid_size / 2)
+        else:
+            # Snap to nearest full-grid position
+            snapped_start_x = round(start_x / grid_size) * grid_size
+            snapped_start_y = round(start_y / grid_size) * grid_size
+            snapped_end_x = round(end_x / grid_size) * grid_size
+            snapped_end_y = round(end_y / grid_size) * grid_size
+        
+        # Create a new wall with snapped coordinates
+        snapped_wall = wall.copy()
+        snapped_wall["c"] = [
+            float(snapped_start_x),
+            float(snapped_start_y),
+            float(snapped_end_x),
+            float(snapped_end_y)
+        ]
+        
+        # Skip walls that became zero-length after snapping
+        if snapped_start_x == snapped_end_x and snapped_start_y == snapped_end_y:
+            continue
+        
+        snapped_walls.append(snapped_wall)
+    
+    return snapped_walls

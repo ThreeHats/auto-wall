@@ -1818,6 +1818,28 @@ class WallDetectionApp(QMainWindow):
         layout.addWidget(max_gap_label)
         layout.addWidget(max_gap_input)
 
+        # Grid snapping section
+        grid_section_label = QLabel("Grid Snapping:")
+        grid_section_label.setStyleSheet("font-weight: bold;")
+        layout.addWidget(grid_section_label)
+
+        # Grid size
+        grid_size_layout = QHBoxLayout()
+        grid_size_label = QLabel("Grid Size (pixels, 0 to disable):")
+        grid_size_input = QSpinBox()
+        grid_size_input.setRange(0, 500)
+        grid_size_input.setSingleStep(5)
+        grid_size_input.setValue(70)  # Common grid size for VTTs
+        grid_size_layout.addWidget(grid_size_label)
+        grid_size_layout.addWidget(grid_size_input)
+        layout.addLayout(grid_size_layout)
+
+        # Allow half grid checkbox
+        allow_half_grid = QCheckBox("Allow Half-Grid Positions")
+        allow_half_grid.setChecked(True)
+        allow_half_grid.setToolTip("If checked, walls can snap to half-grid positions, otherwise only to full grid intersections")
+        layout.addWidget(allow_half_grid)
+
         # Dialog buttons
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(dialog.accept)
@@ -1835,6 +1857,8 @@ class WallDetectionApp(QMainWindow):
         merge_distance = merge_distance_input.value()
         angle_tolerance = angle_tolerance_input.value()
         max_gap = max_gap_input.value()
+        grid_size = grid_size_input.value()
+        half_grid_allowed = allow_half_grid.isChecked()
             
         # Get file path for saving
         file_path, _ = QFileDialog.getSaveFileName(
@@ -1857,7 +1881,9 @@ class WallDetectionApp(QMainWindow):
             max_walls=max_walls,
             merge_distance=merge_distance,
             angle_tolerance=angle_tolerance,
-            max_gap=max_gap
+            max_gap=max_gap,
+            grid_size=grid_size,
+            allow_half_grid=half_grid_allowed
         )
         
         if success:
