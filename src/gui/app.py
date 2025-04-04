@@ -7,13 +7,18 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../.
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QVBoxLayout, QHBoxLayout, QLabel, QSlider, QPushButton, QWidget, 
     QFileDialog, QCheckBox, QRadioButton, QButtonGroup, QColorDialog, QListWidget, QListWidgetItem,
-    QScrollArea, QSizePolicy, QDialog, QDialogButtonBox, QFrame, QSpinBox, QInputDialog, QDoubleSpinBox
+    QScrollArea, QSizePolicy, QDialog, QDialogButtonBox, QFrame, QSpinBox, QInputDialog, QDoubleSpinBox,
+    QMessageBox
 )
-from PyQt6.QtCore import Qt, QPoint, QRect
-from PyQt6.QtGui import QPixmap, QImage, QPainter, QPen, QColor, QMouseEvent, QCursor
+from PyQt6.QtCore import Qt, QPoint, QRect, QBuffer
+from PyQt6.QtGui import QPixmap, QImage, QPainter, QPen, QColor, QMouseEvent, QCursor, QClipboard
 import cv2
 import numpy as np
 import math
+import json
+import requests
+import io
+import urllib.parse
 from sklearn.cluster import KMeans
 
 from src.wall_detection.detector import detect_walls, draw_walls, merge_contours, split_edge_contours
@@ -178,20 +183,20 @@ class WallDetectionApp(QMainWindow):
         self.mode_label = QLabel("Mode:")
         self.mode_layout.addWidget(self.mode_label)
         
-        self.deletion_mode_radio = QRadioButton("Deletion")
         self.color_selection_mode_radio = QRadioButton("Color Pick")
+        self.deletion_mode_radio = QRadioButton("Deletion")
         self.edit_mask_mode_radio = QRadioButton("Edit Mask")
         self.thin_mode_radio = QRadioButton("Thin")  # New radio button for thinning mode
         self.deletion_mode_radio.setChecked(True)
 
-        self.mode_layout.addWidget(self.deletion_mode_radio)
         self.mode_layout.addWidget(self.color_selection_mode_radio)
+        self.mode_layout.addWidget(self.deletion_mode_radio)
         self.mode_layout.addWidget(self.edit_mask_mode_radio)
         self.mode_layout.addWidget(self.thin_mode_radio)  # Add the new radio button
         
         # Connect mode radio buttons
-        self.deletion_mode_radio.toggled.connect(self.toggle_mode)
         self.color_selection_mode_radio.toggled.connect(self.toggle_mode)
+        self.deletion_mode_radio.toggled.connect(self.toggle_mode)
         self.edit_mask_mode_radio.toggled.connect(self.toggle_mode)
         self.thin_mode_radio.toggled.connect(self.toggle_mode)  # Connect new radio button
         
@@ -314,6 +319,12 @@ class WallDetectionApp(QMainWindow):
         self.save_button.clicked.connect(self.save_image)
         self.buttons_layout.addWidget(self.save_button)
 
+        # Add URL image loading button next to Open Image button
+        self.url_button = QPushButton("Load from URL")
+        self.url_button.clicked.connect(self.load_image_from_url)
+        self.url_button.setToolTip("Load image from URL in clipboard")
+        self.buttons_layout.addWidget(self.url_button)
+
         # Checkboxes for merge options
         self.merge_options_layout = QVBoxLayout()
         self.controls_layout.addLayout(self.merge_options_layout)
@@ -324,7 +335,7 @@ class WallDetectionApp(QMainWindow):
 
         # Add a checkbox for high-resolution processing
         self.high_res_checkbox = QCheckBox("Process at Full Resolution")
-        self.high_res_checkbox.setChecked(True)
+        self.high_res_checkbox.setChecked(False)
         self.high_res_checkbox.setToolTip("Process at full resolution (slower but more accurate)")
         self.high_res_checkbox.stateChanged.connect(self.reload_working_image)
         self.merge_options_layout.addWidget(self.high_res_checkbox)
@@ -492,6 +503,13 @@ class WallDetectionApp(QMainWindow):
         self.cancel_foundry_button.setEnabled(False)
         self.wall_actions_layout.addWidget(self.cancel_foundry_button)
         
+        # Add a copy to clipboard button next to Save Foundry Walls
+        self.copy_foundry_button = QPushButton("Copy to Clipboard")
+        self.copy_foundry_button.clicked.connect(self.copy_foundry_to_clipboard)
+        self.copy_foundry_button.setToolTip("Copy the walls JSON to clipboard for Foundry VTT")
+        self.copy_foundry_button.setEnabled(False)
+        self.wall_actions_layout.addWidget(self.copy_foundry_button)
+        
         # Add a separator between sections
         separator = QFrame()
         separator.setFrameShape(QFrame.Shape.HLine)
@@ -553,8 +571,8 @@ class WallDetectionApp(QMainWindow):
 
     def toggle_mode(self):
         """Toggle between detection, deletion, color selection, edit mask, and thinning modes."""
-        self.deletion_mode_enabled = self.deletion_mode_radio.isChecked()
         self.color_selection_mode_enabled = self.color_selection_mode_radio.isChecked()
+        self.deletion_mode_enabled = self.deletion_mode_radio.isChecked()
         self.edit_mask_mode_enabled = self.edit_mask_mode_radio.isChecked()
         self.thin_mode_enabled = self.thin_mode_radio.isChecked()  # Add thin mode check
         
@@ -844,6 +862,10 @@ class WallDetectionApp(QMainWindow):
         # Enable/disable edge detection settings based on color detection mode
         for widget in self.edge_detection_widgets:
             widget.setEnabled(not use_color)
+            
+        # Also disable blur, edge margin, and min merge distance in color detection mode
+        self.sliders["Blur"].setEnabled(not use_color)
+        self.sliders["Edge Margin"].setEnabled(not use_color)
             
         # Update labels to reflect active/inactive state
         if use_color:
@@ -1435,9 +1457,72 @@ class WallDetectionApp(QMainWindow):
             self.export_foundry_button.setEnabled(False)
             self.save_foundry_button.setEnabled(False)
             self.cancel_foundry_button.setEnabled(False)
+            self.copy_foundry_button.setEnabled(False)
             
             # Update the display
             self.update_image()
+
+    def load_image_from_url(self):
+        """Load an image from a URL in the clipboard."""
+        # Get clipboard content
+        clipboard = QApplication.clipboard()
+        clipboard_text = clipboard.text().strip()
+        
+        # Check if it's a valid URL
+        if not clipboard_text:
+            QMessageBox.warning(self, "Invalid URL", "Clipboard is empty")
+            return
+            
+        try:
+            # Check if it's a valid URL
+            parsed_url = urllib.parse.urlparse(clipboard_text)
+            if not all([parsed_url.scheme, parsed_url.netloc]):
+                QMessageBox.warning(self, "Invalid URL", f"The clipboard does not contain a valid URL:\n{clipboard_text}")
+                return
+            
+            # Download image from URL
+            self.setStatusTip(f"Downloading image from {clipboard_text}...")
+            response = requests.get(clipboard_text, stream=True, timeout=10)
+            response.raise_for_status()  # Raise exception for 4XX/5XX responses
+            
+            # Check if content type is an image
+            content_type = response.headers.get('Content-Type', '')
+            if not content_type.startswith('image/'):
+                QMessageBox.warning(self, "Invalid Content", f"The URL does not point to an image (Content-Type: {content_type})")
+                return
+                
+            # Convert response content to an image
+            image_data = io.BytesIO(response.content)
+            image_array = np.frombuffer(image_data.read(), dtype=np.uint8)
+            img = cv2.imdecode(image_array, cv2.IMREAD_COLOR)
+            
+            if img is None:
+                QMessageBox.warning(self, "Loading Error", "Could not decode image from URL")
+                return
+            
+            # Load the image into the application
+            self.original_image = img
+            self.current_image, self.scale_factor = self.create_working_image(self.original_image)
+            
+            print(f"Image loaded from URL: Original size {self.original_image.shape}, Working size {self.current_image.shape}, Scale factor {self.scale_factor}")
+            
+            # Reset the mask layer when loading a new image to prevent dimension mismatch
+            self.mask_layer = None
+            
+            # Reset button states when loading a new image
+            self.export_foundry_button.setEnabled(False)
+            self.save_foundry_button.setEnabled(False)
+            self.cancel_foundry_button.setEnabled(False)
+            self.copy_foundry_button.setEnabled(False)
+            
+            # Update the display
+            self.setStatusTip(f"Image loaded from URL. Size: {img.shape[1]}x{img.shape[0]}")
+            self.update_image()
+            
+        except requests.exceptions.RequestException as e:
+            QMessageBox.warning(self, "Download Error", f"Failed to download the image:\n{str(e)}")
+        except Exception as e:
+            QMessageBox.warning(self, "Error", f"Failed to load image from URL:\n{str(e)}")
 
     def create_working_image(self, image):
         """Create a working copy of the image, scaling it down if it's too large."""
@@ -1918,6 +2003,9 @@ class WallDetectionApp(QMainWindow):
             'grid_size': grid_size,
             'allow_half_grid': half_grid_allowed
         }
+
+        # Switch to deletion mode for less interference with the preview
+        self.color_selection_mode_radio.setChecked(True)
         
         # Generate walls for preview
         self.preview_foundry_walls()
@@ -1969,12 +2057,16 @@ class WallDetectionApp(QMainWindow):
         # Create a preview image showing the walls
         self.display_foundry_preview()
         
-        # Enable save/cancel buttons
+        # Enable save/cancel/copy buttons
         self.save_foundry_button.setEnabled(True)
         self.cancel_foundry_button.setEnabled(True)
+        self.copy_foundry_button.setEnabled(True)
         
         # Set flag for preview mode
         self.foundry_preview_active = True
+        
+        # Disable detection controls while in preview mode
+        self.set_controls_enabled(False)
         
         # Update status
         self.setStatusTip(f"Previewing {len(foundry_walls)} walls for Foundry VTT. Click 'Save Foundry Walls' to export.")
@@ -2050,6 +2142,7 @@ class WallDetectionApp(QMainWindow):
             # Disable save/cancel buttons
             self.save_foundry_button.setEnabled(False)
             self.cancel_foundry_button.setEnabled(False)
+            self.copy_foundry_button.setEnabled(False)
             
             # Exit preview mode
             self.cancel_foundry_preview()
@@ -2062,11 +2155,15 @@ class WallDetectionApp(QMainWindow):
         # Disable buttons
         self.save_foundry_button.setEnabled(False)
         self.cancel_foundry_button.setEnabled(False)
+        self.copy_foundry_button.setEnabled(False)
         
         # Clear preview-related data
         self.foundry_walls_preview = None
         self.foundry_export_params = None
         self.foundry_preview_active = False
+        
+        # Re-enable detection controls
+        self.set_controls_enabled(True)
         
         # Restore original display
         if self.original_processed_image is not None:
@@ -2075,6 +2172,32 @@ class WallDetectionApp(QMainWindow):
         
         # Update status
         self.setStatusTip("Foundry VTT preview canceled")
+
+    def set_controls_enabled(self, enabled, color_detection_mode=False):
+        """Enable or disable detection controls based on preview state."""
+        # Disable/enable all sliders
+        for slider_name, slider in self.sliders.items():
+            slider.setEnabled(enabled)
+            
+        # Disable/enable color detection checkbox
+        self.use_color_detection.setEnabled(enabled)
+        
+        if not color_detection_mode:
+            # Disable/enable merge contours checkbox
+            self.merge_contours.setEnabled(enabled)
+        
+        # Disable/enable high-res checkbox
+        self.high_res_checkbox.setEnabled(enabled)
+        
+        # Disable/enable color management
+        self.add_color_button.setEnabled(enabled)
+        self.remove_color_button.setEnabled(enabled)
+        self.wall_colors_list.setEnabled(enabled)
+        
+        # If re-enabling, respect color detection mode
+        if enabled and self.use_color_detection.isChecked():
+            # Re-apply color detection limitations
+            self.toggle_detection_mode(True)
 
     def update_target_width(self, value):
         """Update the target width parameter for thinning."""
@@ -2085,6 +2208,28 @@ class WallDetectionApp(QMainWindow):
         """Update the max iterations parameter for thinning."""
         self.max_iterations = value
         self.max_iterations_value.setText(str(value))
+
+    def copy_foundry_to_clipboard(self):
+        """Copy the Foundry VTT walls JSON to the clipboard."""
+        if not self.foundry_walls_preview:
+            QMessageBox.warning(self, "No Walls", "No walls available to copy.")
+            return
+            
+        try:
+            # Convert walls to JSON string
+            walls_json = json.dumps(self.foundry_walls_preview, indent=2)
+            
+            # Copy to clipboard
+            clipboard = QApplication.clipboard()
+            clipboard.setText(walls_json)
+            
+            # Show confirmation
+            self.setStatusTip(f"{len(self.foundry_walls_preview)} walls copied to clipboard. Paste in Foundry using Walls > Import.")
+            QMessageBox.information(self, "Copied to Clipboard", 
+                               f"{len(self.foundry_walls_preview)} walls copied to clipboard.\n"
+                               f"Use Walls > Import JSON in Foundry VTT to import them.")
+        except Exception as e:
+            QMessageBox.warning(self, "Error", f"Failed to copy walls to clipboard: {str(e)}")
 
 
 if __name__ == "__main__":
