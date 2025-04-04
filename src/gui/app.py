@@ -7,7 +7,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../.
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QVBoxLayout, QHBoxLayout, QLabel, QSlider, QPushButton, QWidget, 
     QFileDialog, QCheckBox, QRadioButton, QButtonGroup, QColorDialog, QListWidget, QListWidgetItem,
-    QScrollArea, QSizePolicy, QDialog, QDialogButtonBox, QFrame, QSpinBox, QInputDialog
+    QScrollArea, QSizePolicy, QDialog, QDialogButtonBox, QFrame, QSpinBox, QInputDialog, QDoubleSpinBox
 )
 from PyQt6.QtCore import Qt, QPoint, QRect
 from PyQt6.QtGui import QPixmap, QImage, QPainter, QPen, QColor, QMouseEvent, QCursor
@@ -156,14 +156,14 @@ class WallDetectionApp(QMainWindow):
 
         # Sliders
         self.sliders = {}
-        self.add_slider("Min Area", 0, 10000, 100)
+        self.add_slider("Min Area", 0, 10000, 6000)
         self.add_slider("Blur", 1, 21, 5, step=2)
-        self.add_slider("Canny1", 0, 255, 50)
-        self.add_slider("Canny2", 0, 255, 150)
-        self.add_slider("Edge Margin", 0, 50, 5)
+        self.add_slider("Canny1", 0, 255, 209)
+        self.add_slider("Canny2", 0, 255, 72)
+        self.add_slider("Edge Margin", 0, 50, 0)
         
         # Use a scaling factor of 10 for float values (0 to 10.0 with 0.1 precision)
-        self.add_slider("Min Merge Distance", 0, 100, 30, scale_factor=0.1)  # Default 3.0
+        self.add_slider("Min Merge Distance", 0, 100, 5, scale_factor=0.1)  # Default 0.5
 
         # Mode selection (Detection/Deletion/Color Selection/Edit Mask)
         self.mode_layout = QHBoxLayout()
@@ -172,28 +172,16 @@ class WallDetectionApp(QMainWindow):
         self.mode_label = QLabel("Mode:")
         self.mode_layout.addWidget(self.mode_label)
         
-        self.detection_mode_radio = QRadioButton("Detection")
         self.deletion_mode_radio = QRadioButton("Deletion")
         self.color_selection_mode_radio = QRadioButton("Color Pick")
         self.edit_mask_mode_radio = QRadioButton("Edit Mask")
-        self.detection_mode_radio.setChecked(True)
-        
-        self.mode_group = QButtonGroup()
-        self.mode_group.addButton(self.detection_mode_radio)
-        self.mode_group.addButton(self.deletion_mode_radio)
-        self.mode_group.addButton(self.color_selection_mode_radio)
-        self.mode_group.addButton(self.edit_mask_mode_radio)
-        
-        # Add mode options vertically to save horizontal space
-        self.mode_radios_layout = QVBoxLayout()
-        self.mode_radios_layout.addWidget(self.detection_mode_radio)
-        self.mode_radios_layout.addWidget(self.deletion_mode_radio)
-        self.mode_radios_layout.addWidget(self.color_selection_mode_radio)
-        self.mode_radios_layout.addWidget(self.edit_mask_mode_radio)
-        self.mode_layout.addLayout(self.mode_radios_layout)
+        self.deletion_mode_radio.setChecked(True)
+
+        self.mode_layout.addWidget(self.deletion_mode_radio)
+        self.mode_layout.addWidget(self.color_selection_mode_radio)
+        self.mode_layout.addWidget(self.edit_mask_mode_radio)
         
         # Connect mode radio buttons
-        self.detection_mode_radio.toggled.connect(self.toggle_mode)
         self.deletion_mode_radio.toggled.connect(self.toggle_mode)
         self.color_selection_mode_radio.toggled.connect(self.toggle_mode)
         self.edit_mask_mode_radio.toggled.connect(self.toggle_mode)
@@ -266,7 +254,7 @@ class WallDetectionApp(QMainWindow):
         self.mask_edit_options.setVisible(False)
         
         # Deletion mode is initially disabled
-        self.deletion_mode_enabled = False
+        self.deletion_mode_enabled = True
         self.color_selection_mode_enabled = False
         self.edit_mask_mode_enabled = False
 
@@ -287,7 +275,7 @@ class WallDetectionApp(QMainWindow):
         self.controls_layout.addLayout(self.merge_options_layout)
 
         self.merge_contours = QCheckBox("Merge Contours")
-        self.merge_contours.setChecked(False)
+        self.merge_contours.setChecked(True)
         self.merge_options_layout.addWidget(self.merge_contours)
 
         # Add a checkbox for high-resolution processing
@@ -1576,59 +1564,86 @@ class WallDetectionApp(QMainWindow):
             print("No walls to export.")
             return
             
-        # Ask for simplification tolerance (default to 0 = minimal simplification)
-        tolerance, ok = QInputDialog.getDouble(
-            self, "Wall Simplification", 
-            "Enter simplification tolerance (0 = maintain details):\n(0 best for detailed walls, higher = fewer walls)",
-            0.0005, 0.0, 1.0, 4  # Increased precision to 3 decimal places
-        )
-        if not ok:
-            return
-            
-        # Ask for maximum wall length
-        max_length, ok = QInputDialog.getInt(
-            self, "Maximum Wall Length", 
-            "Enter maximum wall segment length (pixels):\n(Lower values ensure smoother curves)",
-            50, 5, 500, 5  # Default to shorter segments (25) to better maintain curves
-        )
-        if not ok:
-            return
-            
-        # Ask for maximum number of walls
-        max_walls, ok = QInputDialog.getInt(
-            self, "Maximum Walls", 
-            "Enter maximum number of walls to generate:\n(5000-10000 recommended for performance)",
-            5000, 100, 20000, 100
-        )
-        if not ok:
+        # Create a single dialog to gather all export parameters
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Export Parameters")
+        layout = QVBoxLayout(dialog)
+
+        # Simplification tolerance
+        tolerance_label = QLabel("Simplification Tolerance (0 = maintain details):")
+        tolerance_input = QDoubleSpinBox()
+        tolerance_input.setRange(0.0, 1.0)
+        tolerance_input.setDecimals(4)
+        tolerance_input.setSingleStep(0.0005)
+        tolerance_input.setValue(0.0005)
+        layout.addWidget(tolerance_label)
+        layout.addWidget(tolerance_input)
+
+        # Maximum wall length
+        max_length_label = QLabel("Maximum Wall Segment Length (pixels):")
+        max_length_input = QSpinBox()
+        max_length_input.setRange(5, 500)
+        max_length_input.setSingleStep(5)
+        max_length_input.setValue(50)
+        layout.addWidget(max_length_label)
+        layout.addWidget(max_length_input)
+
+        # Maximum number of walls
+        max_walls_label = QLabel("Maximum Number of Walls:")
+        max_walls_input = QSpinBox()
+        max_walls_input.setRange(100, 20000)
+        max_walls_input.setSingleStep(100)
+        max_walls_input.setValue(5000)
+        layout.addWidget(max_walls_label)
+        layout.addWidget(max_walls_input)
+
+        # Point merge distance
+        merge_distance_label = QLabel("Point Merge Distance (pixels):")
+        merge_distance_input = QDoubleSpinBox()
+        merge_distance_input.setRange(0.0, 100.0)
+        merge_distance_input.setDecimals(1)
+        merge_distance_input.setSingleStep(1.0)
+        merge_distance_input.setValue(25.0)
+        layout.addWidget(merge_distance_label)
+        layout.addWidget(merge_distance_input)
+
+        # Angle tolerance
+        angle_tolerance_label = QLabel("Angle Tolerance (degrees):")
+        angle_tolerance_input = QDoubleSpinBox()
+        angle_tolerance_input.setRange(0.0, 30.0)
+        angle_tolerance_input.setDecimals(2)
+        angle_tolerance_input.setSingleStep(0.5)
+        angle_tolerance_input.setValue(1.0)
+        layout.addWidget(angle_tolerance_label)
+        layout.addWidget(angle_tolerance_input)
+
+        # Maximum gap
+        max_gap_label = QLabel("Maximum Gap (coords):")
+        max_gap_input = QDoubleSpinBox()
+        max_gap_input.setRange(0.0, 50.0)
+        max_gap_input.setDecimals(1)
+        max_gap_input.setSingleStep(1.0)
+        max_gap_input.setValue(10.0)
+        layout.addWidget(max_gap_label)
+        layout.addWidget(max_gap_input)
+
+        # Dialog buttons
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+
+        # Show dialog and get results
+        if dialog.exec() != QDialog.DialogCode.Accepted:
             return
 
-        # Ask for point merge distance
-        merge_distance, ok = QInputDialog.getDouble(
-            self, "Point Merge Distance", 
-            "Distance to merge nearby points (pixels):\n(Higher values reduce wall count but may change shape)",
-            25.0, 0.0, 100.0, 1  # Default 5.0, range 0-100 with 1 decimal place
-        )
-        if not ok:
-            return
-            
-        # Ask for angle tolerance for collinear wall merging
-        angle_tolerance, ok = QInputDialog.getDouble(
-            self, "Angle Tolerance", 
-            "Maximum angle difference to merge straight walls (degrees):\n(0.5-2.0 recommended, higher values merge more aggressively)",
-            1.0, 0.0, 30.0, 2  # Default 0.5, range 0-5 with 2 decimal places
-        )
-        if not ok:
-            return
-
-        # Ask for maximum gap for collinear wall merging
-        max_gap, ok = QInputDialog.getDouble(
-            self, "Maximum Gap", 
-            "Maximum gap between walls to merge straight (coords):\n(Higher values bridge larger gaps between walls)",
-            10.0, 0.0, 50.0, 1  # Default 5.0, range 0-50 with 1 decimal place
-        )
-        if not ok:
-            return
+        # Retrieve values
+        tolerance = tolerance_input.value()
+        max_length = max_length_input.value()
+        max_walls = max_walls_input.value()
+        merge_distance = merge_distance_input.value()
+        angle_tolerance = angle_tolerance_input.value()
+        max_gap = max_gap_input.value()
             
         # Get file path for saving
         file_path, _ = QFileDialog.getSaveFileName(
