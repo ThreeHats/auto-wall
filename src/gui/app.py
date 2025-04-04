@@ -2068,8 +2068,9 @@ class WallDetectionApp(QMainWindow):
         # Disable detection controls while in preview mode
         self.set_controls_enabled(False)
         
-        # Update status
-        self.setStatusTip(f"Previewing {len(foundry_walls)} walls for Foundry VTT. Click 'Save Foundry Walls' to export.")
+        # Update status with more detailed information
+        wall_count = len(foundry_walls)
+        self.setStatusTip(f"Previewing {wall_count} walls for Foundry VTT. Click 'Save Foundry Walls' to export or 'Copy to Clipboard'.")
 
     def display_foundry_preview(self):
         """Display a preview of the Foundry VTT walls over the current image."""
@@ -2104,6 +2105,36 @@ class WallDetectionApp(QMainWindow):
                 2,  # Thickness
                 cv2.LINE_AA  # Anti-aliased line
             )
+        
+        # Add text showing the number of walls
+        wall_count = len(self.foundry_walls_preview)
+        # Position in top-left corner with padding
+        x_pos, y_pos = 20, 40
+        font_scale = 1.2
+        font_thickness = 2
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        text = f"Walls: {wall_count}"
+        
+        # Add a dark background for better visibility
+        (text_width, text_height), _ = cv2.getTextSize(text, font, font_scale, font_thickness)
+        cv2.rectangle(
+            preview_image, 
+            (x_pos - 10, y_pos - text_height - 10), 
+            (x_pos + text_width + 10, y_pos + 10), 
+            (0, 0, 0), 
+            -1
+        )
+        
+        # Draw the text
+        cv2.putText(
+            preview_image,
+            text,
+            (x_pos, y_pos),
+            font, 
+            font_scale,
+            (255, 255, 255),  # White text
+            font_thickness
+        )
         
         # Save a copy of the original processed image if not already saved
         if self.original_processed_image is None:
