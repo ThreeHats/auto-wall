@@ -134,6 +134,10 @@ class WallDetectionApp(QMainWindow):
         # Get the screen size and set the window to maximize
         screen = QGuiApplication.primaryScreen().geometry()
         self.setGeometry(0, 0, screen.width(), screen.height())
+        
+        # Apply dark theme stylesheet
+        self.apply_stylesheet()
+        
         self.showMaximized()
 
         # Main layout - use central widget
@@ -2645,6 +2649,25 @@ class WallDetectionApp(QMainWindow):
             self.undo()
         else:
             super().keyPressEvent(event)
+
+    def apply_stylesheet(self):
+        """Apply the application stylesheet from the CSS file."""
+        try:
+            # Get the path to the stylesheet
+            style_path = os.path.join(os.path.dirname(__file__), 'style.qss')
+            
+            # Check if the file exists
+            if not os.path.exists(style_path):
+                print(f"Warning: Stylesheet not found at {style_path}")
+                return
+                
+            # Read and apply the stylesheet
+            with open(style_path, 'r') as f:
+                stylesheet = f.read()
+                self.setStyleSheet(stylesheet)
+                print(f"Applied stylesheet from {style_path}")
+        except Exception as e:
+            print(f"Error applying stylesheet: {e}")
 
 
 if __name__ == "__main__":
