@@ -2105,6 +2105,12 @@ class WallDetectionApp(QMainWindow):
                 2,  # Thickness
                 cv2.LINE_AA  # Anti-aliased line
             )
+            
+            # Draw dots at wall endpoints (like Foundry VTT does)
+            endpoint_color = (255, 128, 0)  # Orange dots for endpoints
+            dot_radius = 2
+            cv2.circle(preview_image, (int(start_x), int(start_y)), dot_radius, endpoint_color, -1)  # Start point
+            cv2.circle(preview_image, (int(end_x), int(end_y)), dot_radius, endpoint_color, -1)  # End point
         
         # Add text showing the number of walls
         wall_count = len(self.foundry_walls_preview)
