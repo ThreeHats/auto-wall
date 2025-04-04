@@ -268,6 +268,51 @@ class WallDetectionApp(QMainWindow):
         self.edit_mask_mode_enabled = False
         self.thin_mode_enabled = False  # Add new state variable for thin mode
 
+        # Add thinning tool options
+        self.thin_options = QWidget()
+        self.thin_layout = QVBoxLayout(self.thin_options)
+        self.thin_layout.setContentsMargins(0, 0, 0, 0)
+        
+        # Target width control
+        self.target_width_layout = QHBoxLayout()
+        self.target_width_label = QLabel("Target Width:")
+        self.target_width_layout.addWidget(self.target_width_label)
+        
+        self.target_width_slider = QSlider(Qt.Orientation.Horizontal)
+        self.target_width_slider.setMinimum(1)
+        self.target_width_slider.setMaximum(10)
+        self.target_width_slider.setValue(5)
+        self.target_width_slider.valueChanged.connect(self.update_target_width)
+        self.target_width_layout.addWidget(self.target_width_slider)
+        
+        self.target_width_value = QLabel("5")
+        self.target_width_layout.addWidget(self.target_width_value)
+        self.thin_layout.addLayout(self.target_width_layout)
+        
+        # Max iterations control
+        self.max_iterations_layout = QHBoxLayout()
+        self.max_iterations_label = QLabel("Max Iterations:")
+        self.max_iterations_layout.addWidget(self.max_iterations_label)
+        
+        self.max_iterations_slider = QSlider(Qt.Orientation.Horizontal)
+        self.max_iterations_slider.setMinimum(1)
+        self.max_iterations_slider.setMaximum(20)
+        self.max_iterations_slider.setValue(3)
+        self.max_iterations_slider.valueChanged.connect(self.update_max_iterations)
+        self.max_iterations_layout.addWidget(self.max_iterations_slider)
+        
+        self.max_iterations_value = QLabel("3")
+        self.max_iterations_layout.addWidget(self.max_iterations_value)
+        self.thin_layout.addLayout(self.max_iterations_layout)
+        
+        # Add thinning options to main controls
+        self.controls_layout.addWidget(self.thin_options)
+        self.thin_options.setVisible(False)
+        
+        # Store thinning parameters
+        self.target_width = 5
+        self.max_iterations = 3
+
         # Buttons
         self.buttons_layout = QHBoxLayout()
         self.controls_layout.addLayout(self.buttons_layout)
@@ -488,6 +533,9 @@ class WallDetectionApp(QMainWindow):
         
         # Show/hide mask edit options
         self.mask_edit_options.setVisible(self.edit_mask_mode_enabled)
+        
+        # Show/hide thinning options
+        self.thin_options.setVisible(self.thin_mode_enabled)
         
         if self.deletion_mode_enabled:
             self.setStatusTip("Deletion Mode: Click inside contours or on lines to delete them")
@@ -1112,7 +1160,14 @@ class WallDetectionApp(QMainWindow):
         
         # If a contour is highlighted, draw it with a different color/thickness
         if self.highlighted_contour_index != -1 and self.highlighted_contour_index < len(self.current_contours):
-            highlight_color = (0, 0, 255)  # Highlight in red
+            # Use different colors based on the current mode
+            if self.deletion_mode_enabled:
+                highlight_color = (0, 0, 255)  # Red for delete
+            elif self.thin_mode_enabled:
+                highlight_color = (255, 0, 255)  # Magenta for thin
+            else:
+                highlight_color = (0, 0, 255)  # Default: red
+                
             highlight_thickness = 3
             cv2.drawContours(
                 self.processed_image, 
@@ -1209,7 +1264,8 @@ class WallDetectionApp(QMainWindow):
         cv2.drawContours(mask, [contour], -1, 255, -1)
         
         # Apply the thinning operation using the imported function
-        thinned_contour = thin_contour(mask)
+        # Pass the current target width and max iterations settings
+        thinned_contour = thin_contour(mask, target_width=self.target_width, max_iterations=self.max_iterations)
         
         # No need to extract contours, thin_contour() already returns a contour object
         if thinned_contour is not None:
@@ -1810,6 +1866,16 @@ class WallDetectionApp(QMainWindow):
         else:
             print(f"Failed to export walls to {file_path}")
             self.setStatusTip(f"Failed to export walls")
+    
+    def update_target_width(self, value):
+        """Update the target width parameter for thinning."""
+        self.target_width = value
+        self.target_width_value.setText(str(value))
+    
+    def update_max_iterations(self, value):
+        """Update the max iterations parameter for thinning."""
+        self.max_iterations = value
+        self.max_iterations_value.setText(str(value))
 
 
 if __name__ == "__main__":
