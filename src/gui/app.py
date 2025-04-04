@@ -11,7 +11,7 @@ from PyQt6.QtWidgets import (
     QMessageBox
 )
 from PyQt6.QtCore import Qt, QPoint, QRect, QBuffer
-from PyQt6.QtGui import QPixmap, QImage, QPainter, QPen, QColor, QMouseEvent, QCursor, QClipboard
+from PyQt6.QtGui import QPixmap, QImage, QPainter, QPen, QColor, QMouseEvent, QCursor, QClipboard, QGuiApplication
 import cv2
 import numpy as np
 import math
@@ -128,7 +128,11 @@ class WallDetectionApp(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Auto-Wall: Battle Map Wall Detection")
-        self.setGeometry(100, 100, 1200, 800)  # Wider window to accommodate side-by-side layout
+        
+        # Get the screen size and set the window to maximize
+        screen = QGuiApplication.primaryScreen().geometry()
+        self.setGeometry(0, 0, screen.width(), screen.height())
+        self.showMaximized()
 
         # Main layout - use central widget
         self.central_widget = QWidget()
@@ -1431,10 +1435,14 @@ class WallDetectionApp(QMainWindow):
 
     def display_image(self, image):
         """Display an image on the image label."""
+        # Only proceed if the image label exists and has a valid size
+        if not hasattr(self, 'image_label') or self.image_label.width() <= 0 or self.image_label.height() <= 0:
+            return
+            
         rgb_image = convert_to_rgb(image)
         height, width, channel = rgb_image.shape
         bytes_per_line = channel * width
-        q_image = QImage(rgb_image.data, width, height, bytes_per_line, QImage.Format.Format_RGB888)
+        q_image = QImage(rgb_image.data.tobytes(), width, height, bytes_per_line, QImage.Format.Format_RGB888)
         pixmap = QPixmap.fromImage(q_image)
         self.image_label.setPixmap(pixmap.scaled(self.image_label.size(), Qt.AspectRatioMode.KeepAspectRatio))
 
@@ -2108,7 +2116,7 @@ class WallDetectionApp(QMainWindow):
             
             # Draw dots at wall endpoints (like Foundry VTT does)
             endpoint_color = (255, 128, 0)  # Orange dots for endpoints
-            dot_radius = 2
+            dot_radius = 4
             cv2.circle(preview_image, (int(start_x), int(start_y)), dot_radius, endpoint_color, -1)  # Start point
             cv2.circle(preview_image, (int(end_x), int(end_y)), dot_radius, endpoint_color, -1)  # End point
         
@@ -2267,6 +2275,18 @@ class WallDetectionApp(QMainWindow):
                                f"Use Walls > Import JSON in Foundry VTT to import them.")
         except Exception as e:
             QMessageBox.warning(self, "Error", f"Failed to copy walls to clipboard: {str(e)}")
+
+    def resizeEvent(self, event):
+        """Handle window resize events to update the image display."""
+        super().resizeEvent(event)
+        
+        # If we have a current image displayed, update it to fit the new window size
+        if hasattr(self, 'processed_image') and self.processed_image is not None:
+            self.display_image(self.processed_image)
+            
+        # If we're in foundry preview mode, redraw the preview
+        if hasattr(self, 'foundry_preview_active') and self.foundry_preview_active and self.foundry_walls_preview:
+            self.display_foundry_preview()
 
 
 if __name__ == "__main__":
