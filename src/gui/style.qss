@@ -202,6 +202,11 @@ QSlider::groove:horizontal {
     border-radius: 2px;
 }
 
+QSlider::groove:horizontal:disabled {
+    background: #222222;
+    border: 1px solid #333333;
+}
+
 QSlider::handle:horizontal {
     background: #0c84e4;
     width: 16px;
@@ -214,6 +219,11 @@ QSlider::handle:horizontal:hover {
     background: #1a91f0;
 }
 
+QSlider::handle:horizontal:disabled {
+    background: #444444;
+    border: 1px solid #555555;
+}
+
 QSlider::add-page:horizontal {
     background: #333333;
     border-radius: 2px;
@@ -222,6 +232,14 @@ QSlider::add-page:horizontal {
 QSlider::sub-page:horizontal {
     background: #0c84e4;
     border-radius: 2px;
+}
+
+QSlider::add-page:horizontal:disabled {
+    background: #222222;
+}
+
+QSlider::sub-page:horizontal:disabled {
+    background: #444444;
 }
 
 /* ============= CheckBoxes & RadioButtons ============= */
