@@ -49,11 +49,11 @@ def detect_walls(image, min_contour_area=100, max_contour_area=None, blur_kernel
         cv2.imwrite("wall_color_mask_debug.png", debug_image)
         
         # Find contours directly on the color mask
-        # Use RETR_EXTERNAL to get only external contours
-        color_contours, _ = cv2.findContours(color_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        # Changed from RETR_EXTERNAL to RETR_CCOMP to detect holes/interior walls
+        color_contours, hierarchy = cv2.findContours(color_mask, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_SIMPLE)
         
-        # Filter contours by area
-        result_contours = color_contours
+        # Process contours based on hierarchy to include both outer and inner contours
+        result_contours = process_contours_with_hierarchy(color_contours, hierarchy, min_contour_area, max_contour_area)
         
         print(f"Color-based detection found {len(color_contours)} contours, {len(result_contours)} after filtering by area")
         
@@ -73,8 +73,8 @@ def detect_walls(image, min_contour_area=100, max_contour_area=None, blur_kernel
     # Apply Canny edge detection
     edges = cv2.Canny(blurred, canny_threshold1, canny_threshold2)
     
-    # Find contours
-    contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    # Find contours - changed to retrieve hierarchical contours
+    contours, hierarchy = cv2.findContours(edges, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_SIMPLE)
     
     # Process contours - Generate filled mask
     contour_mask = np.zeros(gray.shape, dtype=np.uint8)
@@ -86,7 +86,7 @@ def detect_walls(image, min_contour_area=100, max_contour_area=None, blur_kernel
     
     # Find connected components (treats touching contours as one)
     num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(working_mask)
-    
+
     # Process each connected component
     result_contours = []
     
@@ -102,11 +102,16 @@ def detect_walls(image, min_contour_area=100, max_contour_area=None, blur_kernel
                 component_mask = np.zeros_like(labels, dtype=np.uint8)
                 component_mask[labels == i] = 255
                 
-                # Find contours of this component
-                component_contours, _ = cv2.findContours(component_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                # Find all contours in this component (including holes)
+                component_contours, component_hierarchy = cv2.findContours(
+                    component_mask, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_SIMPLE
+                )
                 
-                # Add all contours from this component to the result
-                result_contours.extend(component_contours)
+                # Process and add contours from this component
+                component_result = process_contours_with_hierarchy(
+                    component_contours, component_hierarchy, min_contour_area, max_contour_area
+                )
+                result_contours.extend(component_result)
     
     # Handle edge margin case
     else:
@@ -256,6 +261,44 @@ def detect_walls(image, min_contour_area=100, max_contour_area=None, blur_kernel
     
     return result_contours
 
+def process_contours_with_hierarchy(contours, hierarchy, min_contour_area, max_contour_area):
+    """
+    Process contours based on hierarchy to include both exterior and interior contours.
+    
+    Parameters:
+    - contours: List of detected contours
+    - hierarchy: Contour hierarchy from cv2.findContours
+    - min_contour_area: Minimum area for contour filtering
+    - max_contour_area: Maximum area for contour filtering (None for no limit)
+    
+    Returns:
+    - List of filtered contours
+    """
+    if len(contours) == 0:
+        return []
+        
+    result_contours = []
+    
+    # Hierarchy format: [Next, Previous, First_Child, Parent]
+    # If hierarchy is None (can happen with RETR_LIST), treat all contours as top level
+    if hierarchy is None:
+        for i, contour in enumerate(contours):
+            area = cv2.contourArea(contour)
+            if area >= min_contour_area and (max_contour_area is None or area <= max_contour_area):
+                result_contours.append(contour)
+        return result_contours
+                
+    # Process contours by hierarchy
+    hierarchy = hierarchy[0]  # OpenCV returns hierarchy as a single-item list
+    
+    # First pass: include all contours that meet area requirements
+    for i, contour in enumerate(contours):
+        area = cv2.contourArea(contour)
+        if area >= min_contour_area and (max_contour_area is None or area <= max_contour_area):
+            result_contours.append(contour)
+            
+    return result_contours
+
 def create_multi_color_mask(image, color_threshold_pairs):
     """
     Create a binary mask for multiple colors with individual thresholds.
@@ -382,8 +425,9 @@ def merge_contours(image, contours, dilation_iterations=2, min_merge_distance=3.
     # Special case for min_merge_distance = 0: only merge overlapping contours
     if min_merge_distance == 0:
         # Find contours without any dilation
-        merged_contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        return merged_contours
+        merged_contours, hierarchy = cv2.findContours(mask, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_SIMPLE)
+        # Process inner and outer contours
+        return process_contours_with_hierarchy(merged_contours, hierarchy, 0, None)
 
     # Handle the float value for min_merge_distance for non-zero values
     # Calculate base kernel size and iterations to account for fractional distances
@@ -404,10 +448,10 @@ def merge_contours(image, contours, dilation_iterations=2, min_merge_distance=3.
     # Dilate the mask to merge nearby contours
     dilated_mask = cv2.dilate(mask, kernel, iterations=effective_iterations)
 
-    # Find contours again from the dilated mask
-    merged_contours, _ = cv2.findContours(dilated_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-
-    return merged_contours
+    # Find contours again from the dilated mask (using hierarchical retrieval mode)
+    merged_contours, hierarchy = cv2.findContours(dilated_mask, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_SIMPLE)
+    # Process inner and outer contours
+    return process_contours_with_hierarchy(merged_contours, hierarchy, 0, None)
 
 def split_edge_contours(image, contours):
     """
@@ -544,12 +588,15 @@ def split_edge_contours(image, contours):
             # Remove the edge regions
             cv2.rectangle(interior_mask, (0, 0), (width-1, height-1), 0, edge_border)
             
-            # Find contours in the interior mask
-            interior_contours, _ = cv2.findContours(interior_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            # Find contours in the interior mask - use hierarchical retrieval
+            interior_contours, hierarchy = cv2.findContours(interior_mask, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_SIMPLE)
+            
+            # Process both outer and inner contours
+            processed_interior = process_contours_with_hierarchy(interior_contours, hierarchy, 0, None)
             
             # Add any valid interior contours
             interior_added = 0
-            for interior_contour in interior_contours:
+            for interior_contour in processed_interior:
                 if len(interior_contour) >= 4:  # Minimum meaningful contour
                     result_contours.append(interior_contour)
                     interior_added += 1

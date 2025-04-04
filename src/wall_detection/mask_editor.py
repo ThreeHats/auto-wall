@@ -4,6 +4,8 @@ import json
 import uuid
 from collections import defaultdict, deque
 
+from src.wall_detection.detector import process_contours_with_hierarchy
+
 def create_mask_from_contours(image_shape, contours, color=(0, 255, 0, 255)):
     """
     Create a transparent mask from contours.
@@ -138,8 +140,10 @@ def contours_to_foundry_walls(contours, image_shape, simplify_tolerance=0.0, max
     # This helps eliminate microscopic gaps without visibly affecting shape
     minimal_tolerance = simplify_tolerance
     
-    # Sort contours by area (largest first) to prioritize main walls
-    contours = sorted(contours, key=cv2.contourArea, reverse=True)
+    # Process inner and outer contours equally
+    # Don't sort by area as that prioritizes outer walls and might skip inner walls
+    # if we hit the max_walls limit
+    # Instead, handle inner and outer contours based on their order in the list
     
     for contour in contours:
         # Skip if we've reached the maximum number of walls
@@ -284,13 +288,19 @@ def thin_contour(input_data, target_width=5, max_iterations=3):
     """
     # Check if input is a binary mask (2D array with uint8 dtype)
     if isinstance(input_data, np.ndarray) and len(input_data.shape) == 2 and input_data.dtype == np.uint8:
-        # Extract contours from the mask
-        contours, _ = cv2.findContours(input_data, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        # Extract contours from the mask - use hierarchical retrieval
+        contours, hierarchy = cv2.findContours(input_data, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_SIMPLE)
         if not contours:
             print("No contours found in mask")
             return None
+            
+        # Process contours to include inner ones
+        processed_contours = process_contours_with_hierarchy(contours, hierarchy, 0, None)
+        if not processed_contours:
+            return None
+            
         # Use the largest contour
-        contour = max(contours, key=cv2.contourArea)
+        contour = max(processed_contours, key=cv2.contourArea)
     else:
         contour = input_data
     
@@ -646,10 +656,13 @@ def export_mask_to_foundry_json(mask_or_contours, image_shape, filename,
                 print(f"Resizing mask from {mask_w}x{mask_h} to {target_w}x{target_h}")
                 mask = cv2.resize(mask, (target_w, target_h), interpolation=cv2.INTER_NEAREST)
             
-            # Extract contours from the mask
-            contours, _ = cv2.findContours(
-                mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+            # Extract contours from the mask - use hierarchical retrieval
+            contours, hierarchy = cv2.findContours(
+                mask, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_SIMPLE
             )
+            
+            # Process contours to include inner ones
+            contours = process_contours_with_hierarchy(contours, hierarchy, 0, None)
         else:
             # Assume it's already a list of contours
             contours = mask_or_contours

@@ -2316,11 +2316,16 @@ class WallDetectionApp(QMainWindow):
                 allow_half_grid=params['allow_half_grid']
             )
         else:  # It's a mask
-            # Extract contours from the mask
+            # Extract contours from the mask - use RETR_CCOMP instead of RETR_EXTERNAL to get inner contours
             mask = params['walls_to_export']
-            contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            contours, hierarchy = cv2.findContours(mask, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_SIMPLE)
+            
+            # Process contours to include both outer and inner contours
+            from src.wall_detection.detector import process_contours_with_hierarchy
+            processed_contours = process_contours_with_hierarchy(contours, hierarchy, 0, None)
+            
             foundry_walls = contours_to_foundry_walls(
-                contours,
+                processed_contours,
                 params['image_shape'],
                 simplify_tolerance=params['simplify_tolerance'],
                 max_wall_length=params['max_wall_length'],
