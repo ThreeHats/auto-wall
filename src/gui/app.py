@@ -1727,6 +1727,9 @@ class WallDetectionApp(QMainWindow):
             
             # Reset the mask layer when loading a new image to prevent dimension mismatch
             self.mask_layer = None
+            self.foundry_walls_preview = None
+
+            self.set_controls_enabled(True)
             
             # Reset button states when loading a new image
             self.export_foundry_button.setEnabled(False)
@@ -1783,6 +1786,9 @@ class WallDetectionApp(QMainWindow):
             
             # Reset the mask layer when loading a new image to prevent dimension mismatch
             self.mask_layer = None
+            self.foundry_walls_preview = None
+
+            self.set_controls_enabled(True)
             
             # Reset button states when loading a new image
             self.export_foundry_button.setEnabled(False)
