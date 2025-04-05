@@ -115,27 +115,6 @@ Reduces wall thickness:
 3. Preview the results
 4. Save or copy the wall data to clipboard
 
-## Troubleshooting
-
-### Common Issues
-
-#### Program Won't Start
-- Ensure all dependencies are installed (`pip install -r requirements.txt`)
-- Check logs in the `logs` folder for error details
-
-#### Wall Detection Not Working
-- Try adjusting Canny threshold values
-- For color detection, ensure you've selected accurate wall colors
-- Increase Min Area to filter out small artifacts
-
-#### Icon Not Showing Correctly
-Run the included `clear_icon_cache.bat` script to refresh Windows icon cache
-
-#### Missing Walls in Output
-- Try processing at full resolution (check "Process at Full Resolution")
-- Decrease Min Area to detect smaller wall segments
-- In color detection mode, increase the color threshold
-
 ## Building from Source
 
 To create an executable:
