@@ -23,6 +23,7 @@
 - **Contour Merging**: Connect and simplify wall segments
 
 ### Foundry VTT Integration (others to come?)
+- **Companion Foundry Module**: Install the [Auto Wall Companion](https://github.com/ThreeHats/auto-wall-companion) module for import/export of walls and map image
 - **Direct JSON Export**: Create wall data compatible with Foundry VTT
 - **Optimization Options**: Control wall segment length and density
 - **Grid Snapping**: Option to snap walls to grid intersections

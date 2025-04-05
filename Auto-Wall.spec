@@ -231,31 +231,22 @@ pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 exe = EXE(
     pyz,
     a.scripts,
+    a.binaries,
+    a.zipfiles,
+    a.datas,
     [],
-    exclude_binaries=True,
     name='Auto-Wall',
-    debug=False,  # Disable debug mode for production
+    debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=False,  # Disable UPX compression for the exe itself
-    console=False,  # Hide the console window in production
+    upx=False,
+    console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=icon_file,  # Add icon to the EXE
-    splash=splash_file,  # Add splash screen
-)
-
-# Modify COLLECT to add icon to the final executable
-coll = COLLECT(
-    exe,
-    a.binaries,
-    a.zipfiles,
-    a.datas,
-    strip=False,
-    upx=True,  # UPX is fine for the other files
-    upx_exclude=[],
-    name='Auto-Wall',
+    icon=icon_file,
+    splash=splash_file,
+    exclude_binaries=False,
 )
