@@ -10,8 +10,8 @@ from PyQt6.QtWidgets import (
     QScrollArea, QSizePolicy, QDialog, QDialogButtonBox, QFrame, QSpinBox, QInputDialog, QDoubleSpinBox,
     QMessageBox, QGridLayout
 )
-from PyQt6.QtCore import Qt, QPoint, QRect, QBuffer
-from PyQt6.QtGui import QPixmap, QImage, QPainter, QPen, QColor, QMouseEvent, QCursor, QClipboard, QGuiApplication, QKeySequence, QShortcut
+from PyQt6.QtCore import Qt, QPoint, QRect, QBuffer, QUrl
+from PyQt6.QtGui import QPixmap, QImage, QPainter, QPen, QColor, QMouseEvent, QCursor, QClipboard, QGuiApplication, QKeySequence, QShortcut, QDesktopServices
 import cv2
 import numpy as np
 import math
@@ -26,6 +26,7 @@ import copy
 from src.wall_detection.detector import detect_walls, draw_walls, merge_contours, split_edge_contours
 from src.wall_detection.image_utils import load_image, save_image, convert_to_rgb
 from src.wall_detection.mask_editor import create_mask_from_contours, blend_image_with_mask, draw_on_mask, export_mask_to_foundry_json, contours_to_foundry_walls, thin_contour
+from src.utils.update_checker import check_for_updates
 
 
 class InteractiveImageLabel(QLabel):
@@ -127,9 +128,14 @@ class InteractiveImageLabel(QLabel):
 
 
 class WallDetectionApp(QMainWindow):
-    def __init__(self):
+    def __init__(self, version="1.0.0", github_repo="yourusername/auto-wall"):
         super().__init__()
-        self.setWindowTitle("Auto-Wall: Battle Map Wall Detection")
+        self.app_version = version
+        self.github_repo = github_repo
+        self.update_available = False
+        self.update_url = ""
+        
+        self.setWindowTitle(f"Auto-Wall: Battle Map Wall Detection v{self.app_version}")
         
         # Get the screen size and set the window to maximize
         screen = QGuiApplication.primaryScreen().geometry()
@@ -587,6 +593,51 @@ class WallDetectionApp(QMainWindow):
         # Add keyboard shortcut for undo
         self.undo_shortcut = QShortcut(QKeySequence.StandardKey.Undo, self)
         self.undo_shortcut.activated.connect(self.undo)
+
+        # Create the update notification widget (initially hidden)
+        self.update_notification = QWidget(self)
+        self.update_notification.setObjectName("updateNotification")
+        self.update_notification.setStyleSheet("""
+            #updateNotification {
+                background-color: #0c84e4;
+                border-radius: 4px;
+                padding: 4px;
+            }
+            QLabel {
+                color: white;
+                font-weight: bold;
+            }
+        """)
+        
+        update_layout = QHBoxLayout(self.update_notification)
+        update_layout.setContentsMargins(8, 4, 8, 4)
+        
+        # Add an icon for the update notification
+        update_icon_label = QLabel()
+        update_icon = QPixmap(24, 24)
+        update_icon.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(update_icon)
+        painter.setPen(Qt.GlobalColor.white)
+        painter.setBrush(Qt.GlobalColor.white)
+        painter.drawRect(8, 4, 8, 16)
+        painter.drawPolygon([QPoint(5, 10), QPoint(12, 2), QPoint(19, 10)])
+        painter.end()
+        update_icon_label.setPixmap(update_icon)
+        update_layout.addWidget(update_icon_label)
+        
+        # Add text for the update notification
+        self.update_text = QLabel("Update Available! Click to download")
+        self.update_text.setCursor(Qt.CursorShape.PointingHandCursor)
+        update_layout.addWidget(self.update_text)
+        
+        # Position the notification in the top right corner
+        self.update_notification.setGeometry(
+            self.width() - 250, 10, 240, 40
+        )
+        self.update_notification.hide()  # Initially hidden
+        
+        # Connect the click event to open the download page
+        self.update_notification.mousePressEvent = self.open_update_url
 
     # Then add this new method:
     def reload_working_image(self):
@@ -2565,6 +2616,12 @@ class WallDetectionApp(QMainWindow):
         # If we're in foundry preview mode, redraw the preview
         if hasattr(self, 'foundry_preview_active') and self.foundry_preview_active and self.foundry_walls_preview:
             self.display_foundry_preview()
+        
+        # Update the position of the update notification
+        if hasattr(self, 'update_notification'):
+            self.update_notification.setGeometry(
+                self.width() - 250, 10, 240, 40
+            )
 
     def save_state(self):
         """Save the current state to history for undo functionality."""
@@ -2679,6 +2736,27 @@ class WallDetectionApp(QMainWindow):
                 print(f"Applied stylesheet from {style_path}")
         except Exception as e:
             print(f"Error applying stylesheet: {e}")
+
+    def check_for_updates(self):
+        """Check for updates and show notification if available."""
+        try:
+            is_update_available, latest_version, download_url = check_for_updates(
+                self.app_version, self.github_repo
+            )
+            
+            if is_update_available:
+                self.update_available = True
+                self.update_url = download_url
+                self.update_text.setText(f"Update {latest_version} Available!")
+                self.update_notification.show()
+                print(f"Update available: version {latest_version}")
+        except Exception as e:
+            print(f"Error checking for updates: {e}")
+    
+    def open_update_url(self, event):
+        """Open the update URL when the notification is clicked."""
+        if self.update_url:
+            QDesktopServices.openUrl(QUrl(self.update_url))
 
 
 if __name__ == "__main__":

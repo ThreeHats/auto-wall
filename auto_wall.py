@@ -5,6 +5,10 @@ import time
 import datetime
 import atexit
 
+# Version information - will be updated by GitHub workflow
+APP_VERSION = "0.9.0"
+GITHUB_REPO = "ThreeHats/auto-wall"
+
 # Add the project root directory to the Python path
 sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
 
@@ -79,6 +83,7 @@ def main():
     try:
         # Setup logging early
         stdout_path, stderr_path = setup_logging()
+        print(f"Auto-Wall version {APP_VERSION}")
         print(f"Logging to {stdout_path} and {stderr_path}")
         
         print("Starting Auto-Wall application...")
@@ -142,10 +147,13 @@ def main():
         # Function to show the main window and close splash
         def show_window():
             try:
-                window = WallDetectionApp()
+                window = WallDetectionApp(version=APP_VERSION, github_repo=GITHUB_REPO)
                 window.show()
                 splash.finish(window)
                 print("Window displayed successfully")
+                
+                # Start update check after window is shown
+                QTimer.singleShot(2000, window.check_for_updates)
             except Exception as e:
                 print(f"Error creating or showing window: {e}")
                 traceback.print_exc()
