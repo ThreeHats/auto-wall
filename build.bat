@@ -8,6 +8,16 @@ if "%CI%"=="true" set AUTOMATED=true
 
 echo Starting Auto-Wall build process...
 
+REM Verify icon exists and print its path
+echo Checking for icon file...
+set ICON_PATH=resources\icon.ico
+if exist "%ICON_PATH%" (
+    echo Icon found at: %CD%\%ICON_PATH%
+) else (
+    echo WARNING: Icon not found at %CD%\%ICON_PATH%
+    echo The executable will be built without an icon.
+)
+
 REM Check if PyInstaller is installed
 pip show pyinstaller >nul 2>&1
 if %ERRORLEVEL% NEQ 0 (

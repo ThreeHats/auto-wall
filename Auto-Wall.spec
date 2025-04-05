@@ -5,6 +5,19 @@ from PyInstaller.utils.hooks import collect_submodules, collect_data_files, coll
 
 block_cipher = None
 
+# Get the absolute path to the icon file directly
+icon_file = os.path.join(SPECPATH, 'resources', 'icon.ico')
+if not os.path.exists(icon_file):
+    # Try alternative path if needed
+    icon_file = os.path.abspath(os.path.join(SPECPATH, 'resources', 'icon.ico'))
+    if not os.path.exists(icon_file):
+        print(f"Warning: Icon file not found at {icon_file}")
+        icon_file = None
+    else:
+        print(f"Using icon file from absolute path: {icon_file}")
+else:
+    print(f"Using icon file from path: {icon_file}")
+
 # Explicitly collect NumPy and its dependencies
 numpy_imports = collect_submodules('numpy')
 opencv_imports = collect_submodules('cv2')
@@ -192,22 +205,24 @@ exe = EXE(
     debug=False,  # Disable debug mode for production
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,  # Enable UPX compression for smaller executable size
+    upx=False,  # Disable UPX compression for the exe itself
     console=False,  # Hide the console window in production
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    icon=icon_file,  # Add icon to the EXE
 )
 
+# Modify COLLECT to add icon to the final executable
 coll = COLLECT(
     exe,
     a.binaries,
     a.zipfiles,
     a.datas,
     strip=False,
-    upx=True,  # Enable UPX compression for smaller executable size
+    upx=True,  # UPX is fine for the other files
     upx_exclude=[],
     name='Auto-Wall',
 )
