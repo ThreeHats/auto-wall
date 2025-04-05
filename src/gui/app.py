@@ -184,9 +184,9 @@ class WallDetectionApp(QMainWindow):
         # Sliders
         self.sliders = {}
         self.add_slider("Min Area", 0, 10000, 6170)
-        self.add_slider("Blur", 1, 21, 5, step=2)
-        self.add_slider("Canny1", 0, 255, 255)
-        self.add_slider("Canny2", 0, 255, 106)
+        self.add_slider("Smoothing", 1, 21, 5, step=2)  # Changed from "Blur"
+        self.add_slider("Edge Sensitivity", 0, 255, 255)  # Changed from "Canny1"
+        self.add_slider("Edge Threshold", 0, 255, 106)  # Changed from "Canny2"
         self.add_slider("Edge Margin", 0, 50, 0)
         
         # Use a scaling factor of 10 for float values (0 to 10.0 with 0.1 precision)
@@ -479,8 +479,8 @@ class WallDetectionApp(QMainWindow):
         
         # Group edge detection settings
         self.edge_detection_widgets = []
-        self.edge_detection_widgets.append(self.sliders["Canny1"])
-        self.edge_detection_widgets.append(self.sliders["Canny2"])
+        self.edge_detection_widgets.append(self.sliders["Edge Sensitivity"])
+        self.edge_detection_widgets.append(self.sliders["Edge Threshold"])
         
         # State for color detection - now a list of colors
         self.wall_colors = []  # List to store QColor objects
@@ -1170,7 +1170,7 @@ class WallDetectionApp(QMainWindow):
             widget.setEnabled(not use_color)
             
         # Also disable blur, edge margin, and min merge distance in color detection mode
-        self.sliders["Blur"].setEnabled(not use_color)
+        self.sliders["Smoothing"].setEnabled(not use_color)
         self.sliders["Edge Margin"].setEnabled(not use_color)
             
         # Update labels to reflect active/inactive state
@@ -2060,14 +2060,14 @@ class WallDetectionApp(QMainWindow):
 
         # Get slider values
         min_area = self.sliders["Min Area"].value()
-        blur = self.sliders["Blur"].value()
+        blur = self.sliders["Smoothing"].value()  # Changed from "Blur"
         
         # Handle special case for blur=1 (no blur) and ensure odd values
         if blur > 1 and blur % 2 == 0:
-            blur += 1  # Ensure kernel size is odd when > 1
+            blur += 1
         
-        canny1 = self.sliders["Canny1"].value()
-        canny2 = self.sliders["Canny2"].value()
+        canny1 = self.sliders["Edge Sensitivity"].value()  # Changed from "Canny1"
+        canny2 = self.sliders["Edge Threshold"].value()  # Changed from "Canny2"
         edge_margin = self.sliders["Edge Margin"].value()
         
         # Get min_merge_distance as a float value
@@ -2223,12 +2223,17 @@ class WallDetectionApp(QMainWindow):
         layout = QVBoxLayout(dialog)
 
         # Simplification tolerance
-        tolerance_label = QLabel("Simplification Tolerance (0 = maintain details):")
+        tolerance_label = QLabel("Simplification Tolerance (0 = maintain full detail):")
         tolerance_input = QDoubleSpinBox()
         tolerance_input.setRange(0.0, 1.0)
         tolerance_input.setDecimals(4)
         tolerance_input.setSingleStep(0.0005)
         tolerance_input.setValue(0.0005)
+        tolerance_input.setToolTip("Controls how much wall detail is simplified:\n"
+                                  "0 = No simplification, preserves all curves and detail\n"
+                                  "0.0005 = Minor simplification, removes microscopic zigzags\n"
+                                  "0.001-0.005 = Moderate simplification, smooths small details\n"
+                                  "0.01+ = Heavy simplification, only keeps major shapes")
         layout.addWidget(tolerance_label)
         layout.addWidget(tolerance_input)
 
@@ -2238,15 +2243,23 @@ class WallDetectionApp(QMainWindow):
         max_length_input.setRange(5, 500)
         max_length_input.setSingleStep(5)
         max_length_input.setValue(50)
+        max_length_input.setToolTip("Limits the maximum length of a single wall segment:\n"
+                                   "Lower values (20-50): Creates more, shorter walls which are more adjustable in Foundry\n"
+                                   "Higher values (100+): Creates fewer, longer wall segments for better performance\n"
+                                   "This setting affects Foundry VTT performance - longer walls mean fewer total walls")
         layout.addWidget(max_length_label)
         layout.addWidget(max_length_input)
 
         # Maximum number of walls
-        max_walls_label = QLabel("Maximum Number of Walls:")
+        max_walls_label = QLabel("Maximum Number of Generation Points:")
         max_walls_input = QSpinBox()
         max_walls_input.setRange(100, 20000)
         max_walls_input.setSingleStep(100)
         max_walls_input.setValue(5000)
+        max_walls_input.setToolTip("Caps the total number of wall points generated:\n"
+                                  "Lower values (1000-3000): Better performance but may truncate complex maps\n"
+                                  "Higher values (5000+): Handles more complex maps but may impact Foundry performance\n"
+                                  "These are not the walls that will be exported, but the points used to generate them")
         layout.addWidget(max_walls_label)
         layout.addWidget(max_walls_input)
 
@@ -2257,6 +2270,11 @@ class WallDetectionApp(QMainWindow):
         merge_distance_input.setDecimals(1)
         merge_distance_input.setSingleStep(1.0)
         merge_distance_input.setValue(25.0)
+        merge_distance_input.setToolTip("Controls how close wall endpoints must be to get merged together:\n"
+                                       "0: No merging at all, keeps all endpoints separate\n"
+                                       "1-5: Minimal merging, only combines endpoints that are very close\n"
+                                       "10-25: Standard merging, fixes most small gaps between walls\n"
+                                       "25+: Aggressive merging, can close larger gaps but may connect unrelated walls")
         layout.addWidget(merge_distance_label)
         layout.addWidget(merge_distance_input)
 
@@ -2267,16 +2285,27 @@ class WallDetectionApp(QMainWindow):
         angle_tolerance_input.setDecimals(2)
         angle_tolerance_input.setSingleStep(0.5)
         angle_tolerance_input.setValue(1.0)
+        angle_tolerance_input.setToolTip("When merging straight walls, this controls how closely aligned walls must be:\n"
+                                        "0: Walls must be perfectly aligned to merge\n"
+                                        "1-2: Only merge walls with very similar angles\n"
+                                        "5+: Merge walls even if they're at slightly different angles\n"
+                                        "Higher values create fewer wall segments but can distort corners")
         layout.addWidget(angle_tolerance_label)
         layout.addWidget(angle_tolerance_input)
 
         # Maximum gap
-        max_gap_label = QLabel("Maximum Gap (coords):")
+        max_gap_label = QLabel("Maximum Straight Gap to Connect (pixels):")
         max_gap_input = QDoubleSpinBox()
-        max_gap_input.setRange(0.0, 50.0)
+        max_gap_input.setRange(0.0, 100.0)
         max_gap_input.setDecimals(1)
         max_gap_input.setSingleStep(1.0)
         max_gap_input.setValue(10.0)
+        max_gap_input.setToolTip("Maximum distance between straight walls that should be connected:\n"
+                                "This should be smaller than the smallest opening between 2 straight walls\n"
+                                "0: Don't connect straight walls\n"
+                                "1-5: Connect only very close straight walls\n"
+                                "10-20: Good for most cases\n"
+                                "20+: Aggressively connect straight walls")
         layout.addWidget(max_gap_label)
         layout.addWidget(max_gap_input)
 
@@ -2292,6 +2321,10 @@ class WallDetectionApp(QMainWindow):
         grid_size_input.setRange(0, 500)
         grid_size_input.setSingleStep(1)
         grid_size_input.setValue(0)
+        grid_size_input.setToolTip("Aligns walls to a grid of this size (in pixels):\n"
+                                  "0: No grid alignment, walls follow exact detected contours\n"
+                                  "70-100: Common grid sizes for standard VTT maps\n"
+                                  "Set this to match your Foundry scene's grid size for perfect alignment")
         grid_size_layout.addWidget(grid_size_label)
         grid_size_layout.addWidget(grid_size_input)
         layout.addLayout(grid_size_layout)
@@ -2299,7 +2332,9 @@ class WallDetectionApp(QMainWindow):
         # Allow half grid checkbox
         allow_half_grid = QCheckBox("Allow Half-Grid Positions")
         allow_half_grid.setChecked(False)
-        allow_half_grid.setToolTip("If checked, walls can snap to half-grid positions, otherwise only to full grid intersections")
+        allow_half_grid.setToolTip("When grid snapping is enabled:\n"
+                                  "Checked: Walls can align to half-grid positions (more precise)\n"
+                                  "Unchecked: Walls only align to full grid intersections (cleaner)")
         layout.addWidget(allow_half_grid)
 
         # Dialog buttons
