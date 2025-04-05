@@ -18,6 +18,14 @@ if not os.path.exists(icon_file):
 else:
     print(f"Using icon file from path: {icon_file}")
 
+# Get splash screen if it exists
+splash_file = os.path.join(SPECPATH, 'resources', 'splash.png')
+if not os.path.exists(splash_file):
+    splash_file = None
+    print(f"Note: No splash screen found at {splash_file}")
+else:
+    print(f"Using splash screen from: {splash_file}")
+
 # Explicitly collect NumPy and its dependencies
 numpy_imports = collect_submodules('numpy')
 opencv_imports = collect_submodules('cv2')
@@ -46,6 +54,10 @@ excludes = [
 extra_data_files = [
     ('src/gui/style.qss', 'src/gui')  # Make sure this path is correct
 ]
+
+# Add splash screen to data files if it exists
+if splash_file and os.path.exists(splash_file):
+    extra_data_files.append((splash_file, 'resources'))
 
 # Collect NumPy DLL files explicitly
 numpy_dlls = collect_dynamic_libs('numpy')
@@ -83,11 +95,31 @@ startup_hook_content = """
 import os
 import sys
 import traceback
+import atexit
+import datetime
 
-# Redirect stdout and stderr to files in case console is hidden
-log_dir = os.path.dirname(sys.executable)
-sys.stdout = open(os.path.join(log_dir, "stdout.log"), "w")
-sys.stderr = open(os.path.join(log_dir, "stderr.log"), "w")
+# Create logs directory if it doesn't exist
+log_dir = os.path.join(os.path.dirname(sys.executable), "logs")
+os.makedirs(log_dir, exist_ok=True)
+
+# Create log files
+stdout_path = os.path.join(log_dir, "stdout.log")
+stderr_path = os.path.join(log_dir, "stderr.log")
+
+# Redirect stdout and stderr to files (overwriting existing files)
+sys.stdout = open(stdout_path, "w", buffering=1)
+sys.stderr = open(stderr_path, "w", buffering=1)
+
+# Register cleanup function to close log files on exit
+def cleanup_logs():
+    if hasattr(sys.stdout, 'close') and sys.stdout is not sys.__stdout__:
+        sys.stdout.close()
+    if hasattr(sys.stderr, 'close') and sys.stderr is not sys.__stderr__:
+        sys.stderr.close()
+    sys.stdout = sys.__stdout__
+    sys.stderr = sys.__stderr__
+
+atexit.register(cleanup_logs)
 
 print(f"Python executable: {sys.executable}")
 print(f"Python version: {sys.version}")
@@ -99,7 +131,7 @@ print(f"_MEIPASS: {getattr(sys, '_MEIPASS', 'Not in PyInstaller bundle')}")
 def global_exception_handler(exctype, value, tb):
     error_msg = ''.join(traceback.format_exception(exctype, value, tb))
     print(f"UNCAUGHT EXCEPTION: {error_msg}")
-    with open(os.path.join(log_dir, "uncaught_exception.log"), "w") as f:
+    with open(os.path.join(log_dir, "error.log"), "w") as f:
         f.write(error_msg)
     sys.__excepthook__(exctype, value, tb)
 
@@ -213,6 +245,7 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
     icon=icon_file,  # Add icon to the EXE
+    splash=splash_file,  # Add splash screen
 )
 
 # Modify COLLECT to add icon to the final executable
