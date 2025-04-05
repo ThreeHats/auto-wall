@@ -33,8 +33,7 @@
 
 ### Windows Executable
 1. Download the latest release from the [Releases page](https://github.com/ThreeHats/auto-wall/releases)
-2. Extract the zip file to a location of your choice
-3. Run `Auto-Wall.exe`
+2. Run `Auto-Wall.exe`
 
 ### From Source
 1. Clone the repository:
