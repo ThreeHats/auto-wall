@@ -53,25 +53,6 @@ jobs:
         Copy-Item -Path "LICENSE" -Destination "dist-package/" -ErrorAction SilentlyContinue
         Compress-Archive -Path "dist-package/*" -DestinationPath "Auto-Wall.zip" -Force
         
-    - name: Generate Release Notes
-      id: generate_notes
-      run: |
-        # Get previous tag
-        PREVIOUS_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
-        
-        # If no previous tag, get all commits
-        if [ -z "$PREVIOUS_TAG" ]; then
-          COMMITS=$(git log --pretty=format:"- [%s](https://github.com/${{ github.repository }}/commit/%H)" --reverse)
-        else
-          COMMITS=$(git log --pretty=format:"- [%s](https://github.com/${{ github.repository }}/commit/%H)" ${PREVIOUS_TAG}..HEAD --reverse)
-        fi
-        
-        # Format release notes
-        FORMATTED_NOTES="## Changes\n${COMMITS}"
-        echo "RELEASE_NOTES<<EOF" >> $GITHUB_ENV
-        echo -e "${FORMATTED_NOTES}" >> $GITHUB_ENV
-        echo "EOF" >> $GITHUB_ENV
-
     - name: Create GitHub Release
       id: create_version_release
       uses: ncipollo/release-action@v1.16.0
@@ -83,4 +64,3 @@ jobs:
         token: ${{ secrets.GITHUB_TOKEN }}
         artifacts: "./dist/module.json, ./dist/module.zip"
         tag: ${{ github.ref_name }}
-        body: ${{ env.RELEASE_NOTES }}
