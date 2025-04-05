@@ -4,7 +4,7 @@
 
 **Auto-Wall** is a powerful tool for processing battle maps for virtual tabletop games. It automatically detects walls and obstacles in your maps and converts them into VTT-compatible wall data.
 
-![Preview](resources/preview.png)
+![Preview](resources/auto-wall-preview.png)
 
 [![GitHub Release](https://img.shields.io/github/v/release/ThreeHats/auto-wall?style=flat&label=Latest)](https://github.com/ThreeHats/auto-wall/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
