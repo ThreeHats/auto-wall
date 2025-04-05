@@ -10,12 +10,11 @@ import datetime
 log_dir = os.path.join(os.path.dirname(sys.executable), "logs")
 os.makedirs(log_dir, exist_ok=True)
 
-# Create timestamped log files
-timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-stdout_path = os.path.join(log_dir, f"stdout_{timestamp}.log")
-stderr_path = os.path.join(log_dir, f"stderr_{timestamp}.log")
+# Create log files
+stdout_path = os.path.join(log_dir, "stdout.log")
+stderr_path = os.path.join(log_dir, "stderr.log")
 
-# Redirect stdout and stderr to files
+# Redirect stdout and stderr to files (overwriting existing files)
 sys.stdout = open(stdout_path, "w", buffering=1)
 sys.stderr = open(stderr_path, "w", buffering=1)
 
@@ -40,7 +39,7 @@ print(f"_MEIPASS: {getattr(sys, '_MEIPASS', 'Not in PyInstaller bundle')}")
 def global_exception_handler(exctype, value, tb):
     error_msg = ''.join(traceback.format_exception(exctype, value, tb))
     print(f"UNCAUGHT EXCEPTION: {error_msg}")
-    with open(os.path.join(log_dir, f"uncaught_exception_{timestamp}.log"), "w") as f:
+    with open(os.path.join(log_dir, "error.log"), "w") as f:
         f.write(error_msg)
     sys.__excepthook__(exctype, value, tb)
 

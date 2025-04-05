@@ -50,7 +50,7 @@ if %ERRORLEVEL% NEQ 0 (
     exit /b 1
 )
 
-echo Build complete! Executable is in the dist/Auto-Wall folder.
+echo Build complete! Executable is in the dist folder.
 
 REM Only show pause in interactive mode
 if "%AUTOMATED%"=="false" (
