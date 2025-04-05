@@ -52,12 +52,6 @@ jobs:
         Copy-Item -Path "README.md" -Destination "dist-package/" -ErrorAction SilentlyContinue
         Copy-Item -Path "LICENSE" -Destination "dist-package/" -ErrorAction SilentlyContinue
         Compress-Archive -Path "dist-package/*" -DestinationPath "Auto-Wall.zip" -Force
-      
-    - name: Upload artifact
-      uses: actions/upload-artifact@v2
-      with:
-        name: Auto-Wall
-        path: Auto-Wall.zip
         
     - name: Generate Release Notes
       id: generate_notes
