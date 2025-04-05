@@ -6,6 +6,11 @@ on:
       - '*.*.*'  # Run when a version tag is pushed
   workflow_dispatch:  # Allow manual triggering
 
+permissions:
+  contents: write
+  discussions: write
+  packages: write
+
 jobs:
   build:
     runs-on: windows-latest
@@ -34,6 +39,8 @@ jobs:
         $CONTENT = Get-Content -Path $FILE -Raw
         $NEW_CONTENT = $CONTENT -replace 'APP_VERSION = ".*"', "APP_VERSION = ""$VERSION"""
         Set-Content -Path $FILE -Value $NEW_CONTENT -Force
+        # save the version for later use
+        echo "version=$VERSION" >> $GITHUB_ENV
     
     - name: Install dependencies
       run: |
@@ -58,7 +65,7 @@ jobs:
       uses: ncipollo/release-action@v1.16.0
       with:
         allowUpdates: false
-        name: Release ${{ steps.get_version.outputs.version }}
+        name: Release ${{ env.version }}
         draft: false
         prerelease: false
         token: ${{ secrets.GITHUB_TOKEN }}
