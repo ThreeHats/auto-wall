@@ -12,7 +12,7 @@ jobs:
     
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v4
+      uses: actions/checkout@v3
     
     - name: Set up Python
       uses: actions/setup-python@v4
@@ -54,13 +54,39 @@ jobs:
         Compress-Archive -Path "dist-package/*" -DestinationPath "Auto-Wall.zip" -Force
       
     - name: Upload artifact
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v2
       with:
         name: Auto-Wall
         path: Auto-Wall.zip
         
-    - name: Upload to release
-      if: startsWith(github.ref, 'refs/tags/v')
-      uses: softprops/action-gh-release@v1
+    - name: Generate Release Notes
+      id: generate_notes
+      run: |
+        # Get previous tag
+        PREVIOUS_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+        
+        # If no previous tag, get all commits
+        if [ -z "$PREVIOUS_TAG" ]; then
+          COMMITS=$(git log --pretty=format:"- [%s](https://github.com/${{ github.repository }}/commit/%H)" --reverse)
+        else
+          COMMITS=$(git log --pretty=format:"- [%s](https://github.com/${{ github.repository }}/commit/%H)" ${PREVIOUS_TAG}..HEAD --reverse)
+        fi
+        
+        # Format release notes
+        FORMATTED_NOTES="## Changes\n${COMMITS}"
+        echo "RELEASE_NOTES<<EOF" >> $GITHUB_ENV
+        echo -e "${FORMATTED_NOTES}" >> $GITHUB_ENV
+        echo "EOF" >> $GITHUB_ENV
+
+    - name: Create GitHub Release
+      id: create_version_release
+      uses: ncipollo/release-action@v1.16.0
       with:
-        files: Auto-Wall.zip
+        allowUpdates: false
+        name: Release ${{ steps.get_version.outputs.version }}
+        draft: false
+        prerelease: false
+        token: ${{ secrets.GITHUB_TOKEN }}
+        artifacts: "./dist/module.json, ./dist/module.zip"
+        tag: ${{ github.ref_name }}
+        body: ${{ env.RELEASE_NOTES }}
