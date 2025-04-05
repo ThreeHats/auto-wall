@@ -69,5 +69,5 @@ jobs:
         draft: false
         prerelease: false
         token: ${{ secrets.GITHUB_TOKEN }}
-        artifacts: "./dist/module.json, ./dist/module.zip"
+        artifacts: "Auto-Wall.zip, ./dist/Auto-Wall.exe"
         tag: ${{ github.ref_name }}
