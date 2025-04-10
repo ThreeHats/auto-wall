@@ -43,11 +43,6 @@ def detect_walls(image, min_contour_area=100, max_contour_area=None, blur_kernel
         # Create a mask that combines all specified colors with their thresholds
         color_mask = create_multi_color_mask(image, wall_colors)
         
-        # Save debug visualization
-        debug_image = image.copy()
-        debug_image[color_mask == 0] = [0, 0, 255]  # Color non-matching areas red
-        cv2.imwrite("wall_color_mask_debug.png", debug_image)
-        
         # Find contours directly on the color mask
         # Changed from RETR_EXTERNAL to RETR_CCOMP to detect holes/interior walls
         color_contours, hierarchy = cv2.findContours(color_mask, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_SIMPLE)
