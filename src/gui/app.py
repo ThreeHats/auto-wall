@@ -920,15 +920,15 @@ class WallDetectionApp(QMainWindow):
                 erase=not self.drawing_mode
             )
             
-            # Clear the brush preview while actively drawing
-            self.brush_preview_active = False
+            # Keep the brush preview active while drawing
+            self.brush_preview_active = True
             
             # Initialize drawing throttling variables
             self.drawing_update_counter = 0
             self.drawing_update_threshold = 2  # Update display every N points
             
-            # Update display
-            self.update_display_with_mask()
+            # Update display with brush preview
+            self.update_display_with_brush(img_x, img_y)
         elif self.current_tool == "fill":
             # For fill tool, perform flood fill immediately
             self.perform_fill(img_x, img_y)
@@ -990,11 +990,13 @@ class WallDetectionApp(QMainWindow):
             # Store the current position for next segment
             self.last_drawing_position = (img_x2, img_y2)
             
-            # Throttle display updates
-            self.drawing_update_counter += 1
-            if self.drawing_update_counter >= self.drawing_update_threshold:
-                self.drawing_update_counter = 0
-                self.update_display_with_mask()
+            # Update display with brush preview at current position
+            # This shows the brush outline during drawing
+            self.update_display_with_brush(img_x2, img_y2)
+            
+            # Reset drawing throttling counter since we're updating on every move now
+            self.drawing_update_counter = 0
+            
         elif self.current_tool != "fill" and self.drawing_start_pos is not None:
             # For shape tools, continuously update the preview
             self.update_shape_preview(img_x2, img_y2)
@@ -2878,6 +2880,24 @@ class WallDetectionApp(QMainWindow):
         """Open the update URL when the notification is clicked."""
         if self.update_url:
             QDesktopServices.openUrl(QUrl(self.update_url))
+
+    def update_display_with_brush(self, img_x, img_y):
+        """Update the display with both the mask and brush outline at current position."""
+        if self.current_image is None or self.mask_layer is None:
+            return
+        
+        # Create the blended image (original + current mask)
+        blended_image = blend_image_with_mask(self.current_image, self.mask_layer)
+        
+        # Draw brush outline with different colors for draw/erase mode
+        color = (0, 255, 0) if self.draw_radio.isChecked() else (0, 0, 255)  # Green for draw, Red for erase
+        cv2.circle(blended_image, (img_x, img_y), self.brush_size, color, 1)
+        
+        # Store this as our preview image
+        self.last_preview_image = blended_image.copy()
+        
+        # Display the image with brush preview
+        self.display_image(blended_image)
 
 
 if __name__ == "__main__":
