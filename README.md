@@ -36,7 +36,7 @@
 ## Installation
 
 ### Windows Executable
-1. Download the latest release from the [Releases page](https://github.com/ThreeHats/auto-wall/releases)
+1. Download the latest release from [auto-wall-vtt.com](auto-wall-vtt.com) or the [Releases page](https://github.com/ThreeHats/auto-wall/releases)
 2. Run `Auto-Wall.exe`
 
 ### From Source
