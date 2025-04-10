@@ -9,6 +9,8 @@
 [![GitHub Release](https://img.shields.io/github/v/release/ThreeHats/auto-wall?style=flat&label=Latest)](https://github.com/ThreeHats/auto-wall/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
+[Discord server](https://discord.gg/HUzEnZy8uJ)
+
 ## Features
 
 ### Automated Wall Detection
