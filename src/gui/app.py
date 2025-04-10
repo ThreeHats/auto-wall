@@ -1217,12 +1217,28 @@ class WallDetectionApp(QMainWindow):
             return
             
         if self.deletion_mode_enabled:
-            # Check if click is inside or on a contour - if so, handle as single click
+            # Check if click is on a contour edge
+            min_distance = float('inf')
+            found_contour_index = -1
+            
             for i, contour in enumerate(self.current_contours):
-                if cv2.pointPolygonTest(contour, (img_x, img_y), False) >= 0:
-                    self.handle_deletion_click(x, y)
-                    return
+                contour_points = contour.reshape(-1, 2)
+                
+                for j in range(len(contour_points)):
+                    p1 = contour_points[j]
+                    p2 = contour_points[(j + 1) % len(contour_points)]
+                    distance = self.point_to_line_distance(img_x, img_y, p1[0], p1[1], p2[0], p2[1])
                     
+                    # If point is close enough to a line segment
+                    if distance < 5 and distance < min_distance:  # Threshold for line detection (pixels)
+                        min_distance = distance
+                        found_contour_index = i
+            
+            # If click is on a contour edge, handle as single click
+            if found_contour_index != -1:
+                self.handle_deletion_click(x, y)
+                return
+                
             # Otherwise, start a selection
             self.selecting = True
             self.selection_start_img = (img_x, img_y)
@@ -1235,12 +1251,28 @@ class WallDetectionApp(QMainWindow):
             self.color_selection_start = (img_x, img_y)
             self.color_selection_current = (img_x, img_y)
         elif self.thin_mode_enabled:
-            # Check if click is inside a contour - if so, handle as single click for thinning
+            # Check if click is on a contour edge
+            min_distance = float('inf')
+            found_contour_index = -1
+            
             for i, contour in enumerate(self.current_contours):
-                if cv2.pointPolygonTest(contour, (img_x, img_y), False) >= 0:
-                    self.handle_thinning_click(x, y)
-                    return
+                contour_points = contour.reshape(-1, 2)
+                
+                for j in range(len(contour_points)):
+                    p1 = contour_points[j]
+                    p2 = contour_points[(j + 1) % len(contour_points)]
+                    distance = self.point_to_line_distance(img_x, img_y, p1[0], p1[1], p2[0], p2[1])
                     
+                    # If point is close enough to a line segment
+                    if distance < 5 and distance < min_distance:  # Threshold for line detection (pixels)
+                        min_distance = distance
+                        found_contour_index = i
+            
+            # If click is on a contour edge, handle as single click
+            if found_contour_index != -1:
+                self.handle_thinning_click(x, y)
+                return
+                
             # Otherwise, start a selection for thinning multiple contours
             self.selecting = True
             self.selection_start_img = (img_x, img_y)
@@ -1286,18 +1318,45 @@ class WallDetectionApp(QMainWindow):
         cv2.rectangle(overlay, (x1, y1), (x2, y2), (0, 100, 200), -1)
         cv2.addWeighted(overlay, 0.3, self.processed_image, 0.7, 0, self.processed_image)
         
-        # Find and highlight contours within the selection
+        # Find and highlight contours within the selection - only using edge detection
         self.selected_contour_indices = []
         
         for i, contour in enumerate(self.current_contours):
-            # Check if contour is at least partially within selection rectangle
-            for point in contour:
-                px, py = point[0]
-                if x1 <= px <= x2 and y1 <= py <= y2:
+            contour_points = contour.reshape(-1, 2)
+            for j in range(len(contour_points)):
+                p1 = contour_points[j]
+                p2 = contour_points[(j + 1) % len(contour_points)]
+                
+                # Check if any part of this line segment is in the selection rectangle
+                # First check if either endpoint is in the rectangle
+                if ((x1 <= p1[0] <= x2 and y1 <= p1[1] <= y2) or 
+                    (x1 <= p2[0] <= x2 and y1 <= p2[1] <= y2)):
                     self.selected_contour_indices.append(i)
                     # Highlight with different colors based on mode
                     highlight_color = (0, 0, 255) if self.deletion_mode_enabled else (255, 0, 255)  # Red for delete, Magenta for thin
                     cv2.drawContours(self.processed_image, [contour], 0, highlight_color, 2)
+                    break
+                
+                # If neither endpoint is in the rectangle, check if the line intersects the rectangle
+                # by checking against all four edges of the rectangle
+                rect_edges = [
+                    ((x1, y1), (x2, y1)),  # Top edge
+                    ((x2, y1), (x2, y2)),  # Right edge
+                    ((x2, y2), (x1, y2)),  # Bottom edge
+                    ((x1, y2), (x1, y1))   # Left edge
+                ]
+                
+                for rect_p1, rect_p2 in rect_edges:
+                    if self.line_segments_intersect(p1[0], p1[1], p2[0], p2[1], 
+                                                  rect_p1[0], rect_p1[1], rect_p2[0], rect_p2[1]):
+                        self.selected_contour_indices.append(i)
+                        # Highlight with different colors based on mode
+                        highlight_color = (0, 0, 255) if self.deletion_mode_enabled else (255, 0, 255)
+                        cv2.drawContours(self.processed_image, [contour], 0, highlight_color, 2)
+                        break
+                
+                # If we've already added this contour, no need to check more line segments
+                if i in self.selected_contour_indices:
                     break
                     
         # Display the updated image
@@ -1483,32 +1542,23 @@ class WallDetectionApp(QMainWindow):
             self.clear_hover()
             return
             
-        # Find the contour under the cursor
+        # Find the contour under the cursor - only check edges
         found_index = -1
+        min_distance = float('inf')
         
-        # First check if cursor is inside any contour
+        # Check if cursor is on a contour edge
         for i, contour in enumerate(self.current_contours):
-            if cv2.pointPolygonTest(contour, (img_x, img_y), False) >= 0:
-                found_index = i
-                break
+            contour_points = contour.reshape(-1, 2)
+            
+            for j in range(len(contour_points)):
+                p1 = contour_points[j]
+                p2 = contour_points[(j + 1) % len(contour_points)]
+                distance = self.point_to_line_distance(img_x, img_y, p1[0], p1[1], p2[0], p2[1])
                 
-        # If not inside any contour, check if cursor is on a line
-        if found_index == -1:
-            for i, contour in enumerate(self.current_contours):
-                contour_points = contour.reshape(-1, 2)
-                
-                for j in range(len(contour_points)):
-                    p1 = contour_points[j]
-                    p2 = contour_points[(j + 1) % len(contour_points)]
-                    distance = self.point_to_line_distance(img_x, img_y, p1[0], p1[1], p2[0], p2[1])
-                    
-                    # If point is close enough to a line segment
-                    if distance < 5:  # Threshold for line detection (pixels)
-                        found_index = i
-                        break
-                        
-                if found_index != -1:
-                    break
+                # If point is close enough to a line segment and closer than any previous match
+                if distance < 5 and distance < min_distance:  # Threshold for line detection (pixels)
+                    min_distance = distance
+                    found_index = i
         
         # Update highlight if needed
         if found_index != self.highlighted_contour_index:
@@ -1601,34 +1651,31 @@ class WallDetectionApp(QMainWindow):
             self.highlighted_contour_index = -1  # Reset highlight
             self.update_display_from_contours()
             return
-            
-        # First, check if click is inside any contour
-        for i, contour in enumerate(self.current_contours):
-            if cv2.pointPolygonTest(contour, (img_x, img_y), False) >= 0:
-                # Click is inside this contour - delete it
-                print(f"Deleting contour {i} (area: {cv2.contourArea(contour)})")
-                self.current_contours.pop(i)
-                self.update_display_from_contours()
-                return
         
-        # If not inside any contour, check if click is on a line
+        # Find contours where the click is on or near an edge
+        min_distance = float('inf')
+        closest_contour_index = -1
+        
+        # Check if click is on or near a contour edge
         for i, contour in enumerate(self.current_contours):
-            # Check distance to each line segment in contour
             contour_points = contour.reshape(-1, 2)
-            min_distance = float('inf')
             
             for j in range(len(contour_points)):
                 p1 = contour_points[j]
                 p2 = contour_points[(j + 1) % len(contour_points)]
                 distance = self.point_to_line_distance(img_x, img_y, p1[0], p1[1], p2[0], p2[1])
-                min_distance = min(min_distance, distance)
                 
                 # If point is close enough to a line segment
-                if min_distance < 5:  # Threshold for line detection (pixels)
-                    print(f"Deleting contour {i} (line clicked)")
-                    self.current_contours.pop(i)
-                    self.update_display_from_contours()
-                    return
+                if distance < 5 and distance < min_distance:  # Threshold for line detection (pixels)
+                    min_distance = distance
+                    closest_contour_index = i
+        
+        # If click is on or near an edge, delete that contour
+        if closest_contour_index != -1:
+            print(f"Deleting contour {closest_contour_index} (edge clicked)")
+            self.current_contours.pop(closest_contour_index)
+            self.update_display_from_contours()
+            return
 
     # Thinning methods
     def thin_selected_contour(self, contour):
@@ -1698,15 +1745,32 @@ class WallDetectionApp(QMainWindow):
             self.update_display_from_contours()
             return
             
-        # First, check if click is inside any contour
+        # Find contours where the click is on or near an edge
+        min_distance = float('inf')
+        closest_contour_index = -1
+        
+        # Check if click is on or near a contour edge
         for i, contour in enumerate(self.current_contours):
-            if cv2.pointPolygonTest(contour, (img_x, img_y), False) >= 0:
-                # Click is inside this contour - thin it
-                print(f"Thinning contour {i}")
-                thinned_contour = self.thin_selected_contour(contour)
-                self.current_contours[i] = thinned_contour
-                self.update_display_from_contours()
-                return
+            contour_points = contour.reshape(-1, 2)
+            
+            for j in range(len(contour_points)):
+                p1 = contour_points[j]
+                p2 = contour_points[(j + 1) % len(contour_points)]
+                distance = self.point_to_line_distance(img_x, img_y, p1[0], p1[1], p2[0], p2[1])
+                
+                # If point is close enough to a line segment
+                if distance < 5 and distance < min_distance:  # Threshold for line detection (pixels)
+                    min_distance = distance
+                    closest_contour_index = i
+        
+        # If click is on or near an edge, thin that contour
+        if closest_contour_index != -1:
+            print(f"Thinning contour {closest_contour_index} (edge clicked)")
+            contour = self.current_contours[closest_contour_index]
+            thinned_contour = self.thin_selected_contour(contour)
+            self.current_contours[closest_contour_index] = thinned_contour
+            self.update_display_from_contours()
+            return
 
     def thin_contour(self, contour):
         """Thin a single contour using morphological thinning."""
@@ -1734,7 +1798,29 @@ class WallDetectionApp(QMainWindow):
         # Calculate distance to line
         proj_x = x1 + t * (x2 - x1)
         proj_y = y1 + t * (y2 - y1)
-        return math.sqrt((x - proj_x) ** 2 + (y - proj_y) ** 2)
+        return math.sqrt((x - proj_x) ** 2 + (y - y1) ** 2)
+
+    def line_segments_intersect(self, x1, y1, x2, y2, x3, y3, x4, y4):
+        """Check if two line segments (x1,y1)-(x2,y2) and (x3,y3)-(x4,y4) intersect."""
+        # Calculate the direction vectors
+        dx1 = x2 - x1
+        dy1 = y2 - y1
+        dx2 = x4 - x3
+        dy2 = y4 - y3
+        
+        # Calculate the determinant
+        d = dx1 * dy2 - dy1 * dx2
+        
+        # If determinant is zero, lines are parallel and don't intersect
+        if d == 0:
+            return False
+            
+        # Calculate the parameters for the intersection point
+        t1 = ((x3 - x1) * dy2 - (y3 - y1) * dx2) / d
+        t2 = ((x1 - x3) * dy1 - (y1 - y3) * dx1) / (-d)
+        
+        # Check if the intersection point lies on both line segments
+        return 0 <= t1 <= 1 and 0 <= t2 <= 1
 
     def update_display_from_contours(self):
         """Update the display with the current contours."""
