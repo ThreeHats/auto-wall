@@ -14,7 +14,7 @@
 ### Automated Wall Detection
 - **Edge Detection**: Automatically finds walls using edge detection algorithms
 - **Color-Based Detection**: Extract walls based on specific colors
-- **Adjustable Parameters**: Fine-tune detection sensitivity and results
+- **Adjustable Detection Parameters**: Fine-tune detection sensitivity and results
 - **High-Resolution Processing**: Option to process at full resolution for more accurate results
 
 ### Editing and Refinement
