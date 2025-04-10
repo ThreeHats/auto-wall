@@ -2289,7 +2289,8 @@ class WallDetectionApp(QMainWindow):
         else:
             image_shape = self.current_image.shape
             
-        if self.mask_layer is not None and self.edit_mask_mode_enabled:
+        # Always use the mask_layer if it exists, regardless of current mode
+        if self.mask_layer is not None:
             # Extract contours from the mask - use alpha channel to determine walls
             alpha_mask = self.mask_layer[:, :, 3].copy()
             
