@@ -183,7 +183,8 @@ class WallDetectionApp(QMainWindow):
 
         # Sliders
         self.sliders = {}
-        self.add_slider("Min Area", 0, 10000, 6170)
+        # Min Area is now a percentage (0.0001% to 1% of image area)
+        self.add_slider("Min Area", 1, 25000, 100, scale_factor=0.001)  # Default 0.1%
         self.add_slider("Smoothing", 1, 21, 5, step=2)  # Changed from "Blur"
         self.add_slider("Edge Sensitivity", 0, 255, 255)  # Changed from "Canny1"
         self.add_slider("Edge Threshold", 0, 255, 106)  # Changed from "Canny2"
@@ -2147,21 +2148,25 @@ class WallDetectionApp(QMainWindow):
             return
 
         # Get slider values
-        min_area = self.sliders["Min Area"].value()
-        blur = self.sliders["Smoothing"].value()  # Changed from "Blur"
+        min_area_percentage = self.sliders["Min Area"].value() * 0.001  # Convert to percentage (0.001% to 1%)
+        blur = self.sliders["Smoothing"].value()
         
         # Handle special case for blur=1 (no blur) and ensure odd values
         if blur > 1 and blur % 2 == 0:
             blur += 1
         
-        canny1 = self.sliders["Edge Sensitivity"].value()  # Changed from "Canny1"
-        canny2 = self.sliders["Edge Threshold"].value()  # Changed from "Canny2"
+        canny1 = self.sliders["Edge Sensitivity"].value()
+        canny2 = self.sliders["Edge Threshold"].value()
         edge_margin = self.sliders["Edge Margin"].value()
         
         # Get min_merge_distance as a float value
         min_merge_distance = self.sliders["Min Merge Distance"].value() * 0.1
         
-        # Adjust area thresholds based on scale factor (for downscaled processing)
+        # Calculate min area based on image dimensions and percentage
+        image_area = self.current_image.shape[0] * self.current_image.shape[1]
+        min_area = int(image_area * min_area_percentage / 100.0)  # Convert from percentage to actual area
+        
+        # If we're working with a scaled image, the min area needs to be scaled too
         if self.scale_factor != 1.0:
             working_min_area = int(min_area * self.scale_factor * self.scale_factor)
         else:
@@ -2191,7 +2196,7 @@ class WallDetectionApp(QMainWindow):
             print(f"Using {len(wall_colors_with_thresholds)} colors for detection with individual thresholds")
         
         # Debug output of parameters
-        print(f"Parameters: min_area={min_area} (working: {working_min_area}), "
+        print(f"Parameters: min_area={min_area} (working: {working_min_area}, {min_area_percentage:.4f}% of image), "
               f"blur={blur}, canny1={canny1}, canny2={canny2}, edge_margin={edge_margin}")
 
         # Process the image directly with detect_walls
@@ -2203,8 +2208,8 @@ class WallDetectionApp(QMainWindow):
             canny_threshold1=canny1,
             canny_threshold2=canny2,
             edge_margin=edge_margin,
-            wall_colors=wall_colors_with_thresholds,  # Now includes per-color thresholds
-            color_threshold=default_threshold  # Kept for backward compatibility
+            wall_colors=wall_colors_with_thresholds,
+            color_threshold=default_threshold
         )
         
         print(f"Detected {len(contours)} contours before merging")
@@ -2224,27 +2229,27 @@ class WallDetectionApp(QMainWindow):
 
         # Split contours that touch image edges AFTER area filtering, but only if not in color detection mode
         if not self.use_color_detection.isChecked():
-          split_contours = split_edge_contours(self.current_image, contours)
+            split_contours = split_edge_contours(self.current_image, contours)
 
-          # Use a much lower threshold for split contours to keep them all
-          # Use absolute minimum value instead of relative to min_area
-          min_split_area = 5.0 * (self.scale_factor * self.scale_factor)  # Scale with image
-          filtered_contours = []
-          
-          # Keep track of how many contours were kept vs filtered
-          kept_count = 0
-          filtered_count = 0
-          
-          for contour in split_contours:
-              area = cv2.contourArea(contour)
-              if area >= min_split_area:
-                  filtered_contours.append(contour)
-                  kept_count += 1
-              else:
-                  filtered_count += 1
-          
-          contours = filtered_contours
-          print(f"After edge splitting: kept {kept_count}, filtered {filtered_count} tiny fragments")
+            # Use a much lower threshold for split contours to keep them all
+            # Use absolute minimum value instead of relative to min_area
+            min_split_area = 5.0 * (self.scale_factor * self.scale_factor)  # Scale with image
+            filtered_contours = []
+            
+            # Keep track of how many contours were kept vs filtered
+            kept_count = 0
+            filtered_count = 0
+            
+            for contour in split_contours:
+                area = cv2.contourArea(contour)
+                if area >= min_split_area:
+                    filtered_contours.append(contour)
+                    kept_count += 1
+                else:
+                    filtered_count += 1
+            
+            contours = filtered_contours
+            print(f"After edge splitting: kept {kept_count}, filtered {filtered_count} tiny fragments")
 
         # Save the current contours for interactive editing
         self.current_contours = contours
