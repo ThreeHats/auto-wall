@@ -85,7 +85,7 @@ class InteractiveImageLabel(QLabel):
                     self.parent_app.update_selection(x, y)
             # Just hovering - this always runs for any mouse movement
             else:
-                if self.parent_app.deletion_mode_enabled:
+                if self.parent_app.deletion_mode_enabled or self.parent_app.thin_mode_enabled:
                     self.parent_app.handle_hover(pos.x(), pos.y())
                 elif self.parent_app.edit_mask_mode_enabled:
                     # Always update brush preview when hovering in edit mask mode
@@ -119,7 +119,7 @@ class InteractiveImageLabel(QLabel):
     def leaveEvent(self, event):
         """Handle mouse leaving the widget."""
         if self.parent_app:
-            if self.parent_app.deletion_mode_enabled:
+            if self.parent_app.deletion_mode_enabled or self.parent_app.thin_mode_enabled:
                 self.parent_app.clear_hover()
             elif self.parent_app.edit_mask_mode_enabled:
                 # Clear brush preview when mouse leaves the widget
@@ -1798,7 +1798,7 @@ class WallDetectionApp(QMainWindow):
         # Calculate distance to line
         proj_x = x1 + t * (x2 - x1)
         proj_y = y1 + t * (y2 - y1)
-        return math.sqrt((x - proj_x) ** 2 + (y - y1) ** 2)
+        return math.sqrt((x - proj_x) ** 2 + (y - proj_y) ** 2)
 
     def line_segments_intersect(self, x1, y1, x2, y2, x3, y3, x4, y4):
         """Check if two line segments (x1,y1)-(x2,y2) and (x3,y3)-(x4,y4) intersect."""
