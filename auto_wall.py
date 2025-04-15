@@ -6,7 +6,7 @@ import datetime
 import atexit
 
 # Version information - will be updated by GitHub workflow
-APP_VERSION = "0.9.5"
+APP_VERSION = "0.9.7"
 GITHUB_REPO = "ThreeHats/auto-wall"
 
 # Add the project root directory to the Python path
