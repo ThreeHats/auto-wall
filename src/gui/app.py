@@ -128,7 +128,7 @@ class InteractiveImageLabel(QLabel):
 
 
 class WallDetectionApp(QMainWindow):
-    def __init__(self, version="1.0.0", github_repo="yourusername/auto-wall"):
+    def __init__(self, version="0.9.0", github_repo="ThreeHats/auto-wall"):
         super().__init__()
         self.app_version = version
         self.github_repo = github_repo
@@ -640,7 +640,7 @@ class WallDetectionApp(QMainWindow):
         # Connect the click event to open the download page
         self.update_notification.mousePressEvent = self.open_update_url
 
-    # Then add this new method:
+    # app
     def reload_working_image(self):
         """Reload the working image when resolution setting changes."""
         if self.original_image is None:
@@ -653,6 +653,7 @@ class WallDetectionApp(QMainWindow):
         # Update the image with new resolution
         self.update_image()
 
+    # app
     def add_slider(self, label, min_val, max_val, initial_val, step=1, scale_factor=None):
         """Add a slider with a label."""
         slider_layout = QHBoxLayout()
@@ -685,6 +686,7 @@ class WallDetectionApp(QMainWindow):
 
         self.sliders[label] = slider
 
+    # app
     def update_slider(self, label, label_text, value, scale_factor=None):
         """Update the slider label."""
         if scale_factor:
@@ -693,6 +695,7 @@ class WallDetectionApp(QMainWindow):
         else:
             label.setText(f"{label_text}: {value}")
 
+    # app
     def toggle_mode(self):
         """Toggle between detection, deletion, color selection, edit mask, and thinning modes."""
         # Check if we need to save state before mode changes
@@ -778,6 +781,7 @@ class WallDetectionApp(QMainWindow):
         else:
             setattr(self, 'last_drawing_position', None)
 
+    # drawing
     def update_brush_size(self, value):
         """Update the brush size."""
         self.brush_size = value
@@ -790,6 +794,7 @@ class WallDetectionApp(QMainWindow):
             if self.image_label.rect().contains(cursor_pos):
                 self.update_brush_preview(cursor_pos.x(), cursor_pos.y())
 
+    # drawing
     def update_brush_preview(self, x, y):
         """Show a preview of the brush outline at the current mouse position."""
         if not self.edit_mask_mode_enabled or self.current_image is None:
@@ -830,6 +835,7 @@ class WallDetectionApp(QMainWindow):
             # Display the preview
             self.display_image(preview_image)
 
+    # drawing
     def clear_brush_preview(self):
         """Clear the brush preview when mouse leaves the widget."""
         self.brush_preview_active = False
@@ -842,6 +848,7 @@ class WallDetectionApp(QMainWindow):
             # Restore the original image
             self.display_image(self.original_processed_image)
 
+    # app
     def create_empty_mask(self):
         """Create an empty transparent mask layer."""
         if self.current_image is None:
@@ -851,6 +858,7 @@ class WallDetectionApp(QMainWindow):
         # Create a transparent mask (4th channel is alpha, all 0 = fully transparent)
         self.mask_layer = np.zeros((height, width, 4), dtype=np.uint8)
 
+    # app
     def bake_contours_to_mask(self):
         """Bake the current contours to the mask layer."""
         if self.current_image is None or not self.current_contours:
@@ -875,6 +883,7 @@ class WallDetectionApp(QMainWindow):
         # Update display
         self.update_display_with_mask()
 
+    # app
     def update_display_with_mask(self):
         """Update the display to show the image with the mask overlay."""
         if self.current_image is None or self.mask_layer is None:
@@ -892,6 +901,7 @@ class WallDetectionApp(QMainWindow):
         # Important: Also update the processed_image
         self.processed_image = display_image.copy()
 
+    # drawing
     def start_drawing(self, x, y):
         """Start drawing on the mask at the given point."""
         if self.mask_layer is None:
@@ -938,6 +948,7 @@ class WallDetectionApp(QMainWindow):
             self.drawing_start_pos = (img_x, img_y)
             self.temp_drawing = self.mask_layer.copy()
 
+    # drawing
     def continue_drawing(self, x1, y1, x2, y2):
         """Continue drawing on the mask between two points (optimized)."""
         # Convert display coordinates to image coordinates
@@ -1002,6 +1013,7 @@ class WallDetectionApp(QMainWindow):
             # For shape tools, continuously update the preview
             self.update_shape_preview(img_x2, img_y2)
 
+    # drawing
     def end_drawing(self):
         """End drawing on the mask."""
         # For brush tool
@@ -1028,6 +1040,7 @@ class WallDetectionApp(QMainWindow):
         if self.image_label.rect().contains(cursor_pos):
             self.update_brush_preview(cursor_pos.x(), cursor_pos.y())
 
+    # drawing
     def update_shape_preview(self, img_x2, img_y2):
         """Update the preview for shape drawing tools."""
         if self.drawing_start_pos is None or self.temp_drawing is None:
@@ -1094,6 +1107,7 @@ class WallDetectionApp(QMainWindow):
         # Update display
         self.update_display_with_mask()
 
+    # drawing
     def finalize_shape(self):
         """Finalize the shape being drawn."""
         # The shape is already in the mask_layer from update_shape_preview
@@ -1102,6 +1116,7 @@ class WallDetectionApp(QMainWindow):
             # No need to do anything else, the mask is already updated
             pass
 
+    # drawing
     def perform_fill(self, img_x, img_y):
         """Perform flood fill on the mask."""
         if self.mask_layer is None:
@@ -1146,6 +1161,7 @@ class WallDetectionApp(QMainWindow):
         # Update display
         self.update_display_with_mask()
 
+    # drawing
     def update_drawing_tool(self, checked):
         """Update the current drawing tool based on radio button selection."""
         if not checked:
@@ -1166,6 +1182,7 @@ class WallDetectionApp(QMainWindow):
         
         self.setStatusTip(f"Using {self.current_tool} tool")
 
+    # app
     def toggle_detection_mode(self, use_color):
         """Toggle between color-based and edge detection modes."""
         # Enable/disable edge detection settings based on color detection mode
@@ -1188,6 +1205,7 @@ class WallDetectionApp(QMainWindow):
         if self.current_image is not None:
             self.update_image()
 
+    # app
     def clear_selection(self):
         """Clear the current selection."""
         # Also check if we're in Foundry preview mode
@@ -1211,6 +1229,7 @@ class WallDetectionApp(QMainWindow):
             self.processed_image = self.original_processed_image.copy()
             self.display_image(self.processed_image)
 
+    # app
     def start_selection(self, x, y):
         """Start a selection rectangle at the given coordinates."""
         # Convert to image coordinates
@@ -1282,6 +1301,7 @@ class WallDetectionApp(QMainWindow):
             self.selection_current_img = (img_x, img_y)
             self.selected_contour_indices = []
 
+    # app
     def update_selection(self, x, y):
         """Update the current selection rectangle to the given coordinates."""
         # Convert to image coordinates
@@ -1301,6 +1321,7 @@ class WallDetectionApp(QMainWindow):
             self.selection_current_img = (img_x, img_y)
             self.update_selection_display()
 
+    # app
     def update_selection_display(self):
         """Update the display with the selection rectangle and highlighted contours."""
         if not self.selecting or self.original_processed_image is None:
@@ -1365,6 +1386,7 @@ class WallDetectionApp(QMainWindow):
         # Display the updated image
         self.display_image(self.processed_image)
 
+    # color
     def update_color_selection_display(self):
         """Update the display with the color selection rectangle."""
         if not self.selecting_colors or self.original_processed_image is None:
@@ -1388,6 +1410,7 @@ class WallDetectionApp(QMainWindow):
         # Display the updated image
         self.display_image(self.processed_image)
 
+    # app
     def end_selection(self, x, y):
         """Complete the selection and process it according to the current mode."""
         # Convert to image coordinates
@@ -1469,6 +1492,7 @@ class WallDetectionApp(QMainWindow):
                 # If no contours were selected, just clear the selection
                 self.clear_selection()
 
+    # color
     def extract_colors_from_selection(self, x1, y1, x2, y2):
         """Extract dominant colors from the selected region."""
         if self.current_image is None:
@@ -1514,6 +1538,7 @@ class WallDetectionApp(QMainWindow):
         # Update the image with the new colors
         self.update_image()
     
+    # delete
     def delete_selected_contours(self):
         """Delete the selected contours from the current image."""
         if not self.selected_contour_indices:
@@ -1532,6 +1557,7 @@ class WallDetectionApp(QMainWindow):
         self.clear_selection()
         self.update_display_from_contours()
 
+    # app
     def handle_hover(self, x, y):
         """Handle mouse hover events for highlighting contours."""
         if not self.current_contours or self.current_image is None:
@@ -1568,12 +1594,14 @@ class WallDetectionApp(QMainWindow):
             self.highlighted_contour_index = found_index
             self.update_highlight()
 
+    # app
     def clear_hover(self):
         """Clear any contour highlighting."""
         if self.highlighted_contour_index != -1:
             self.highlighted_contour_index = -1
             self.update_highlight()
 
+    # app
     def update_highlight(self):
         """Update the display with highlighted contour."""
         if self.original_processed_image is None:
@@ -1602,6 +1630,7 @@ class WallDetectionApp(QMainWindow):
         # Update the display
         self.display_image(self.processed_image)
 
+    # util
     def convert_to_image_coordinates(self, display_x, display_y):
         """Convert display coordinates to image coordinates."""
         if self.current_image is None:
@@ -1629,6 +1658,7 @@ class WallDetectionApp(QMainWindow):
             
         return img_x, img_y
 
+    # delete
     def handle_deletion_click(self, x, y):
         """Handle clicks for deletion mode."""
         if not self.current_contours or self.current_image is None:
@@ -1680,7 +1710,7 @@ class WallDetectionApp(QMainWindow):
             self.update_display_from_contours()
             return
 
-    # Thinning methods
+    # thinning
     def thin_selected_contour(self, contour):
         """Thin a single contour using morphological thinning."""
         # Create a mask for the contour
@@ -1698,6 +1728,7 @@ class WallDetectionApp(QMainWindow):
             # If thinning failed, return the original contour
             return contour
 
+    # thinning
     def thin_selected_contours(self):
         """Thin the selected contours."""
         if not self.selected_contour_indices:
@@ -1720,6 +1751,7 @@ class WallDetectionApp(QMainWindow):
         self.clear_selection()
         self.update_display_from_contours()
 
+    # thinning
     def handle_thinning_click(self, x, y):
         """Handle clicks for thinning mode."""
         if not self.current_contours or self.current_image is None:
@@ -1775,12 +1807,14 @@ class WallDetectionApp(QMainWindow):
             self.update_display_from_contours()
             return
 
+    # thinning
     def thin_contour(self, contour):
         """Thin a single contour using morphological thinning."""
         # Create a mask for the contour
         mask = np.zeros(self.current_image.shape[:2], dtype=np.uint8)
         cv2.drawContours(mask, [contour], -1, 255, -1)
 
+    # util
     def point_to_line_distance(self, x, y, x1, y1, x2, y2):
         """Calculate the distance from point (x,y) to line segment (x1,y1)-(x2,y2)."""
         # Line segment length squared
@@ -1803,6 +1837,7 @@ class WallDetectionApp(QMainWindow):
         proj_y = y1 + t * (y2 - y1)
         return math.sqrt((x - proj_x) ** 2 + (y - proj_y) ** 2)
 
+    # util
     def line_segments_intersect(self, x1, y1, x2, y2, x3, y3, x4, y4):
         """Check if two line segments (x1,y1)-(x2,y2) and (x3,y3)-(x4,y4) intersect."""
         # Calculate the direction vectors
@@ -1825,6 +1860,7 @@ class WallDetectionApp(QMainWindow):
         # Check if the intersection point lies on both line segments
         return 0 <= t1 <= 1 and 0 <= t2 <= 1
 
+    # app
     def update_display_from_contours(self):
         """Update the display with the current contours."""
         if self.current_image is not None and self.current_contours:
@@ -1836,6 +1872,7 @@ class WallDetectionApp(QMainWindow):
             self.original_processed_image = self.processed_image.copy()
             self.display_image(self.processed_image)
 
+    # app
     def display_image(self, image):
         """Display an image on the image label."""
         # Only proceed if the image label exists and has a valid size
@@ -1849,6 +1886,7 @@ class WallDetectionApp(QMainWindow):
         pixmap = QPixmap.fromImage(q_image)
         self.image_label.setPixmap(pixmap.scaled(self.image_label.size(), Qt.AspectRatioMode.KeepAspectRatio))
 
+    # app
     def open_image(self):
         """Open an image file and prepare scaled versions for processing."""
         file_path, _ = QFileDialog.getOpenFileName(self, "Open Image", "", "Images (*.png *.jpg *.jpeg *.bmp)")
@@ -1880,6 +1918,7 @@ class WallDetectionApp(QMainWindow):
             # Update the display
             self.update_image()
 
+    # app
     def load_image_from_url(self):
         """Load an image from a URL in the clipboard."""
         # Get clipboard content
@@ -1945,6 +1984,7 @@ class WallDetectionApp(QMainWindow):
         except Exception as e:
             QMessageBox.warning(self, "Error", f"Failed to load image from URL:\n{str(e)}")
 
+    # app
     def create_working_image(self, image):
         """Create a working copy of the image, scaling it down if it's too large."""
         # Check if we should use full resolution
@@ -1970,6 +2010,7 @@ class WallDetectionApp(QMainWindow):
         
         return resized, scale_factor
 
+    # app
     def scale_contours_to_original(self, contours, scale_factor):
         """Scale contours back to the original image size."""
         if scale_factor == 1.0:
@@ -1984,7 +2025,8 @@ class WallDetectionApp(QMainWindow):
             scaled_contours.append(scaled_contour.astype(np.int32))
         
         return scaled_contours
-        
+    
+    # app
     def scale_contours_to_working(self, contours, scale_factor):
         """Scale contours to the working image size."""
         if scale_factor == 1.0:
@@ -2000,6 +2042,7 @@ class WallDetectionApp(QMainWindow):
         
         return scaled_contours
 
+    # app
     def save_image(self):
         """Save the processed image at full resolution."""
         if self.original_image is not None:
@@ -2037,6 +2080,7 @@ class WallDetectionApp(QMainWindow):
                         save_image(high_res_result, file_path)
                         print(f"Saved high-resolution image ({self.original_image.shape[:2]}) to {file_path}")
 
+    # color
     def add_wall_color(self):
         """Open a color dialog to add a new wall color."""
         color = QColorDialog.getColor(QColor(0, 0, 0), self, "Select Wall Color")
@@ -2053,6 +2097,7 @@ class WallDetectionApp(QMainWindow):
             if self.current_image is not None:
                 self.update_image()
     
+    # color
     def select_color(self, item):
         """Handle selection of a color in the list."""
         self.selected_color_item = item
@@ -2070,6 +2115,7 @@ class WallDetectionApp(QMainWindow):
         # Show the threshold container
         self.threshold_container.setVisible(True)
     
+    # color
     def update_selected_threshold(self, value):
         """Update the threshold for the selected color."""
         if not self.selected_color_item:
@@ -2090,6 +2136,7 @@ class WallDetectionApp(QMainWindow):
         if self.current_image is not None and self.use_color_detection.isChecked():
             self.update_image()
     
+    # color
     def edit_wall_color(self, item):
         """Edit an existing color."""
         color_data = item.data(Qt.ItemDataRole.UserRole)
@@ -2104,6 +2151,7 @@ class WallDetectionApp(QMainWindow):
             if self.current_image is not None:
                 self.update_image()
     
+    # color
     def update_color_list_item(self, item, color, threshold):
         """Update a color list item with new color and threshold."""
         # Store both color and threshold in the item data
@@ -2120,6 +2168,7 @@ class WallDetectionApp(QMainWindow):
         else:
             item.setForeground(QColor(0, 0, 0))
     
+    # color
     def add_wall_color_to_list(self, color, threshold=10.0):
         """Add a color with threshold to the wall colors list."""
         item = QListWidgetItem()
@@ -2127,6 +2176,7 @@ class WallDetectionApp(QMainWindow):
         self.wall_colors_list.addItem(item)
         return item
     
+    # color
     def remove_wall_color(self):
         """Remove the selected color from the list."""
         selected_items = self.wall_colors_list.selectedItems()
@@ -2142,6 +2192,7 @@ class WallDetectionApp(QMainWindow):
         if self.current_image is not None and self.wall_colors_list.count() > 0:
             self.update_image()
 
+    # app
     def update_image(self):
         """Update the displayed image based on the current settings."""
         if self.current_image is None:
@@ -2275,6 +2326,7 @@ class WallDetectionApp(QMainWindow):
         # Convert to QPixmap and display
         self.display_image(self.processed_image)
 
+    # app
     def export_to_foundry_vtt(self):
         """Prepare walls for export to Foundry VTT and show a preview."""
         if self.current_image is None:
@@ -2471,6 +2523,7 @@ class WallDetectionApp(QMainWindow):
         # Generate walls for preview
         self.preview_foundry_walls()
 
+    # app
     def preview_foundry_walls(self):
         """Generate and display a preview of the Foundry VTT walls."""
         if not self.foundry_export_params:
@@ -2538,6 +2591,7 @@ class WallDetectionApp(QMainWindow):
         wall_count = len(foundry_walls)
         self.setStatusTip(f"Previewing {wall_count} walls for Foundry VTT. Click 'Save Foundry Walls' to export or 'Copy to Clipboard'.")
 
+    # app
     def display_foundry_preview(self):
         """Display a preview of the Foundry VTT walls over the current image."""
         if not self.foundry_walls_preview or self.current_image is None:
@@ -2616,6 +2670,7 @@ class WallDetectionApp(QMainWindow):
         self.processed_image = preview_image
         self.display_image(self.processed_image)
 
+    # app
     def save_foundry_preview(self):
         """Save the previewed Foundry VTT walls to a JSON file."""
         if not self.foundry_walls_preview:
@@ -2653,6 +2708,7 @@ class WallDetectionApp(QMainWindow):
             print(f"Failed to export walls: {e}")
             self.setStatusTip(f"Failed to export walls: {e}")
 
+    # app
     def cancel_foundry_preview(self):
         """Cancel the Foundry VTT wall preview and return to normal view."""
         # Disable buttons
@@ -2676,6 +2732,7 @@ class WallDetectionApp(QMainWindow):
         # Update status
         self.setStatusTip("Foundry VTT preview canceled")
 
+    # app
     def set_controls_enabled(self, enabled, color_detection_mode=False):
         """Enable or disable detection controls based on preview state."""
         # Disable/enable all sliders
@@ -2702,16 +2759,19 @@ class WallDetectionApp(QMainWindow):
             # Re-apply color detection limitations
             self.toggle_detection_mode(True)
 
+    # thinning
     def update_target_width(self, value):
         """Update the target width parameter for thinning."""
         self.target_width = value
         self.target_width_value.setText(str(value))
     
+    # thinning
     def update_max_iterations(self, value):
         """Update the max iterations parameter for thinning."""
         self.max_iterations = value
         self.max_iterations_value.setText(str(value))
 
+    # app
     def copy_foundry_to_clipboard(self):
         """Copy the Foundry VTT walls JSON to the clipboard."""
         if not self.foundry_walls_preview:
@@ -2734,6 +2794,7 @@ class WallDetectionApp(QMainWindow):
         except Exception as e:
             QMessageBox.warning(self, "Error", f"Failed to copy walls to clipboard: {str(e)}")
 
+    # app
     def resizeEvent(self, event):
         """Handle window resize events to update the image display."""
         super().resizeEvent(event)
@@ -2752,6 +2813,7 @@ class WallDetectionApp(QMainWindow):
                 self.width() - 250, 10, 240, 40
             )
 
+    # app
     def save_state(self):
         """Save the current state to history for undo functionality."""
         if self.current_image is None:
@@ -2780,6 +2842,7 @@ class WallDetectionApp(QMainWindow):
         
         print(f"State saved to history. History size: {len(self.history)}")
 
+    # app
     def undo(self):
         """Restore the previous state from history."""
         if not self.history:
@@ -2838,6 +2901,7 @@ class WallDetectionApp(QMainWindow):
             self.setStatusTip("Restored previous contour state")
             print("Restored previous contour state")
 
+    # app
     def keyPressEvent(self, event):
         """Handle key press events."""
         # Add debugging for Ctrl+Z
@@ -2847,6 +2911,7 @@ class WallDetectionApp(QMainWindow):
         else:
             super().keyPressEvent(event)
 
+    # app
     def apply_stylesheet(self):
         """Apply the application stylesheet from the CSS file."""
         try:
@@ -2866,6 +2931,7 @@ class WallDetectionApp(QMainWindow):
         except Exception as e:
             print(f"Error applying stylesheet: {e}")
 
+    # update
     def check_for_updates(self):
         """Check for updates and show notification if available."""
         try:
@@ -2882,11 +2948,13 @@ class WallDetectionApp(QMainWindow):
         except Exception as e:
             print(f"Error checking for updates: {e}")
     
+    # update
     def open_update_url(self, event):
         """Open the update URL when the notification is clicked."""
         if self.update_url:
             QDesktopServices.openUrl(QUrl(self.update_url))
 
+    # drawing
     def update_display_with_brush(self, img_x, img_y):
         """Update the display with both the mask and brush outline at current position."""
         if self.current_image is None or self.mask_layer is None:

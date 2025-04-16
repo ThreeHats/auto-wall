@@ -6,6 +6,7 @@ from collections import defaultdict, deque
 
 from src.wall_detection.detector import process_contours_with_hierarchy
 
+# color or app?
 def create_mask_from_contours(image_shape, contours, color=(0, 255, 0, 255)):
     """
     Create a transparent mask from contours.
@@ -31,6 +32,7 @@ def create_mask_from_contours(image_shape, contours, color=(0, 255, 0, 255)):
     
     return mask
 
+# color or app?
 def blend_image_with_mask(image, mask):
     """
     Blend an image with a transparent mask (optimized version).
@@ -70,6 +72,7 @@ def blend_image_with_mask(image, mask):
     
     return bgra_image
 
+# color
 def draw_on_mask(mask, x, y, brush_size, color=(0, 255, 0, 255), erase=False):
     """
     Draw on a mask at the specified coordinates (optimized version).
@@ -113,6 +116,7 @@ def draw_on_mask(mask, x, y, brush_size, color=(0, 255, 0, 255), erase=False):
     
     return mask
 
+# export
 def contours_to_foundry_walls(contours, image_shape, simplify_tolerance=0.0, max_wall_length=50, max_walls=5000, merge_distance=1.0, angle_tolerance=0.5, max_gap=5.0, grid_size=0, allow_half_grid=True):
     """
     Convert OpenCV contours to Foundry VTT wall data format with intelligent segmentation.
@@ -274,6 +278,7 @@ def contours_to_foundry_walls(contours, image_shape, simplify_tolerance=0.0, max
     
     return connected_walls
 
+# thinning
 def thin_contour(input_data, target_width=5, max_iterations=3):
     """
     Thins a contour to approximately target_width pixels using controlled erosion.
@@ -371,6 +376,7 @@ def thin_contour(input_data, target_width=5, max_iterations=3):
     print(f"Thinned contour found with {len(largest_contour)} points")
     return largest_contour
 
+# export
 def ensure_wall_connectivity(walls, merge_distance=1.0, angle_tolerance=0.5, max_gap=5.0):
     """
     Ensure walls are properly connected by merging endpoints that are very close to each other.
@@ -436,6 +442,7 @@ def ensure_wall_connectivity(walls, merge_distance=1.0, angle_tolerance=0.5, max
     
     return optimized_walls
 
+# export
 def merge_collinear_walls(walls, angle_tolerance=0.5, max_gap=5.0):
     """
     Merge walls that form straight lines (collinear walls) into single walls.
@@ -567,6 +574,7 @@ def merge_collinear_walls(walls, angle_tolerance=0.5, max_gap=5.0):
     
     return result_walls
 
+# export
 def merge_nearby_points(points, merge_distance):
     """
     Merge points that are within merge_distance distance of each other.
@@ -617,11 +625,13 @@ def merge_nearby_points(points, merge_distance):
     
     return point_map
 
+# export
 def generate_foundry_id():
     """Generate a unique ID for a Foundry VTT wall."""
     # Generate a random UUID in the correct format for Foundry
     return ''.join(uuid.uuid4().hex.upper()[0:16])
 
+# export
 def export_mask_to_foundry_json(mask_or_contours, image_shape, filename, 
                                simplify_tolerance=0.0, max_wall_length=50, 
                                max_walls=5000, merge_distance=1.0, angle_tolerance=0.5, max_gap=5.0,
@@ -715,6 +725,7 @@ def export_mask_to_foundry_json(mask_or_contours, image_shape, filename,
         traceback.print_exc()
         return False
 
+# export
 def snap_walls_to_grid(walls, grid_size, allow_half_grid=True):
     """
     Snap wall endpoints to a grid.
