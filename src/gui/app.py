@@ -183,7 +183,28 @@ class WallDetectionApp(QMainWindow):
 
         # Sliders
         self.sliders = {}
-        # Min Area is now a percentage (0.0001% to 1% of image area)
+        
+        # Add Min Area slider with mode selection
+        self.min_area_mode_layout = QHBoxLayout()
+        self.min_area_mode_label = QLabel("Min Area Mode:")
+        self.min_area_mode_layout.addWidget(self.min_area_mode_label)
+        
+        self.min_area_mode_group = QButtonGroup()
+        self.min_area_percentage_radio = QRadioButton("Percentage")
+        self.min_area_pixels_radio = QRadioButton("Pixels")
+        self.min_area_percentage_radio.setChecked(True)  # Default to percentage mode
+        self.min_area_mode_group.addButton(self.min_area_percentage_radio)
+        self.min_area_mode_group.addButton(self.min_area_pixels_radio)
+        self.min_area_mode_layout.addWidget(self.min_area_percentage_radio)
+        self.min_area_mode_layout.addWidget(self.min_area_pixels_radio)
+        
+        # Connect mode radio buttons
+        self.min_area_percentage_radio.toggled.connect(self.toggle_min_area_mode)
+        self.min_area_pixels_radio.toggled.connect(self.toggle_min_area_mode)
+        
+        self.controls_layout.addLayout(self.min_area_mode_layout)
+        
+        # Min Area is now a percentage (0.0001% to 1% of image area) or pixels (1 to 1000)
         self.add_slider("Min Area", 1, 25000, 100, scale_factor=0.001)  # Default 0.1%
         self.add_slider("Smoothing", 1, 21, 5, step=2)  # Changed from "Blur"
         self.add_slider("Edge Sensitivity", 0, 255, 255)  # Changed from "Canny1"
@@ -388,12 +409,86 @@ class WallDetectionApp(QMainWindow):
         self.merge_contours.setChecked(False)
         self.merge_options_layout.addWidget(self.merge_contours)
 
+         # Add Remove Hatching section
+        self.hatching_section_title = QLabel("Remove Hatching:")
+        self.hatching_section_title.setStyleSheet("font-weight: bold;")
+        self.controls_layout.addWidget(self.hatching_section_title)
+        
+        # Create layout for hatching controls
+        self.hatching_layout = QVBoxLayout()
+        self.controls_layout.addLayout(self.hatching_layout)
+        
+        # Checkbox to enable/disable hatching removal
+        self.remove_hatching_checkbox = QCheckBox("Enable Hatching Removal")
+        self.remove_hatching_checkbox.setChecked(False)
+        self.remove_hatching_checkbox.toggled.connect(self.toggle_hatching_removal)
+        self.hatching_layout.addWidget(self.remove_hatching_checkbox)
+        
+        # Create container for hatching options
+        self.hatching_options = QWidget()
+        self.hatching_options_layout = QVBoxLayout(self.hatching_options)
+        self.hatching_options_layout.setContentsMargins(0, 0, 0, 0)
+        self.hatching_layout.addWidget(self.hatching_options)
+        
+        # Hatching color selection
+        self.hatching_color_layout = QHBoxLayout()
+        self.hatching_options_layout.addLayout(self.hatching_color_layout)
+        
+        self.hatching_color_label = QLabel("Hatching Color:")
+        self.hatching_color_layout.addWidget(self.hatching_color_label)
+        
+        self.hatching_color_button = QPushButton()
+        self.hatching_color_button.setFixedSize(30, 20)
+        self.hatching_color_button.setStyleSheet("background-color: rgb(0, 0, 0);")
+        self.hatching_color_button.clicked.connect(self.select_hatching_color)
+        self.hatching_color_layout.addWidget(self.hatching_color_button)
+        self.hatching_color = QColor(0, 0, 0)  # Default to black
+        
+        # Hatching color threshold slider
+        self.hatching_threshold_layout = QHBoxLayout()
+        self.hatching_options_layout.addLayout(self.hatching_threshold_layout)
+        
+        self.hatching_threshold_label = QLabel("Color Threshold:")
+        self.hatching_threshold_layout.addWidget(self.hatching_threshold_label)
+        
+        self.hatching_threshold_slider = QSlider(Qt.Orientation.Horizontal)
+        self.hatching_threshold_slider.setMinimum(0)
+        self.hatching_threshold_slider.setMaximum(300)
+        self.hatching_threshold_slider.setValue(100)  # Default value 10.0
+        self.hatching_threshold_slider.valueChanged.connect(self.update_hatching_threshold)
+        self.hatching_threshold_layout.addWidget(self.hatching_threshold_slider)
+        
+        self.hatching_threshold_value = QLabel("10.0")
+        self.hatching_threshold_layout.addWidget(self.hatching_threshold_value)
+        self.hatching_threshold = 10.0  # Store the actual value
+        
+        # Maximum hatching width slider
+        self.hatching_width_layout = QHBoxLayout()
+        self.hatching_options_layout.addLayout(self.hatching_width_layout)
+        
+        self.hatching_width_label = QLabel("Max Width:")
+        self.hatching_width_layout.addWidget(self.hatching_width_label)
+        
+        self.hatching_width_slider = QSlider(Qt.Orientation.Horizontal)
+        self.hatching_width_slider.setMinimum(1)
+        self.hatching_width_slider.setMaximum(20)
+        self.hatching_width_slider.setValue(3)
+        self.hatching_width_slider.valueChanged.connect(self.update_hatching_width)
+        self.hatching_width_layout.addWidget(self.hatching_width_slider)
+        
+        self.hatching_width_value = QLabel("3")
+        self.hatching_width_layout.addWidget(self.hatching_width_value)
+        self.hatching_width = 3  # Store the actual value
+        
+        # Initially hide the hatching options until enabled
+        self.hatching_options.setVisible(False)
+
         # Add a checkbox for high-resolution processing
         self.high_res_checkbox = QCheckBox("Process at Full Resolution")
         self.high_res_checkbox.setChecked(False)
         self.high_res_checkbox.setToolTip("Process at full resolution (slower but more accurate)")
         self.high_res_checkbox.stateChanged.connect(self.reload_working_image)
-        self.merge_options_layout.addWidget(self.high_res_checkbox)
+        self.controls_layout.addWidget(self.high_res_checkbox)
         
         # Add color detection section
         self.color_section_layout = QVBoxLayout()
@@ -640,85 +735,6 @@ class WallDetectionApp(QMainWindow):
         # Connect the click event to open the download page
         self.update_notification.mousePressEvent = self.open_update_url
 
-        # Add Remove Hatching section
-        self.hatching_section_title = QLabel("Remove Hatching:")
-        self.hatching_section_title.setStyleSheet("font-weight: bold;")
-        self.controls_layout.addWidget(self.hatching_section_title)
-        
-        # Create layout for hatching controls
-        self.hatching_layout = QVBoxLayout()
-        self.controls_layout.addLayout(self.hatching_layout)
-        
-        # Checkbox to enable/disable hatching removal
-        self.remove_hatching_checkbox = QCheckBox("Enable Hatching Removal")
-        self.remove_hatching_checkbox.setChecked(False)
-        self.remove_hatching_checkbox.toggled.connect(self.toggle_hatching_removal)
-        self.hatching_layout.addWidget(self.remove_hatching_checkbox)
-        
-        # Create container for hatching options
-        self.hatching_options = QWidget()
-        self.hatching_options_layout = QVBoxLayout(self.hatching_options)
-        self.hatching_options_layout.setContentsMargins(0, 0, 0, 0)
-        self.hatching_layout.addWidget(self.hatching_options)
-        
-        # Hatching color selection
-        self.hatching_color_layout = QHBoxLayout()
-        self.hatching_options_layout.addLayout(self.hatching_color_layout)
-        
-        self.hatching_color_label = QLabel("Hatching Color:")
-        self.hatching_color_layout.addWidget(self.hatching_color_label)
-        
-        self.hatching_color_button = QPushButton()
-        self.hatching_color_button.setFixedSize(30, 20)
-        self.hatching_color_button.setStyleSheet("background-color: rgb(0, 0, 0);")
-        self.hatching_color_button.clicked.connect(self.select_hatching_color)
-        self.hatching_color_layout.addWidget(self.hatching_color_button)
-        self.hatching_color = QColor(0, 0, 0)  # Default to black
-        
-        # Hatching color threshold slider
-        self.hatching_threshold_layout = QHBoxLayout()
-        self.hatching_options_layout.addLayout(self.hatching_threshold_layout)
-        
-        self.hatching_threshold_label = QLabel("Color Threshold:")
-        self.hatching_threshold_layout.addWidget(self.hatching_threshold_label)
-        
-        self.hatching_threshold_slider = QSlider(Qt.Orientation.Horizontal)
-        self.hatching_threshold_slider.setMinimum(0)
-        self.hatching_threshold_slider.setMaximum(300)
-        self.hatching_threshold_slider.setValue(100)  # Default value 10.0
-        self.hatching_threshold_slider.valueChanged.connect(self.update_hatching_threshold)
-        self.hatching_threshold_layout.addWidget(self.hatching_threshold_slider)
-        
-        self.hatching_threshold_value = QLabel("10.0")
-        self.hatching_threshold_layout.addWidget(self.hatching_threshold_value)
-        self.hatching_threshold = 10.0  # Store the actual value
-        
-        # Maximum hatching width slider
-        self.hatching_width_layout = QHBoxLayout()
-        self.hatching_options_layout.addLayout(self.hatching_width_layout)
-        
-        self.hatching_width_label = QLabel("Max Width:")
-        self.hatching_width_layout.addWidget(self.hatching_width_label)
-        
-        self.hatching_width_slider = QSlider(Qt.Orientation.Horizontal)
-        self.hatching_width_slider.setMinimum(1)
-        self.hatching_width_slider.setMaximum(20)
-        self.hatching_width_slider.setValue(3)
-        self.hatching_width_slider.valueChanged.connect(self.update_hatching_width)
-        self.hatching_width_layout.addWidget(self.hatching_width_slider)
-        
-        self.hatching_width_value = QLabel("3")
-        self.hatching_width_layout.addWidget(self.hatching_width_value)
-        self.hatching_width = 3  # Store the actual value
-        
-        # Initially hide the hatching options until enabled
-        self.hatching_options.setVisible(False)
-        
-        # Add a separator
-        separator = QFrame()
-        separator.setFrameShape(QFrame.Shape.HLine)
-        separator.setFrameShadow(QFrame.Shadow.Sunken)
-        self.controls_layout.addWidget(separator)
 
     # app
     def reload_working_image(self):
@@ -2283,7 +2299,6 @@ class WallDetectionApp(QMainWindow):
             return
 
         # Get slider values
-        min_area_percentage = self.sliders["Min Area"].value() * 0.001  # Convert to percentage (0.001% to 1%)
         blur = self.sliders["Smoothing"].value()
         
         # Handle special case for blur=1 (no blur) and ensure odd values
@@ -2297,15 +2312,29 @@ class WallDetectionApp(QMainWindow):
         # Get min_merge_distance as a float value
         min_merge_distance = self.sliders["Min Merge Distance"].value() * 0.1
         
-        # Calculate min area based on image dimensions and percentage
+        # Calculate min area based on mode (percentage or pixels)
+        min_area_value = self.sliders["Min Area"].value()
         image_area = self.current_image.shape[0] * self.current_image.shape[1]
-        min_area = int(image_area * min_area_percentage / 100.0)  # Convert from percentage to actual area
+        
+        if hasattr(self, 'using_pixels_mode') and self.using_pixels_mode:
+            # Min area is in pixels (1 to 1000)
+            min_area = min_area_value
+            working_min_area = min_area
+            # For display/logging purposes
+            min_area_percentage = (min_area / image_area) * 100.0
+        else:
+            # Min area is a percentage (0.0001% to 1%)
+            min_area_percentage = min_area_value * 0.001
+            min_area = int(image_area * min_area_percentage / 100.0)
+            working_min_area = min_area
         
         # If we're working with a scaled image, the min area needs to be scaled too
-        if self.scale_factor != 1.0:
+        if self.scale_factor != 1.0 and not (hasattr(self, 'using_pixels_mode') and self.using_pixels_mode):
+            # Only scale min_area if we're using percentages
             working_min_area = int(min_area * self.scale_factor * self.scale_factor)
-        else:
-            working_min_area = min_area
+        elif self.scale_factor != 1.0:
+            # If using pixels mode, scale the pixels to the working image size
+            working_min_area = int(min_area * self.scale_factor * self.scale_factor)
         
         # Working image that we'll pass to the detection function
         processed_image = self.current_image.copy()
@@ -2353,8 +2382,12 @@ class WallDetectionApp(QMainWindow):
             print(f"Using {len(wall_colors_with_thresholds)} colors for detection with individual thresholds")
         
         # Debug output of parameters
-        print(f"Parameters: min_area={min_area} (working: {working_min_area}, {min_area_percentage:.4f}% of image), "
-              f"blur={blur}, canny1={canny1}, canny2={canny2}, edge_margin={edge_margin}")
+        if hasattr(self, 'using_pixels_mode') and self.using_pixels_mode:
+            print(f"Parameters: min_area={min_area} pixels (working: {working_min_area}), "
+                  f"blur={blur}, canny1={canny1}, canny2={canny2}, edge_margin={edge_margin}")
+        else:
+            print(f"Parameters: min_area={min_area} (working: {working_min_area}, {min_area_percentage:.4f}% of image), "
+                  f"blur={blur}, canny1={canny1}, canny2={canny2}, edge_margin={edge_margin}")
 
         # Process the image directly with detect_walls
         contours = detect_walls(
@@ -3122,6 +3155,59 @@ class WallDetectionApp(QMainWindow):
         if self.current_image is not None and self.remove_hatching_checkbox.isChecked():
             self.update_image()
 
+    # app
+    def toggle_min_area_mode(self):
+        """Toggle between percentage and pixel mode for Min Area."""
+        if self.min_area_percentage_radio.isChecked():
+            # Switch to percentage mode (0.0001% to 1%)
+            self.sliders["Min Area"].setMinimum(1)
+            self.sliders["Min Area"].setMaximum(25000)
+            current_value = self.sliders["Min Area"].value()
+            
+            # If coming from pixels mode, convert to percentage (approximately)
+            if hasattr(self, 'using_pixels_mode') and self.using_pixels_mode:
+                # Calculate image area for conversion
+                if self.current_image is not None:
+                    image_area = self.current_image.shape[0] * self.current_image.shape[1]
+                    # Convert pixels to percentage (multiply by 100 and divide by image area)
+                    percentage_value = max(1, min(25000, int((current_value / image_area) * 100 * 1000)))
+                    self.sliders["Min Area"].setValue(percentage_value)
+                    
+            self.using_pixels_mode = False
+            
+            # Update the slider display with the right scale factor
+            label_text = "Min Area"
+            value = self.sliders["Min Area"].value()
+            scaled_value = value * 0.001
+            self.update_slider(self.sliders["Min Area"].parent().findChild(QLabel), label_text, value, 0.001)
+            
+        else:
+            # Switch to pixels mode (1 to 1000 pixels)
+            self.sliders["Min Area"].setMinimum(1)
+            self.sliders["Min Area"].setMaximum(1000)
+            current_value = self.sliders["Min Area"].value()
+            
+            # If coming from percentage mode, convert to pixels (approximately)
+            if self.current_image is not None and (not hasattr(self, 'using_pixels_mode') or not self.using_pixels_mode):
+                # Calculate image area for conversion
+                image_area = self.current_image.shape[0] * self.current_image.shape[1]
+                # Convert percentage to pixels (divide by 100 and multiply by image area)
+                pixel_value = max(1, min(1000, int((current_value * 0.001 / 100) * image_area)))
+                self.sliders["Min Area"].setValue(pixel_value)
+            else:
+                # Just ensure we're within the new range
+                self.sliders["Min Area"].setValue(min(1000, current_value))
+                
+            self.using_pixels_mode = True
+            
+            # Update the slider display without a scale factor
+            label_text = "Min Area"
+            value = self.sliders["Min Area"].value()
+            self.update_slider(self.sliders["Min Area"].parent().findChild(QLabel), label_text, value)
+            
+        # Update the image if one is loaded
+        if self.current_image is not None:
+            self.update_image()
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
