@@ -640,6 +640,86 @@ class WallDetectionApp(QMainWindow):
         # Connect the click event to open the download page
         self.update_notification.mousePressEvent = self.open_update_url
 
+        # Add Remove Hatching section
+        self.hatching_section_title = QLabel("Remove Hatching:")
+        self.hatching_section_title.setStyleSheet("font-weight: bold;")
+        self.controls_layout.addWidget(self.hatching_section_title)
+        
+        # Create layout for hatching controls
+        self.hatching_layout = QVBoxLayout()
+        self.controls_layout.addLayout(self.hatching_layout)
+        
+        # Checkbox to enable/disable hatching removal
+        self.remove_hatching_checkbox = QCheckBox("Enable Hatching Removal")
+        self.remove_hatching_checkbox.setChecked(False)
+        self.remove_hatching_checkbox.toggled.connect(self.toggle_hatching_removal)
+        self.hatching_layout.addWidget(self.remove_hatching_checkbox)
+        
+        # Create container for hatching options
+        self.hatching_options = QWidget()
+        self.hatching_options_layout = QVBoxLayout(self.hatching_options)
+        self.hatching_options_layout.setContentsMargins(0, 0, 0, 0)
+        self.hatching_layout.addWidget(self.hatching_options)
+        
+        # Hatching color selection
+        self.hatching_color_layout = QHBoxLayout()
+        self.hatching_options_layout.addLayout(self.hatching_color_layout)
+        
+        self.hatching_color_label = QLabel("Hatching Color:")
+        self.hatching_color_layout.addWidget(self.hatching_color_label)
+        
+        self.hatching_color_button = QPushButton()
+        self.hatching_color_button.setFixedSize(30, 20)
+        self.hatching_color_button.setStyleSheet("background-color: rgb(0, 0, 0);")
+        self.hatching_color_button.clicked.connect(self.select_hatching_color)
+        self.hatching_color_layout.addWidget(self.hatching_color_button)
+        self.hatching_color = QColor(0, 0, 0)  # Default to black
+        
+        # Hatching color threshold slider
+        self.hatching_threshold_layout = QHBoxLayout()
+        self.hatching_options_layout.addLayout(self.hatching_threshold_layout)
+        
+        self.hatching_threshold_label = QLabel("Color Threshold:")
+        self.hatching_threshold_layout.addWidget(self.hatching_threshold_label)
+        
+        self.hatching_threshold_slider = QSlider(Qt.Orientation.Horizontal)
+        self.hatching_threshold_slider.setMinimum(0)
+        self.hatching_threshold_slider.setMaximum(300)
+        self.hatching_threshold_slider.setValue(100)  # Default value 10.0
+        self.hatching_threshold_slider.valueChanged.connect(self.update_hatching_threshold)
+        self.hatching_threshold_layout.addWidget(self.hatching_threshold_slider)
+        
+        self.hatching_threshold_value = QLabel("10.0")
+        self.hatching_threshold_layout.addWidget(self.hatching_threshold_value)
+        self.hatching_threshold = 10.0  # Store the actual value
+        
+        # Maximum hatching width slider
+        self.hatching_width_layout = QHBoxLayout()
+        self.hatching_options_layout.addLayout(self.hatching_width_layout)
+        
+        self.hatching_width_label = QLabel("Max Width:")
+        self.hatching_width_layout.addWidget(self.hatching_width_label)
+        
+        self.hatching_width_slider = QSlider(Qt.Orientation.Horizontal)
+        self.hatching_width_slider.setMinimum(1)
+        self.hatching_width_slider.setMaximum(20)
+        self.hatching_width_slider.setValue(3)
+        self.hatching_width_slider.valueChanged.connect(self.update_hatching_width)
+        self.hatching_width_layout.addWidget(self.hatching_width_slider)
+        
+        self.hatching_width_value = QLabel("3")
+        self.hatching_width_layout.addWidget(self.hatching_width_value)
+        self.hatching_width = 3  # Store the actual value
+        
+        # Initially hide the hatching options until enabled
+        self.hatching_options.setVisible(False)
+        
+        # Add a separator
+        separator = QFrame()
+        separator.setFrameShape(QFrame.Shape.HLine)
+        separator.setFrameShadow(QFrame.Shadow.Sunken)
+        self.controls_layout.addWidget(separator)
+
     # app
     def reload_working_image(self):
         """Reload the working image when resolution setting changes."""
@@ -2227,6 +2307,28 @@ class WallDetectionApp(QMainWindow):
         else:
             working_min_area = min_area
         
+        # Working image that we'll pass to the detection function
+        processed_image = self.current_image.copy()
+        
+        # Apply hatching removal if enabled
+        if self.remove_hatching_checkbox.isChecked():
+            # Convert QColor to BGR tuple for OpenCV
+            hatching_color_bgr = (
+                self.hatching_color.blue(),
+                self.hatching_color.green(),
+                self.hatching_color.red()
+            )
+            print(f"Removing hatching lines: Color={hatching_color_bgr}, Threshold={self.hatching_threshold:.1f}, Width={self.hatching_width}")
+            
+            # Apply the hatching removal
+            from src.wall_detection.detector import remove_hatching_lines
+            processed_image = remove_hatching_lines(
+                processed_image, 
+                hatching_color_bgr, 
+                self.hatching_threshold, 
+                self.hatching_width
+            )
+        
         # Set up color detection parameters with per-color thresholds
         wall_colors_with_thresholds = None
         default_threshold = 0
@@ -2256,7 +2358,7 @@ class WallDetectionApp(QMainWindow):
 
         # Process the image directly with detect_walls
         contours = detect_walls(
-            self.current_image,
+            processed_image,
             min_contour_area=working_min_area,
             max_contour_area=None,
             blur_kernel_size=blur,
@@ -2272,7 +2374,7 @@ class WallDetectionApp(QMainWindow):
         # Merge before Min Area if specified
         if self.merge_contours.isChecked():
             contours = merge_contours(
-                self.current_image, 
+                processed_image, 
                 contours, 
                 min_merge_distance=min_merge_distance
             )
@@ -2284,7 +2386,7 @@ class WallDetectionApp(QMainWindow):
 
         # Split contours that touch image edges AFTER area filtering, but only if not in color detection mode
         if not self.use_color_detection.isChecked():
-            split_contours = split_edge_contours(self.current_image, contours)
+            split_contours = split_edge_contours(processed_image, contours)
 
             # Use a much lower threshold for split contours to keep them all
             # Use absolute minimum value instead of relative to min_area
@@ -2312,10 +2414,10 @@ class WallDetectionApp(QMainWindow):
         # Ensure contours are not empty
         if not contours:
             print("No contours found after processing.")
-            self.processed_image = self.current_image.copy()
+            self.processed_image = processed_image
         else:
             # Draw merged contours
-            self.processed_image = draw_walls(self.current_image, contours)
+            self.processed_image = draw_walls(processed_image, contours)
 
         # Save the original image for highlighting
         if self.processed_image is not None:
@@ -2976,6 +3078,49 @@ class WallDetectionApp(QMainWindow):
         
         # Display the image with brush preview
         self.display_image(blended_image)
+
+    # hatching removal
+    def toggle_hatching_removal(self, enabled):
+        """Toggle hatching removal options visibility."""
+        self.hatching_options.setVisible(enabled)
+        
+        # Update the image if one is loaded
+        if self.current_image is not None:
+            self.update_image()
+    
+    # hatching removal
+    def select_hatching_color(self):
+        """Open a color dialog to select hatching color."""
+        color = QColorDialog.getColor(self.hatching_color, self, "Select Hatching Color")
+        if color.isValid():
+            self.hatching_color = color
+            # Update button color
+            self.hatching_color_button.setStyleSheet(f"background-color: rgb({color.red()}, {color.green()}, {color.blue()});")
+            
+            # Update the image if one is loaded and removal is enabled
+            if self.current_image is not None and self.remove_hatching_checkbox.isChecked():
+                self.update_image()
+    
+    # hatching removal
+    def update_hatching_threshold(self, value):
+        """Update the threshold for hatching color matching."""
+        # Convert from slider value (0-300) to actual threshold (0-30.0)
+        self.hatching_threshold = value / 10.0
+        self.hatching_threshold_value.setText(f"{self.hatching_threshold:.1f}")
+        
+        # Update the image if one is loaded and removal is enabled
+        if self.current_image is not None and self.remove_hatching_checkbox.isChecked():
+            self.update_image()
+    
+    # hatching removal
+    def update_hatching_width(self, value):
+        """Update the maximum width of lines to remove."""
+        self.hatching_width = value
+        self.hatching_width_value.setText(str(value))
+        
+        # Update the image if one is loaded and removal is enabled
+        if self.current_image is not None and self.remove_hatching_checkbox.isChecked():
+            self.update_image()
 
 
 if __name__ == "__main__":

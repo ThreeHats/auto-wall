@@ -636,3 +636,85 @@ def scale_contours(contours, scale_factor):
         scaled_contours.append(scaled_contour.astype(np.int32))
         
     return scaled_contours
+
+def remove_hatching_lines(image, color, threshold, max_width):
+    """
+    Remove thin hatching lines of a particular color from an image using morphological operations.
+    
+    Parameters:
+    - image: Input BGR image
+    - color: (B,G,R) tuple of the hatching color to remove
+    - threshold: How close a color needs to be to the target color (0-100)
+    - max_width: Maximum width of lines to remove (in pixels)
+    
+    Returns:
+    - Image with hatching lines removed
+    """
+    # Create a copy of the input image
+    result = image.copy()
+    
+    # Create a binary mask of pixels matching the target color
+    color_mask = create_color_mask(image, color, threshold)
+    
+    # Save original mask size for reporting
+    original_mask_size = cv2.countNonZero(color_mask)
+    if original_mask_size == 0:
+        print("No pixels matching the specified color found")
+        return result
+    
+    # 1. Create a structuring element for morphological operations
+    # Use a larger kernel size than max_width to ensure we identify the full structure of the hatching
+    kernel_size = max(3, max_width * 2)
+    if kernel_size % 2 == 0:
+        kernel_size += 1  # Make sure it's odd
+    
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (kernel_size, kernel_size))
+    
+    # 2. Apply opening operation (erosion followed by dilation)
+    # This will remove thin structures (hatching lines) but keep thicker structures (walls)
+    opened_mask = cv2.morphologyEx(color_mask, cv2.MORPH_OPEN, kernel)
+    
+    # 3. The difference between the original mask and opened mask gives us just the thin lines
+    hatching_mask = cv2.subtract(color_mask, opened_mask)
+    
+    # Record how many pixels we identified as hatching
+    hatching_pixel_count = cv2.countNonZero(hatching_mask)
+    
+    if hatching_pixel_count > 0:
+        # 4. Choose a replacement color that's clearly different from the detection color
+        # Calculate the "opposite" color by using distance from the detection color
+        replacement_b = 255 - color[0]  # Invert blue channel
+        replacement_g = 255 - color[1]  # Invert green channel
+        replacement_r = 255 - color[2]  # Invert red channel
+        
+        # If the opposite color is too close to black/white, use a mid-gray instead
+        avg_intensity = (color[0] + color[1] + color[2]) / 3
+        if avg_intensity < 85:  # Dark color, so replacement would be light
+            # Use a medium color that's not too bright
+            replacement_b, replacement_g, replacement_r = 180, 180, 180
+        elif avg_intensity > 170:  # Light color, so replacement would be dark
+            # Use a medium color that's not too dark
+            replacement_b, replacement_g, replacement_r = 120, 120, 120
+        
+        # 5. Replace the hatching lines with the replacement color
+        # First create a 3-channel mask for each BGR channel
+        hatching_mask_bgr = cv2.merge([hatching_mask, hatching_mask, hatching_mask])
+        
+        # Create an image of the replacement color, same shape as the input image
+        replacement = np.zeros_like(result)
+        replacement[:] = (replacement_b, replacement_g, replacement_r)
+        
+        # Replace only the hatching pixels with the replacement color
+        # Keep original pixels where mask is 0, use replacement color where mask is 255
+        masked_replacement = cv2.bitwise_and(replacement, hatching_mask_bgr)
+        masked_original = cv2.bitwise_and(result, cv2.bitwise_not(hatching_mask_bgr))
+        result = cv2.add(masked_original, masked_replacement)
+        
+        # Report the results
+        hatching_percentage = (hatching_pixel_count / original_mask_size) * 100 if original_mask_size > 0 else 0
+        print(f"Removed {hatching_pixel_count} hatching pixels ({hatching_percentage:.1f}% of colored pixels)")
+        print(f"Replaced with color BGR: {replacement_b}, {replacement_g}, {replacement_r}")
+    else:
+        print("No hatching lines detected that match the criteria")
+    
+    return result
