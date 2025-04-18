@@ -24,7 +24,7 @@ def process_image(image_path, min_contour_area=100, blur_kernel_size=5, canny_th
         blur_kernel_size=blur_kernel_size,
         canny_threshold1=canny_threshold1,
         canny_threshold2=canny_threshold2,
-        wall_color=wall_color,
+        wall_colors=wall_color,
         color_threshold=color_threshold
     )
     
@@ -74,19 +74,31 @@ if __name__ == "__main__":
     parser.add_argument('--blur', '-b', type=int, default=5, help='Gaussian blur kernel size (odd number)')
     parser.add_argument('--canny1', '-c1', type=int, default=50, help='Canny edge detection lower threshold')
     parser.add_argument('--canny2', '-c2', type=int, default=150, help='Canny edge detection upper threshold')
-    parser.add_argument('--wall-color', type=str, help='Wall color in hex format (e.g., #000000 for black)')
-    parser.add_argument('--color-threshold', type=int, default=20, help='Color threshold (0-100)')
+    parser.add_argument('--color', '-col', type=str, default=None, 
+                        help='Wall color in BGR format (e.g., 0,0,0 for black)')
+    parser.add_argument('--threshold', '-t', type=float, default=20.0, 
+                        help='Color threshold (0-100, higher = more matching colors)')
+    parser.add_argument('--no-display', '-nd', action='store_true', help='Do not display the result')
+    
     args = parser.parse_args()
     
-    # Parse wall color if provided
+    # Convert color string to tuple if provided
     wall_color = None
-    if args.wall_color:
-        hex_color = args.wall_color.lstrip('#')
-        r, g, b = tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
-        wall_color = (b, g, r)  # OpenCV uses BGR
+    if args.color:
+        try:
+            wall_color = tuple(map(int, args.color.split(',')))
+        except:
+            print(f"Error parsing color: {args.color}. Using default.")
     
-    # Ensure directories exist
-    os.makedirs(os.path.dirname(args.output), exist_ok=True)
-    
-    main(args.input, args.output, args.min_area, args.blur, args.canny1, args.canny2,
-         wall_color=wall_color, color_threshold=args.color_threshold)
+    # Run main function
+    main(
+        args.input,
+        args.output,
+        min_contour_area=args.min_area,
+        blur_kernel_size=args.blur,
+        canny_threshold1=args.canny1,
+        canny_threshold2=args.canny2,
+        wall_color=wall_color,
+        color_threshold=args.threshold,
+        show_result=not args.no_display
+    )

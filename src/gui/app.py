@@ -1889,7 +1889,7 @@ class WallDetectionApp(QMainWindow):
     # app
     def open_image(self):
         """Open an image file and prepare scaled versions for processing."""
-        file_path, _ = QFileDialog.getOpenFileName(self, "Open Image", "", "Images (*.png *.jpg *.jpeg *.bmp)")
+        file_path, _ = QFileDialog.getOpenFileName(self, "Open Image", "", "Images (*.png *.jpg *.jpeg *.bmp *.webp)")
         if file_path:
             # Load the original full-resolution image
             self.original_image = load_image(file_path)
@@ -2046,7 +2046,7 @@ class WallDetectionApp(QMainWindow):
     def save_image(self):
         """Save the processed image at full resolution."""
         if self.original_image is not None:
-            file_path, _ = QFileDialog.getSaveFileName(self, "Save Image", "", "Images (*.png *.jpg *.jpeg *.bmp)")
+            file_path, _ = QFileDialog.getSaveFileName(self, "Save Image", "", "Images (*.png *.jpg *.jpeg *.bmp *.webp)")
             if file_path:
                 if self.edit_mask_mode_enabled and self.mask_layer is not None:
                     # Save image with mask overlay
@@ -2062,7 +2062,7 @@ class WallDetectionApp(QMainWindow):
                     result = blend_image_with_mask(self.original_image, full_res_mask)
                     
                     # Save the result
-                    cv2.imwrite(file_path, result)
+                    save_image(result, file_path)
                     print(f"Saved image with mask overlay to {file_path}")
                 else:
                     # Normal save with contours
@@ -2079,6 +2079,10 @@ class WallDetectionApp(QMainWindow):
                         # Save the high-resolution result
                         save_image(high_res_result, file_path)
                         print(f"Saved high-resolution image ({self.original_image.shape[:2]}) to {file_path}")
+                    else:
+                        # Just save the current view if no contours
+                        save_image(self.original_image, file_path)
+                        print(f"Saved original image to {file_path}")
 
     # color
     def add_wall_color(self):
