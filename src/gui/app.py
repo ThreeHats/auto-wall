@@ -176,11 +176,6 @@ class WallDetectionApp(QMainWindow):
         self.image_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.image_layout.addWidget(self.image_label)
 
-        # Add title for controls section
-        self.controls_title = QLabel("Wall Detection Controls")
-        self.controls_title.setStyleSheet("font-size: 16px; font-weight: bold;")
-        self.controls_layout.addWidget(self.controls_title)
-
         # Sliders
         self.sliders = {}
         
@@ -319,13 +314,13 @@ class WallDetectionApp(QMainWindow):
         self.draw_tool_group.addButton(self.ellipse_tool_radio)
         self.draw_tool_group.addButton(self.fill_tool_radio)
         
-        # Add tools to the layout in a grid (3x2)
+        # Add tools to the layout in a grid (2x3)
         self.draw_tool_layout.addWidget(self.brush_tool_radio, 0, 0)
         self.draw_tool_layout.addWidget(self.line_tool_radio, 0, 1)
-        self.draw_tool_layout.addWidget(self.rectangle_tool_radio, 1, 0)
-        self.draw_tool_layout.addWidget(self.circle_tool_radio, 1, 1)
-        self.draw_tool_layout.addWidget(self.ellipse_tool_radio, 2, 0)
-        self.draw_tool_layout.addWidget(self.fill_tool_radio, 2, 1)
+        self.draw_tool_layout.addWidget(self.rectangle_tool_radio, 0, 2)
+        self.draw_tool_layout.addWidget(self.circle_tool_radio, 1, 0)
+        self.draw_tool_layout.addWidget(self.ellipse_tool_radio, 1, 1)
+        self.draw_tool_layout.addWidget(self.fill_tool_radio, 1, 2)
         
         self.mask_edit_layout.addLayout(self.draw_tool_layout)
 
