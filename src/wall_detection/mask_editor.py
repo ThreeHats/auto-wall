@@ -3,8 +3,41 @@ import numpy as np
 import json
 import uuid
 from collections import defaultdict, deque
+from functools import lru_cache
 
 from src.wall_detection.detector import process_contours_with_hierarchy
+
+# Cache for brush patterns to avoid recreating them
+_brush_pattern_cache = {}
+
+# Brush pattern generator with caching
+def get_brush_pattern(brush_size):
+    """
+    Get a circular brush pattern of the specified size.
+    Uses caching to avoid recreating patterns for the same size.
+    
+    Parameters:
+    - brush_size: Radius of the brush
+    
+    Returns:
+    - Binary mask with the brush pattern (255 for brush area, 0 elsewhere)
+    """
+    # Check if we already have this pattern cached
+    if brush_size in _brush_pattern_cache:
+        return _brush_pattern_cache[brush_size]
+        
+    # Create a new pattern if not in cache
+    pattern_size = brush_size * 2 + 1
+    pattern = np.zeros((pattern_size, pattern_size), dtype=np.uint8)
+    cv2.circle(pattern, (brush_size, brush_size), brush_size, 255, -1)
+    
+    # Store in cache (limit cache size)
+    if len(_brush_pattern_cache) > 20:  # Limit cache size
+        # Remove a random key if cache is too large
+        _brush_pattern_cache.pop(next(iter(_brush_pattern_cache)))
+    _brush_pattern_cache[brush_size] = pattern
+    
+    return pattern
 
 # color or app?
 def create_mask_from_contours(image_shape, contours, color=(0, 255, 0, 255)):
@@ -75,7 +108,7 @@ def blend_image_with_mask(image, mask):
 # color
 def draw_on_mask(mask, x, y, brush_size, color=(0, 255, 0, 255), erase=False):
     """
-    Draw on a mask at the specified coordinates (optimized version).
+    Draw on a mask at the specified coordinates (high performance version).
     
     Parameters:
     - mask: BGRA mask to draw on
@@ -98,21 +131,57 @@ def draw_on_mask(mask, x, y, brush_size, color=(0, 255, 0, 255), erase=False):
     if x_min >= width or y_min >= height or x_max <= 0 or y_max <= 0:
         return mask
     
-    # Calculate distance from center for each pixel in the affected region
-    y_coords, x_coords = np.ogrid[y_min:y_max, x_min:x_max]
-    distances = np.sqrt((x_coords - x)**2 + (y_coords - y)**2)
-    
-    # Create a mask of pixels within brush radius
-    circle_mask = distances <= brush_size
-    
-    # Apply the brush to the mask efficiently
-    if erase:
-        # Set alpha channel to 0 where brush was applied
-        mask[y_min:y_max, x_min:x_max, 3][circle_mask] = 0
+    # For small and medium brush sizes, use a cached brush pattern
+    if brush_size <= 100:  # Expanded range for cached patterns
+        # Get the brush pattern from cache (or create if not cached)
+        brush_pattern = get_brush_pattern(brush_size)
+        
+        # Extract the subset of the pattern we need for this position
+        pattern_y_min = max(0, y_min - (y - brush_size))
+        pattern_y_max = brush_pattern.shape[0] - max(0, (y + brush_size + 1) - y_max)
+        pattern_x_min = max(0, x_min - (x - brush_size))
+        pattern_x_max = brush_pattern.shape[1] - max(0, (x + brush_size + 1) - x_max)
+        
+        # Get the brush pattern for the visible area
+        circle_mask = brush_pattern[pattern_y_min:pattern_y_max, pattern_x_min:pattern_x_max]
+        
+        # Create mask indices once
+        circle_indices = circle_mask == 255
+        
+        # Apply the brush to the mask efficiently
+        if erase:
+            # Use direct indexing for better performance
+            mask_region = mask[y_min:y_max, x_min:x_max]
+            mask_region[circle_indices, 3] = 0
+        else:
+            # For better performance with array operations
+            mask_view = mask[y_min:y_max, x_min:x_max]
+            
+            # Pre-create the color array once for all channels
+            color_array = np.array(color, dtype=np.uint8)
+            
+            # Use direct assignment for better performance
+            for i in range(4):  # Process all 4 channels (BGRA)
+                channel_view = mask_view[:, :, i]
+                channel_view[circle_indices] = color_array[i]
     else:
-        # Set color and alpha where brush was applied (vectorized operation)
-        for c in range(4):  # For all BGRA channels
-            mask[y_min:y_max, x_min:x_max, c][circle_mask] = color[c]
+        # Fallback to mesh grid for very large brushes
+        y_indices, x_indices = np.mgrid[y_min:y_max, x_min:x_max]
+        # Calculate squared distances (avoid sqrt for better performance)
+        distances_squared = (x_indices - x)**2 + (y_indices - y)**2
+        # Create mask where distance <= brush_size
+        circle_mask = distances_squared <= brush_size**2
+        
+        # Apply the brush to the mask efficiently
+        mask_view = mask[y_min:y_max, x_min:x_max]
+        
+        if erase:
+            # Use direct indexing for alpha channel
+            mask_view[circle_mask, 3] = 0
+        else:
+            # Create a color view for each channel
+            for i in range(4):
+                mask_view[circle_mask, i] = color[i]
     
     return mask
 
