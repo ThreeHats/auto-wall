@@ -321,7 +321,7 @@ def create_multi_color_mask(image, color_threshold_pairs):
 def create_color_mask(image, target_color, threshold):
     """
     Create a binary mask where pixels similar to target_color are white (255),
-    and all other pixels are black (0).
+    and all other pixels are black (0). Enhanced for consistent WebP/PNG color matching.
     
     Parameters:
     - image: Input BGR image
@@ -333,13 +333,43 @@ def create_color_mask(image, target_color, threshold):
     Returns:
     - Binary mask with matching pixels as white (255)
     """
+    # Check if input image has an alpha channel and handle it
+    if len(image.shape) > 2 and image.shape[2] == 4:
+        # Extract the RGB channels only
+        image = image[:, :, :3]
+    
+    # Make a normalized copy for consistent color detection, especially for blacks
+    # This helps with subtle variations between PNG and WebP color spaces
+    normalized_image = image.copy().astype(np.float32)
+    
+    # Special handling for very dark colors (blacks)
+    is_dark_target = sum(target_color) < 60  # Check if target is near black
+    
+    # For black colors specifically, apply a normalization step
+    if is_dark_target:
+        # Get RGB channels
+        b, g, r = cv2.split(image)
+        
+        # Detect "near black" pixels - pixels that are very dark but not pure black
+        dark_mask = (b <= 30) & (g <= 30) & (r <= 30)
+        
+        # Normalize very dark pixels to increase detection consistency
+        if np.any(dark_mask):
+            # Force near-black pixels to be more similar
+            normalized_b = np.clip(b.astype(np.float32) * 0.9, 0, 255).astype(np.uint8)
+            normalized_g = np.clip(g.astype(np.float32) * 0.9, 0, 255).astype(np.uint8)
+            normalized_r = np.clip(r.astype(np.float32) * 0.9, 0, 255).astype(np.uint8)
+            
+            # Create normalized image specifically for black detection
+            normalized_image = cv2.merge([normalized_b, normalized_g, normalized_r])
+    
     # Special case for threshold=0: exact color match only
     if threshold == 0:
         # Create an empty mask
         mask = np.zeros(image.shape[:2], dtype=np.uint8)
         
-        # Extract channels
-        b, g, r = cv2.split(image)
+        # Extract channels from the normalized image for more consistent matching
+        b, g, r = cv2.split(normalized_image if is_dark_target else image)
         
         # Set pixels that exactly match the target color
         exact_match = (b == target_color[0]) & (g == target_color[1]) & (r == target_color[2])
@@ -351,18 +381,49 @@ def create_color_mask(image, target_color, threshold):
     # Convert threshold from percentage (0-100) to actual distance in color space
     # Maximum possible distance in RGB space is sqrt(255²+255²+255²) ≈ 441.7
     max_distance = 255.0 * np.sqrt(3)
-    distance_threshold = (threshold / 100.0) * (max_distance / 2)
+    
+    # Adjust threshold sensitivity based on the target color's intensity
+    # Dark colors (especially black) need more precision
+    color_intensity = sum(target_color) / 3.0
+    
+    # For dark colors (especially near black), make threshold more sensitive
+    if color_intensity < 15:  # Pure black or very close to it
+        distance_threshold = (threshold / 100.0) * (max_distance / 5.0)
+    elif color_intensity < 30:  # Very dark colors
+        distance_threshold = (threshold / 100.0) * (max_distance / 4.0)
+    elif color_intensity < 85:  # Dark colors
+        distance_threshold = (threshold / 100.0) * (max_distance / 3.0)
+    else:  # Medium to bright colors
+        distance_threshold = (threshold / 100.0) * (max_distance / 2.5)
     
     # Extract channels
-    b, g, r = cv2.split(image)
+    if is_dark_target:
+        # Use normalized image for dark colors
+        b, g, r = cv2.split(normalized_image)
+    else:
+        # Use original image for other colors
+        b, g, r = cv2.split(image)
     
     # Calculate absolute difference from target color for each channel
     b_diff = np.abs(b.astype(np.float32) - target_color[0])
     g_diff = np.abs(g.astype(np.float32) - target_color[1])
     r_diff = np.abs(r.astype(np.float32) - target_color[2])
     
-    # Calculate Euclidean distance in color space
-    color_distance = np.sqrt(b_diff*b_diff + g_diff*g_diff + r_diff*r_diff)
+    # Calculate weighted Euclidean distance in color space
+    # For black detection, emphasize overall darkness over exact channel matching
+    if is_dark_target:
+        # For blacks, weight the overall darkness more heavily
+        color_distance = np.sqrt(0.8*b_diff*b_diff + 0.8*g_diff*g_diff + 0.8*r_diff*r_diff)
+        
+        # Add an extra condition for very dark pixels
+        average_value = (b.astype(np.float32) + g.astype(np.float32) + r.astype(np.float32)) / 3
+        darkness_boost = np.exp(-(average_value / 30.0)) * 20  # Boost for dark pixels
+        
+        # Apply the darkness boost (reduces distance for darker pixels)
+        color_distance = np.maximum(color_distance - darkness_boost, 0)
+    else:
+        # Standard distance for non-black colors
+        color_distance = np.sqrt(b_diff*b_diff + g_diff*g_diff + r_diff*r_diff)
     
     # Create binary mask where pixels closer than threshold are white (255)
     mask = np.zeros_like(b, dtype=np.uint8)

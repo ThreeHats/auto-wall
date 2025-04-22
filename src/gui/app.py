@@ -1982,8 +1982,27 @@ class WallDetectionApp(QMainWindow):
         """Open an image file and prepare scaled versions for processing."""
         file_path, _ = QFileDialog.getOpenFileName(self, "Open Image", "", "Images (*.png *.jpg *.jpeg *.bmp *.webp)")
         if file_path:
+            # Get file extension
+            file_extension = os.path.splitext(file_path)[1].lower()
+            is_webp = file_extension == '.webp'
+            
             # Load the original full-resolution image
+            print(f"Loading image: {file_path}")
             self.original_image = load_image(file_path)
+            
+            # Verify image loaded correctly
+            if self.original_image is None:
+                QMessageBox.critical(self, "Error", f"Failed to load image: {file_path}")
+                return
+                
+            # Log the image dimensions and type info for debugging
+            h, w = self.original_image.shape[:2]
+            channels = self.original_image.shape[2] if len(self.original_image.shape) > 2 else 1
+            print(f"Image loaded: {w}x{h}, {channels} channels, {self.original_image.dtype}")
+            
+            # For WebP files, log whether conversion was applied
+            if is_webp:
+                print(f"WebP image detected: {file_path}")
             
             # Clear history when loading a new image
             self.history.clear()
@@ -1992,7 +2011,7 @@ class WallDetectionApp(QMainWindow):
             # Create a scaled down version for processing if needed
             self.current_image, self.scale_factor = self.create_working_image(self.original_image)
             
-            print(f"Image loaded: Original size {self.original_image.shape}, Working size {self.current_image.shape}, Scale factor {self.scale_factor}")
+            print(f"Image prepared: Original size {self.original_image.shape}, Working size {self.current_image.shape}, Scale factor {self.scale_factor}")
             
             # Reset the mask layer when loading a new image to prevent dimension mismatch
             self.mask_layer = None
@@ -2002,11 +2021,12 @@ class WallDetectionApp(QMainWindow):
             
             # Reset button states when loading a new image
             self.export_foundry_button.setEnabled(False)
-            self.save_foundry_button.setEnabled(False)
-            self.cancel_foundry_button.setEnabled(False)
-            self.copy_foundry_button.setEnabled(False)
             
-            # Update the display
+            # Reset the current overlays and detected contours
+            self.current_contours = None
+            self.edges_overlay = None
+            
+            # Update the image display
             self.update_image()
 
     # app
@@ -2491,7 +2511,7 @@ class WallDetectionApp(QMainWindow):
             walls_to_export = self.current_contours
             
             # If using working image, scale contours back to original size
-            if self.scale_factor != 1.0:
+            if (self.scale_factor != 1.0):
                 walls_to_export = self.scale_contours_to_original(walls_to_export, self.scale_factor)
         else:
             print("No walls to export.")
