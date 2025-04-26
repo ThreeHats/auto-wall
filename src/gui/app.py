@@ -157,6 +157,34 @@ class WallDetectionApp(QMainWindow):
         self.controls_panel = QWidget()
         self.controls_layout = QVBoxLayout(self.controls_panel)
         
+        # Detection mode selection at the top
+        self.detection_mode_title = QLabel("Detection Mode:")
+        self.detection_mode_title.setStyleSheet("font-weight: bold;")
+        self.controls_layout.addWidget(self.detection_mode_title)
+        
+        self.detection_mode_layout = QHBoxLayout()
+        self.controls_layout.addLayout(self.detection_mode_layout)
+        
+        self.detection_mode_group = QButtonGroup()
+        self.edge_detection_radio = QRadioButton("Edge Detection")
+        self.color_detection_radio = QRadioButton("Color Detection")
+        self.edge_detection_radio.setChecked(True)  # Default to edge detection
+        self.detection_mode_group.addButton(self.edge_detection_radio)
+        self.detection_mode_group.addButton(self.color_detection_radio)
+        
+        self.detection_mode_layout.addWidget(self.edge_detection_radio)
+        self.detection_mode_layout.addWidget(self.color_detection_radio)
+        
+        # Connect detection mode radio buttons
+        self.edge_detection_radio.toggled.connect(self.toggle_detection_mode)
+        self.color_detection_radio.toggled.connect(self.toggle_detection_mode)
+        
+        # Add a separator after detection mode
+        separator = QFrame()
+        separator.setFrameShape(QFrame.Shape.HLine)
+        separator.setFrameShadow(QFrame.Shadow.Sunken)
+        self.controls_layout.addWidget(separator)
+        
         # Wrap controls in a scroll area to handle many options
         self.scroll_area = QScrollArea()
         self.scroll_area.setWidgetResizable(True)
@@ -556,17 +584,6 @@ class WallDetectionApp(QMainWindow):
         
         # Store the currently selected color item
         self.selected_color_item = None
-        
-        # Color detection options - Add the missing checkbox
-        self.use_color_detection = QCheckBox("Enable Color Detection")
-        self.use_color_detection.setChecked(False)
-        self.use_color_detection.toggled.connect(self.toggle_detection_mode)
-        self.color_section_layout.addWidget(self.use_color_detection)
-        
-        # Label for edge detection section
-        self.edge_section_title = QLabel("Edge Detection Settings:")
-        self.edge_section_title.setStyleSheet("font-weight: bold;")
-        self.controls_layout.addWidget(self.edge_section_title)
         
         # Group edge detection settings
         self.edge_detection_widgets = []
@@ -1144,7 +1161,7 @@ class WallDetectionApp(QMainWindow):
         img_x1, img_y1 = self.drawing_start_pos
         
         # Get drawing color based on draw/erase mode
-        color = (0, 255, 0, 255) if self.draw_radio.isChecked() else (0, 0, 0, 0)
+        color = (0, 255, 0, 255) if self.draw_radio.isChecked() else (0, 0, 255, 0)  # Green for draw, Red for erase
         
         # Draw the appropriate shape based on the current tool
         if self.current_tool == "line":
@@ -1274,23 +1291,31 @@ class WallDetectionApp(QMainWindow):
         self.setStatusTip(f"Using {self.current_tool} tool")
 
     # app
-    def toggle_detection_mode(self, use_color):
-        """Toggle between color-based and edge detection modes."""
-        # Enable/disable edge detection settings based on color detection mode
-        for widget in self.edge_detection_widgets:
-            widget.setEnabled(not use_color)
+    def toggle_detection_mode(self, checked):
+        """Toggle between color-based and edge detection modes based on radio button selection."""
+        if not checked:
+            return
             
-        # Also disable blur, edge margin, and min merge distance in color detection mode
-        self.sliders["Smoothing"].setEnabled(not use_color)
-        self.sliders["Edge Margin"].setEnabled(not use_color)
+        # Enable color detection checkbox based on radio button state
+        if self.color_detection_radio.isChecked():
             
-        # Update labels to reflect active/inactive state
-        if use_color:
-            self.edge_section_title.setText("Edge Detection Settings (Inactive):")
-            self.edge_section_title.setStyleSheet("font-weight: bold; color: gray;")
+            # Enable/disable edge detection settings based on color detection mode
+            for widget in self.edge_detection_widgets:
+                widget.setEnabled(False)
+                
+            # Also disable smoothing, edge margin, and min merge distance in color detection mode
+            self.sliders["Smoothing"].setEnabled(False)
+            self.sliders["Edge Margin"].setEnabled(False)
+                
         else:
-            self.edge_section_title.setText("Edge Detection Settings:")
-            self.edge_section_title.setStyleSheet("font-weight: bold; color: black;")
+            
+            # Re-enable edge detection settings
+            for widget in self.edge_detection_widgets:
+                widget.setEnabled(True)
+                
+            # Re-enable other relevant sliders
+            self.sliders["Smoothing"].setEnabled(True)
+            self.sliders["Edge Margin"].setEnabled(True)
             
         # Update the detection if an image is loaded
         if self.current_image is not None:
@@ -1622,9 +1647,6 @@ class WallDetectionApp(QMainWindow):
             self.select_color(item)
         
         print(f"Extracted {num_colors} colors from selected region")
-        
-        # Enable color detection mode
-        self.use_color_detection.setChecked(True)
         
         # Update the image with the new colors
         self.update_image()
@@ -2248,7 +2270,7 @@ class WallDetectionApp(QMainWindow):
         self.update_color_list_item(self.selected_color_item, color, threshold)
         
         # Update detection immediately for visual feedback
-        if self.current_image is not None and self.use_color_detection.isChecked():
+        if self.current_image is not None and self.color_detection_radio.isChecked():
             self.update_image()
     
     # color
@@ -2377,7 +2399,7 @@ class WallDetectionApp(QMainWindow):
         wall_colors_with_thresholds = None
         default_threshold = 0
         
-        if self.use_color_detection.isChecked() and self.wall_colors_list.count() > 0:
+        if self.color_detection_radio.isChecked() and self.wall_colors_list.count() > 0:
             # Extract all colors and thresholds from the list widget
             wall_colors_with_thresholds = []
             for i in range(self.wall_colors_list.count()):
@@ -2433,7 +2455,7 @@ class WallDetectionApp(QMainWindow):
         print(f"After min area filter: {len(contours)} contours")
 
         # Split contours that touch image edges AFTER area filtering, but only if not in color detection mode
-        if not self.use_color_detection.isChecked():
+        if not self.color_detection_radio.isChecked():
             split_contours = split_edge_contours(processed_image, contours)
 
             # Use a much lower threshold for split contours to keep them all
@@ -2892,9 +2914,6 @@ class WallDetectionApp(QMainWindow):
         # Disable/enable all sliders
         for slider_name, slider in self.sliders.items():
             slider.setEnabled(enabled)
-            
-        # Disable/enable color detection checkbox
-        self.use_color_detection.setEnabled(enabled)
         
         if not color_detection_mode:
             # Disable/enable merge contours checkbox
@@ -2909,7 +2928,7 @@ class WallDetectionApp(QMainWindow):
         self.wall_colors_list.setEnabled(enabled)
         
         # If re-enabling, respect color detection mode
-        if enabled and self.use_color_detection.isChecked():
+        if enabled and self.color_detection_radio.isChecked():
             # Re-apply color detection limitations
             self.toggle_detection_mode(True)
 
