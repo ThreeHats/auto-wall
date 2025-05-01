@@ -176,8 +176,8 @@ class WallDetectionApp(QMainWindow):
         self.detection_mode_layout.addWidget(self.color_detection_radio)
         
         # Connect detection mode radio buttons
-        self.edge_detection_radio.toggled.connect(self.toggle_detection_mode)
-        self.color_detection_radio.toggled.connect(self.toggle_detection_mode)
+        self.edge_detection_radio.toggled.connect(self.toggle_detection_mode_radio)
+        self.color_detection_radio.toggled.connect(self.toggle_detection_mode_radio)
         
         # Add a separator after detection mode
         separator = QFrame()
@@ -191,6 +191,7 @@ class WallDetectionApp(QMainWindow):
         self.scroll_area.setWidget(self.controls_panel)
         self.scroll_area.setMinimumWidth(350)  # Set minimum width for controls panel
         self.scroll_area.setMaximumWidth(400)  # Set maximum width for controls panel
+        self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)  # Prevent horizontal scrolling
         self.main_layout.addWidget(self.scroll_area)
         
         # Right panel for image display
@@ -245,6 +246,7 @@ class WallDetectionApp(QMainWindow):
         self.mode_layout.addWidget(self.mode_label)
         
         self.color_selection_mode_radio = QRadioButton("Color Pick")
+        self.color_selection_mode_radio.setVisible(False)  # Hide this radio button initially
         self.deletion_mode_radio = QRadioButton("Deletion")
         self.edit_mask_mode_radio = QRadioButton("Edit Mask")
         self.thin_mode_radio = QRadioButton("Thin")  # New radio button for thinning mode
@@ -514,8 +516,8 @@ class WallDetectionApp(QMainWindow):
         self.controls_layout.addWidget(self.high_res_checkbox)
         
         # Add color detection section
-        self.color_section_layout = QVBoxLayout()
-        self.controls_layout.addLayout(self.color_section_layout)
+        self.color_section = QWidget()  # Container widget for the entire section
+        self.color_section_layout = QVBoxLayout(self.color_section)
         
         self.color_section_title = QLabel("Color Detection:")
         self.color_section_title.setStyleSheet("font-weight: bold;")
@@ -581,6 +583,12 @@ class WallDetectionApp(QMainWindow):
         
         # Initially hide the threshold controls until a color is selected
         self.threshold_container.setVisible(False)
+        
+        # Add the color section to the main controls layout
+        self.controls_layout.addWidget(self.color_section)
+        
+        # Initially hide the entire color section
+        self.color_section.setVisible(False)
         
         # Store the currently selected color item
         self.selected_color_item = None
@@ -764,7 +772,10 @@ class WallDetectionApp(QMainWindow):
     # app
     def add_slider(self, label, min_val, max_val, initial_val, step=1, scale_factor=None):
         """Add a slider with a label."""
-        slider_layout = QHBoxLayout()
+        # Create a container widget to hold the slider and label
+        slider_container = QWidget()
+        slider_layout = QHBoxLayout(slider_container)
+        slider_layout.setContentsMargins(0, 0, 0, 0)
         
         # Store scale factor if provided
         if scale_factor:
@@ -790,9 +801,12 @@ class WallDetectionApp(QMainWindow):
 
         slider_layout.addWidget(slider_label)
         slider_layout.addWidget(slider)
-        self.controls_layout.addLayout(slider_layout)
+        
+        # Add the container to the controls layout
+        self.controls_layout.addWidget(slider_container)
 
-        self.sliders[label] = slider
+        # Store both the slider and its container in the dictionary
+        self.sliders[label] = {'slider': slider, 'container': slider_container}
 
     # app
     def update_slider(self, label, label_text, value, scale_factor=None):
@@ -1291,31 +1305,43 @@ class WallDetectionApp(QMainWindow):
         self.setStatusTip(f"Using {self.current_tool} tool")
 
     # app
-    def toggle_detection_mode(self, checked):
+    def toggle_detection_mode_radio(self, checked):
         """Toggle between color-based and edge detection modes based on radio button selection."""
         if not checked:
             return
             
         # Enable color detection checkbox based on radio button state
         if self.color_detection_radio.isChecked():
+            self.color_detection_radio.setChecked(True)
             
-            # Enable/disable edge detection settings based on color detection mode
-            for widget in self.edge_detection_widgets:
-                widget.setEnabled(False)
-                
-            # Also disable smoothing, edge margin, and min merge distance in color detection mode
-            self.sliders["Smoothing"].setEnabled(False)
-            self.sliders["Edge Margin"].setEnabled(False)
-                
+            # Hide edge detection controls and their labels
+            sliders_to_hide = ["Smoothing", "Edge Sensitivity", "Edge Threshold", "Edge Margin"]
+            for slider_name, slider_info in self.sliders.items():
+                # Hide the entire container which includes both slider and label
+                if 'container' in slider_info and slider_name in sliders_to_hide:
+                    slider_info['container'].setVisible(False)
+            
+            # Show color detection controls
+            self.color_section.setVisible(True)
+            self.color_selection_mode_radio.setVisible(True)
+            
+            # Update labels to reflect active/inactive state
+            self.color_section_title.setText("Color Detection:")
+            self.color_section_title.setStyleSheet("font-weight: bold;")
         else:
+            self.color_detection_radio.setChecked(False)
             
-            # Re-enable edge detection settings
-            for widget in self.edge_detection_widgets:
-                widget.setEnabled(True)
-                
-            # Re-enable other relevant sliders
-            self.sliders["Smoothing"].setEnabled(True)
-            self.sliders["Edge Margin"].setEnabled(True)
+            # Show edge detection controls and their labels
+            sliders_to_show = ["Smoothing", "Edge Sensitivity", "Edge Threshold", "Edge Margin"]
+            for slider_name, slider_info in self.sliders.items():
+                # Show the entire container which includes both slider and label
+                if 'container' in slider_info and slider_name in sliders_to_show:
+                    slider_info['container'].setVisible(True)
+            
+            # Hide color detection controls
+            self.color_section.setVisible(False)
+            self.color_selection_mode_radio.setVisible(False)
+            
             
         # Update the detection if an image is loaded
         if self.current_image is not None:
@@ -2336,21 +2362,21 @@ class WallDetectionApp(QMainWindow):
             return
 
         # Get slider values
-        blur = self.sliders["Smoothing"].value()
+        blur = self.sliders["Smoothing"]['slider'].value()
         
         # Handle special case for blur=1 (no blur) and ensure odd values
         if blur > 1 and blur % 2 == 0:
             blur += 1
         
-        canny1 = self.sliders["Edge Sensitivity"].value()
-        canny2 = self.sliders["Edge Threshold"].value()
-        edge_margin = self.sliders["Edge Margin"].value()
+        canny1 = self.sliders["Edge Sensitivity"]['slider'].value()
+        canny2 = self.sliders["Edge Threshold"]['slider'].value()
+        edge_margin = self.sliders["Edge Margin"]['slider'].value()
         
         # Get min_merge_distance as a float value
-        min_merge_distance = self.sliders["Min Merge Distance"].value() * 0.1
+        min_merge_distance = self.sliders["Min Merge Distance"]['slider'].value() * 0.1
         
         # Calculate min area based on mode (percentage or pixels)
-        min_area_value = self.sliders["Min Area"].value()
+        min_area_value = self.sliders["Min Area"]['slider'].value()
         image_area = self.current_image.shape[0] * self.current_image.shape[1]
         
         if hasattr(self, 'using_pixels_mode') and self.using_pixels_mode:
@@ -2912,12 +2938,20 @@ class WallDetectionApp(QMainWindow):
     def set_controls_enabled(self, enabled, color_detection_mode=False):
         """Enable or disable detection controls based on preview state."""
         # Disable/enable all sliders
-        for slider_name, slider in self.sliders.items():
-            slider.setEnabled(enabled)
+        for slider_name, slider_info in self.sliders.items():
+            if 'slider' in slider_info:
+                slider_info['slider'].setEnabled(enabled)
         
         if not color_detection_mode:
-            # Disable/enable merge contours checkbox
-            self.merge_contours.setEnabled(enabled)
+            # Disable/enable detection mode radio buttons
+            self.edge_detection_radio.setEnabled(enabled)
+            self.color_detection_radio.setEnabled(enabled)
+            
+            # Disable/enable mode toggle radio buttons
+            self.deletion_mode_radio.setEnabled(enabled)
+            self.color_selection_mode_radio.setEnabled(enabled)
+            self.edit_mask_mode_radio.setEnabled(enabled)
+            self.thin_mode_radio.setEnabled(enabled)
         
         # Disable/enable high-res checkbox
         self.high_res_checkbox.setEnabled(enabled)
@@ -2929,8 +2963,7 @@ class WallDetectionApp(QMainWindow):
         
         # If re-enabling, respect color detection mode
         if enabled and self.color_detection_radio.isChecked():
-            # Re-apply color detection limitations
-            self.toggle_detection_mode(True)
+            self.toggle_detection_mode_radio(True)
 
     # thinning
     def update_target_width(self, value):
@@ -3194,9 +3227,9 @@ class WallDetectionApp(QMainWindow):
         """Toggle between percentage and pixel mode for Min Area."""
         if self.min_area_percentage_radio.isChecked():
             # Switch to percentage mode (0.0001% to 1%)
-            self.sliders["Min Area"].setMinimum(1)
-            self.sliders["Min Area"].setMaximum(25000)
-            current_value = self.sliders["Min Area"].value()
+            self.sliders["Min Area"]['slider'].setMinimum(1)
+            self.sliders["Min Area"]['slider'].setMaximum(25000)
+            current_value = self.sliders["Min Area"]['slider'].value()
             
             # If coming from pixels mode, convert to percentage (approximately)
             if hasattr(self, 'using_pixels_mode') and self.using_pixels_mode:
@@ -3205,21 +3238,21 @@ class WallDetectionApp(QMainWindow):
                     image_area = self.current_image.shape[0] * self.current_image.shape[1]
                     # Convert pixels to percentage (multiply by 100 and divide by image area)
                     percentage_value = max(1, min(25000, int((current_value / image_area) * 100 * 1000)))
-                    self.sliders["Min Area"].setValue(percentage_value)
+                    self.sliders["Min Area"]['slider'].setValue(percentage_value)
                     
             self.using_pixels_mode = False
             
             # Update the slider display with the right scale factor
             label_text = "Min Area"
-            value = self.sliders["Min Area"].value()
+            value = self.sliders["Min Area"]['slider'].value()
             scaled_value = value * 0.001
-            self.update_slider(self.sliders["Min Area"].parent().findChild(QLabel), label_text, value, 0.001)
+            self.update_slider(self.sliders["Min Area"]['slider'].parent().findChild(QLabel), label_text, value, 0.001)
             
         else:
             # Switch to pixels mode (1 to 1000 pixels)
-            self.sliders["Min Area"].setMinimum(1)
-            self.sliders["Min Area"].setMaximum(1000)
-            current_value = self.sliders["Min Area"].value()
+            self.sliders["Min Area"]['slider'].setMinimum(1)
+            self.sliders["Min Area"]['slider'].setMaximum(1000)
+            current_value = self.sliders["Min Area"]['slider'].value()
             
             # If coming from percentage mode, convert to pixels (approximately)
             if self.current_image is not None and (not hasattr(self, 'using_pixels_mode') or not self.using_pixels_mode):
@@ -3227,17 +3260,17 @@ class WallDetectionApp(QMainWindow):
                 image_area = self.current_image.shape[0] * self.current_image.shape[1]
                 # Convert percentage to pixels (divide by 100 and multiply by image area)
                 pixel_value = max(1, min(1000, int((current_value * 0.001 / 100) * image_area)))
-                self.sliders["Min Area"].setValue(pixel_value)
+                self.sliders["Min Area"]['slider'].setValue(pixel_value)
             else:
                 # Just ensure we're within the new range
-                self.sliders["Min Area"].setValue(min(1000, current_value))
+                self.sliders["Min Area"]['slider'].setValue(min(1000, current_value))
                 
             self.using_pixels_mode = True
             
             # Update the slider display without a scale factor
             label_text = "Min Area"
-            value = self.sliders["Min Area"].value()
-            self.update_slider(self.sliders["Min Area"].parent().findChild(QLabel), label_text, value)
+            value = self.sliders["Min Area"]['slider'].value()
+            self.update_slider(self.sliders["Min Area"]['slider'].parent().findChild(QLabel), label_text, value)
             
         # Update the image if one is loaded
         if self.current_image is not None:
