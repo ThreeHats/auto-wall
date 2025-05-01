@@ -184,103 +184,39 @@ class WallDetectionApp(QMainWindow):
         separator.setFrameShape(QFrame.Shape.HLine)
         separator.setFrameShadow(QFrame.Shadow.Sunken)
         self.controls_layout.addWidget(separator)
-        
-        # Wrap controls in a scroll area to handle many options
-        self.scroll_area = QScrollArea()
-        self.scroll_area.setWidgetResizable(True)
-        self.scroll_area.setWidget(self.controls_panel)
-        self.scroll_area.setMinimumWidth(350)  # Set minimum width for controls panel
-        self.scroll_area.setMaximumWidth(400)  # Set maximum width for controls panel
-        self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)  # Prevent horizontal scrolling
-        self.main_layout.addWidget(self.scroll_area)
-        
-        # Right panel for image display
-        self.image_panel = QWidget()
-        self.image_layout = QVBoxLayout(self.image_panel)
-        self.main_layout.addWidget(self.image_panel, 1)  # Give image panel more space (stretch factor 1)
-        
-        # Image display (using custom interactive label)
-        self.image_label = InteractiveImageLabel(self)
-        self.image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.image_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        self.image_layout.addWidget(self.image_label)
-
-        # Sliders
-        self.sliders = {}
-        
-        # Add Min Area slider with mode selection
-        self.min_area_mode_layout = QHBoxLayout()
-        self.min_area_mode_label = QLabel("Min Area Mode:")
-        self.min_area_mode_layout.addWidget(self.min_area_mode_label)
-        
-        self.min_area_mode_group = QButtonGroup()
-        self.min_area_percentage_radio = QRadioButton("Percentage")
-        self.min_area_pixels_radio = QRadioButton("Pixels")
-        self.min_area_percentage_radio.setChecked(True)  # Default to percentage mode
-        self.min_area_mode_group.addButton(self.min_area_percentage_radio)
-        self.min_area_mode_group.addButton(self.min_area_pixels_radio)
-        self.min_area_mode_layout.addWidget(self.min_area_percentage_radio)
-        self.min_area_mode_layout.addWidget(self.min_area_pixels_radio)
-        
-        # Connect mode radio buttons
-        self.min_area_percentage_radio.toggled.connect(self.toggle_min_area_mode)
-        self.min_area_pixels_radio.toggled.connect(self.toggle_min_area_mode)
-        
-        self.controls_layout.addLayout(self.min_area_mode_layout)
-        
-        # Min Area is now a percentage (0.0001% to 1% of image area) or pixels (1 to 1000)
-        self.add_slider("Min Area", 1, 25000, 100, scale_factor=0.001)  # Default 0.1%
-        self.add_slider("Smoothing", 1, 21, 5, step=2)  # Changed from "Blur"
-        self.add_slider("Edge Sensitivity", 0, 255, 255)  # Changed from "Canny1"
-        self.add_slider("Edge Threshold", 0, 255, 106)  # Changed from "Canny2"
-        self.add_slider("Edge Margin", 0, 50, 0)
-        
-        # Use a scaling factor of 10 for float values (0 to 10.0 with 0.1 precision)
-        self.add_slider("Min Merge Distance", 0, 100, 5, scale_factor=0.1)  # Default 0.5
 
         # Mode selection (Detection/Deletion/Color Selection/Edit Mask)
         self.mode_layout = QHBoxLayout()
         self.controls_layout.addLayout(self.mode_layout)
         
-        self.mode_label = QLabel("Mode:")
+        self.mode_label = QLabel("Tool:")
         self.mode_layout.addWidget(self.mode_label)
         
+        self.deletion_mode_radio = QRadioButton("Deletion")
+        self.thin_mode_radio = QRadioButton("Thin")
+        self.deletion_mode_radio.setChecked(True)
         self.color_selection_mode_radio = QRadioButton("Color Pick")
         self.color_selection_mode_radio.setVisible(False)  # Hide this radio button initially
-        self.deletion_mode_radio = QRadioButton("Deletion")
         self.edit_mask_mode_radio = QRadioButton("Edit Mask")
-        self.thin_mode_radio = QRadioButton("Thin")  # New radio button for thinning mode
-        self.deletion_mode_radio.setChecked(True)
+        self.edit_mask_mode_radio.setVisible(False)  # Hide this radio button initially
 
-        self.mode_layout.addWidget(self.color_selection_mode_radio)
         self.mode_layout.addWidget(self.deletion_mode_radio)
+        self.mode_layout.addWidget(self.thin_mode_radio)
+        self.mode_layout.addWidget(self.color_selection_mode_radio)
         self.mode_layout.addWidget(self.edit_mask_mode_radio)
-        self.mode_layout.addWidget(self.thin_mode_radio)  # Add the new radio button
         
         # Connect mode radio buttons
-        self.color_selection_mode_radio.toggled.connect(self.toggle_mode)
         self.deletion_mode_radio.toggled.connect(self.toggle_mode)
+        self.thin_mode_radio.toggled.connect(self.toggle_mode)
+        self.color_selection_mode_radio.toggled.connect(self.toggle_mode)
         self.edit_mask_mode_radio.toggled.connect(self.toggle_mode)
-        self.thin_mode_radio.toggled.connect(self.toggle_mode)  # Connect new radio button
-        
-        # Add color selection options
-        self.color_selection_options = QWidget()
-        self.color_selection_layout = QHBoxLayout(self.color_selection_options)
-        self.color_selection_layout.setContentsMargins(0, 0, 0, 0)
-        
-        self.color_count_label = QLabel("Colors:")
-        self.color_selection_layout.addWidget(self.color_count_label)
-        
-        self.color_count_spinner = QSpinBox()
-        self.color_count_spinner.setMinimum(1)
-        self.color_count_spinner.setMaximum(10)
-        self.color_count_spinner.setValue(3)
-        self.color_count_spinner.setToolTip("Number of colors to extract")
-        self.color_selection_layout.addWidget(self.color_count_spinner)
-        
-        self.controls_layout.addWidget(self.color_selection_options)
-        self.color_selection_options.setVisible(False)
-        
+
+        # Add a separator after Tool selection
+        separator = QFrame()
+        separator.setFrameShape(QFrame.Shape.HLine)
+        separator.setFrameShadow(QFrame.Shadow.Sunken)
+        self.controls_layout.addWidget(separator)
+
         # Add mask editing options
         self.mask_edit_options = QWidget()
         self.mask_edit_layout = QVBoxLayout(self.mask_edit_options)
@@ -354,14 +290,14 @@ class WallDetectionApp(QMainWindow):
         
         self.mask_edit_layout.addLayout(self.draw_tool_layout)
 
+        # Add a separator at the bottom of mask editing options
+        separator = QFrame()
+        separator.setFrameShape(QFrame.Shape.HLine)
+        separator.setFrameShadow(QFrame.Shadow.Sunken)
+        self.mask_edit_layout.addWidget(separator)
+
         self.controls_layout.addWidget(self.mask_edit_options)
         self.mask_edit_options.setVisible(False)
-        
-        # Deletion mode is initially disabled
-        self.deletion_mode_enabled = True
-        self.color_selection_mode_enabled = False
-        self.edit_mask_mode_enabled = False
-        self.thin_mode_enabled = False  # Add new state variable for thin mode
 
         # Add thinning tool options
         self.thin_options = QWidget()
@@ -399,6 +335,12 @@ class WallDetectionApp(QMainWindow):
         self.max_iterations_value = QLabel("3")
         self.max_iterations_layout.addWidget(self.max_iterations_value)
         self.thin_layout.addLayout(self.max_iterations_layout)
+
+        # Add a separator at the bottom of thinning options
+        separator = QFrame()
+        separator.setFrameShape(QFrame.Shape.HLine)
+        separator.setFrameShadow(QFrame.Shadow.Sunken)
+        self.thin_layout.addWidget(separator)
         
         # Add thinning options to main controls
         self.controls_layout.addWidget(self.thin_options)
@@ -408,24 +350,83 @@ class WallDetectionApp(QMainWindow):
         self.target_width = 5
         self.max_iterations = 3
 
-        # Buttons
-        self.buttons_layout = QHBoxLayout()
-        self.controls_layout.addLayout(self.buttons_layout)
+        # Add color selection options
+        self.color_selection_options = QWidget()
+        self.color_selection_layout = QVBoxLayout(self.color_selection_options)
+        self.color_selection_layout.setContentsMargins(0, 0, 0, 0)
+        
+        self.color_count_layout = QHBoxLayout()
+        self.color_selection_layout.addLayout(self.color_count_layout)
 
-        self.open_button = QPushButton("Open Image")
-        self.open_button.clicked.connect(self.open_image)
-        self.buttons_layout.addWidget(self.open_button)
+        self.color_count_label = QLabel("Colors:")
+        self.color_count_layout.addWidget(self.color_count_label)
+        
+        self.color_count_spinner = QSpinBox()
+        self.color_count_spinner.setMinimum(1)
+        self.color_count_spinner.setMaximum(10)
+        self.color_count_spinner.setValue(3)
+        self.color_count_spinner.setToolTip("Number of colors to extract")
+        self.color_count_layout.addWidget(self.color_count_spinner)
 
-        self.save_button = QPushButton("Save Image")
-        self.save_button.clicked.connect(self.save_image)
-        self.buttons_layout.addWidget(self.save_button)
+        # Add a separator at the bottom of color selection options
+        separator = QFrame()
+        separator.setFrameShape(QFrame.Shape.HLine)
+        separator.setFrameShadow(QFrame.Shadow.Sunken)
+        self.color_selection_layout.addWidget(separator)
+        
+        self.controls_layout.addWidget(self.color_selection_options)
+        self.color_selection_options.setVisible(False)
+        
+        # Wrap controls in a scroll area to handle many options
+        self.scroll_area = QScrollArea()
+        self.scroll_area.setWidgetResizable(True)
+        self.scroll_area.setWidget(self.controls_panel)
+        self.scroll_area.setMinimumWidth(350)  # Set minimum width for controls panel
+        self.scroll_area.setMaximumWidth(400)  # Set maximum width for controls panel
+        self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)  # Prevent horizontal scrolling
+        self.main_layout.addWidget(self.scroll_area)
+        
+        # Right panel for image display
+        self.image_panel = QWidget()
+        self.image_layout = QVBoxLayout(self.image_panel)
+        self.main_layout.addWidget(self.image_panel, 1)  # Give image panel more space (stretch factor 1)
+        
+        # Image display (using custom interactive label)
+        self.image_label = InteractiveImageLabel(self)
+        self.image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.image_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.image_layout.addWidget(self.image_label)
 
-        # Add URL image loading button next to Open Image button
-        self.url_button = QPushButton("Load from URL")
-        self.url_button.clicked.connect(self.load_image_from_url)
-        self.url_button.setToolTip("Load image from URL in clipboard")
-        self.buttons_layout.addWidget(self.url_button)
-
+        # Sliders
+        self.sliders = {}
+        
+        # Add Min Area slider with mode selection
+        self.min_area_mode_layout = QHBoxLayout()
+        self.min_area_mode_label = QLabel("Min Area Mode:")
+        self.min_area_mode_layout.addWidget(self.min_area_mode_label)
+        
+        self.min_area_mode_group = QButtonGroup()
+        self.min_area_percentage_radio = QRadioButton("Percentage")
+        self.min_area_pixels_radio = QRadioButton("Pixels")
+        self.min_area_percentage_radio.setChecked(True)  # Default to percentage mode
+        self.min_area_mode_group.addButton(self.min_area_percentage_radio)
+        self.min_area_mode_group.addButton(self.min_area_pixels_radio)
+        self.min_area_mode_layout.addWidget(self.min_area_percentage_radio)
+        self.min_area_mode_layout.addWidget(self.min_area_pixels_radio)
+        
+        # Connect mode radio buttons
+        self.min_area_percentage_radio.toggled.connect(self.toggle_min_area_mode)
+        self.min_area_pixels_radio.toggled.connect(self.toggle_min_area_mode)
+        
+        self.controls_layout.addLayout(self.min_area_mode_layout)
+        
+        # Min Area is now a percentage (0.0001% to 1% of image area) or pixels (1 to 1000)
+        self.add_slider("Min Area", 1, 25000, 100, scale_factor=0.001)  # Default 0.1%
+        self.add_slider("Smoothing", 1, 21, 5, step=2)  # Changed from "Blur"
+        self.add_slider("Edge Sensitivity", 0, 255, 255)  # Changed from "Canny1"
+        self.add_slider("Edge Threshold", 0, 255, 106)  # Changed from "Canny2"
+        self.add_slider("Edge Margin", 0, 50, 0)
+        
         # Checkboxes for merge options
         self.merge_options_layout = QVBoxLayout()
         self.controls_layout.addLayout(self.merge_options_layout)
@@ -434,10 +435,14 @@ class WallDetectionApp(QMainWindow):
         self.merge_contours.setChecked(False)
         self.merge_options_layout.addWidget(self.merge_contours)
 
-         # Add Remove Hatching section
-        self.hatching_section_title = QLabel("Remove Hatching:")
-        self.hatching_section_title.setStyleSheet("font-weight: bold;")
-        self.controls_layout.addWidget(self.hatching_section_title)
+        # Use a scaling factor of 10 for float values (0 to 10.0 with 0.1 precision)
+        self.add_slider("Min Merge Distance", 0, 100, 5, scale_factor=0.1)  # Default 0.5
+        
+        # Deletion mode is initially disabled
+        self.deletion_mode_enabled = True
+        self.color_selection_mode_enabled = False
+        self.edit_mask_mode_enabled = False
+        self.thin_mode_enabled = False  # Add new state variable for thin mode
         
         # Create layout for hatching controls
         self.hatching_layout = QVBoxLayout()
@@ -507,13 +512,6 @@ class WallDetectionApp(QMainWindow):
         
         # Initially hide the hatching options until enabled
         self.hatching_options.setVisible(False)
-
-        # Add a checkbox for high-resolution processing
-        self.high_res_checkbox = QCheckBox("Process at Full Resolution")
-        self.high_res_checkbox.setChecked(False)
-        self.high_res_checkbox.setToolTip("Process at full resolution (slower but more accurate)")
-        self.high_res_checkbox.stateChanged.connect(self.reload_working_image)
-        self.controls_layout.addWidget(self.high_res_checkbox)
         
         # Add color detection section
         self.color_section = QWidget()  # Container widget for the entire section
@@ -592,6 +590,13 @@ class WallDetectionApp(QMainWindow):
         
         # Store the currently selected color item
         self.selected_color_item = None
+
+        # Add a checkbox for high-resolution processing
+        self.high_res_checkbox = QCheckBox("Process at Full Resolution")
+        self.high_res_checkbox.setChecked(False)
+        self.high_res_checkbox.setToolTip("Process at full resolution (slower but more accurate)")
+        self.high_res_checkbox.stateChanged.connect(self.reload_working_image)
+        self.controls_layout.addWidget(self.high_res_checkbox)
         
         # Group edge detection settings
         self.edge_detection_widgets = []
@@ -642,15 +647,38 @@ class WallDetectionApp(QMainWindow):
         self.last_preview_image = None
         self.foundry_preview_active = False 
 
-        # Create a new section for wall action buttons in the main sidebar
-        self.wall_actions_title = QLabel("Wall Actions")
-        self.wall_actions_title.setStyleSheet("font-weight: bold;")
-        self.controls_layout.addWidget(self.wall_actions_title)
+        # Add a divider with auto margin on top
+        separator = QFrame()
+        separator.setFrameShape(QFrame.Shape.HLine)
+        separator.setFrameShadow(QFrame.Shadow.Sunken)
+        
+        # Add a stretch item above the separator to push it to the bottom
+        self.controls_layout.addStretch(1)
+        
+        self.controls_layout.addWidget(separator)
+        
+        # Buttons
+        self.buttons_layout = QHBoxLayout()
+        self.controls_layout.addLayout(self.buttons_layout)
+
+        self.open_button = QPushButton("Open Image")
+        self.open_button.clicked.connect(self.open_image)
+        self.buttons_layout.addWidget(self.open_button)
+
+        self.save_button = QPushButton("Save Image")
+        self.save_button.clicked.connect(self.save_image)
+        self.buttons_layout.addWidget(self.save_button)
+
+        # Add URL image loading button next to Open Image button
+        self.url_button = QPushButton("Load from URL")
+        self.url_button.clicked.connect(self.load_image_from_url)
+        self.url_button.setToolTip("Load image from URL in clipboard")
+        self.buttons_layout.addWidget(self.url_button)
         
         # Create a layout for the wall action buttons
         self.wall_actions_layout = QVBoxLayout()
         self.controls_layout.addLayout(self.wall_actions_layout)
-        
+
         # Move the Bake button to the main sidebar
         self.bake_button = QPushButton("Bake Contours to Mask")
         self.bake_button.clicked.connect(self.bake_contours_to_mask)
@@ -997,6 +1025,7 @@ class WallDetectionApp(QMainWindow):
         )
         
         # Switch to mask editing mode
+        self.edit_mask_mode_radio.setVisible(True)
         self.edit_mask_mode_radio.setChecked(True)
         
         # Enable the Export to Foundry VTT button
