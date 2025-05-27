@@ -27,6 +27,7 @@ from src.wall_detection.detector import detect_walls, draw_walls, merge_contours
 from src.wall_detection.image_utils import load_image, save_image, convert_to_rgb
 from src.wall_detection.mask_editor import create_mask_from_contours, blend_image_with_mask, draw_on_mask, export_mask_to_foundry_json, contours_to_foundry_walls, thin_contour
 from src.utils.update_checker import check_for_updates
+from src.gui.drawing_tools import DrawingTools
 
 # Define preset file paths
 DETECTION_PRESETS_FILE = "detection_presets.json"
@@ -62,7 +63,7 @@ class InteractiveImageLabel(QLabel):
                 elif self.parent_app.edit_mask_mode_enabled:
                     # Start drawing on mask
                     self.last_point = QPoint(x, y)
-                    self.parent_app.start_drawing(x, y)
+                    self.parent_app.drawing_tools.start_drawing(x, y)
                 elif self.parent_app.thin_mode_enabled:
                     self.parent_app.start_selection(x, y)
                 
@@ -82,7 +83,7 @@ class InteractiveImageLabel(QLabel):
                 elif self.parent_app.edit_mask_mode_enabled and self.last_point:
                     # Continue drawing on mask
                     current_point = QPoint(x, y)
-                    self.parent_app.continue_drawing(self.last_point.x(), self.last_point.y(), x, y)
+                    self.parent_app.drawing_tools.continue_drawing(self.last_point.x(), self.last_point.y(), x, y)
                     self.last_point = current_point
                 elif self.parent_app.thin_mode_enabled:
                     self.parent_app.update_selection(x, y)
@@ -92,7 +93,7 @@ class InteractiveImageLabel(QLabel):
                     self.parent_app.handle_hover(pos.x(), pos.y())
                 elif self.parent_app.edit_mask_mode_enabled:
                     # Always update brush preview when hovering in edit mask mode
-                    self.parent_app.update_brush_preview(x, y)
+                    self.parent_app.drawing_tools.update_brush_preview(x, y)
                 
         super().mouseMoveEvent(event)
     
@@ -108,7 +109,7 @@ class InteractiveImageLabel(QLabel):
                     self.parent_app.end_selection(x, y)
                 elif self.parent_app.edit_mask_mode_enabled:
                     # End drawing on mask
-                    self.parent_app.end_drawing()
+                    self.parent_app.drawing_tools.end_drawing()
                     self.last_point = None
                 elif self.parent_app.thin_mode_enabled:
                     self.parent_app.end_selection(x, y)
@@ -126,7 +127,7 @@ class InteractiveImageLabel(QLabel):
                 self.parent_app.clear_hover()
             elif self.parent_app.edit_mask_mode_enabled:
                 # Clear brush preview when mouse leaves the widget
-                self.parent_app.clear_brush_preview()
+                self.parent_app.drawing_tools.clear_brush_preview()
         super().leaveEvent(event)
 
 
@@ -137,6 +138,8 @@ class WallDetectionApp(QMainWindow):
         self.github_repo = github_repo
         self.update_available = False
         self.update_url = ""
+
+        self.drawing_tools = DrawingTools(self)
         
         self.setWindowTitle(f"Auto-Wall: Battle Map Wall Detection v{self.app_version}")
         
@@ -234,7 +237,7 @@ class WallDetectionApp(QMainWindow):
         self.brush_size_slider.setMinimum(1)
         self.brush_size_slider.setMaximum(50)
         self.brush_size_slider.setValue(10)
-        self.brush_size_slider.valueChanged.connect(self.update_brush_size)
+        self.brush_size_slider.valueChanged.connect(self.drawing_tools.update_brush_size)
         self.brush_size_layout.addWidget(self.brush_size_slider)
         
         self.brush_size_value = QLabel("10")
@@ -638,12 +641,7 @@ class WallDetectionApp(QMainWindow):
         self.color_selection_current = None
 
         # Additional state for mask editing
-        self.mask_layer = None  # Will hold the editable mask
-        self.brush_size = 10
-        self.drawing_mode = True  # True for draw, False for erase
-        self.current_tool = "brush"  # Default tool
-        self.drawing_start_pos = None  # Starting position for shape tools
-        self.temp_drawing = None  # For temporary preview of shapes
+
 
         # Add these new variables to track the brush preview state
         self.brush_preview_active = False
@@ -760,12 +758,12 @@ class WallDetectionApp(QMainWindow):
         self.wall_actions_layout.addWidget(self.copy_foundry_button)
         
         # Connect drawing tool radio buttons to handler
-        self.brush_tool_radio.toggled.connect(self.update_drawing_tool)
-        self.line_tool_radio.toggled.connect(self.update_drawing_tool)
-        self.rectangle_tool_radio.toggled.connect(self.update_drawing_tool)
-        self.circle_tool_radio.toggled.connect(self.update_drawing_tool)
-        self.ellipse_tool_radio.toggled.connect(self.update_drawing_tool)
-        self.fill_tool_radio.toggled.connect(self.update_drawing_tool)
+        self.brush_tool_radio.toggled.connect(self.drawing_tools.update_drawing_tool)
+        self.line_tool_radio.toggled.connect(self.drawing_tools.update_drawing_tool)
+        self.rectangle_tool_radio.toggled.connect(self.drawing_tools.update_drawing_tool)
+        self.circle_tool_radio.toggled.connect(self.drawing_tools.update_drawing_tool)
+        self.ellipse_tool_radio.toggled.connect(self.drawing_tools.update_drawing_tool)
+        self.fill_tool_radio.toggled.connect(self.drawing_tools.update_drawing_tool)
 
         # Add history tracking for undo feature
         self.history = deque(maxlen=5)  # Store up to 5 previous states
@@ -1760,7 +1758,7 @@ class WallDetectionApp(QMainWindow):
             if self.current_image is not None:
                 cursor_pos = self.image_label.mapFromGlobal(QCursor.pos())
                 if self.image_label.rect().contains(cursor_pos):
-                    self.update_brush_preview(cursor_pos.x(), cursor_pos.y())
+                    self.drawing_tools.update_brush_preview(cursor_pos.x(), cursor_pos.y())
         elif self.thin_mode_enabled:
             self.setStatusTip("Thinning Mode: Click on contours to thin them")
             # Store original image for highlighting
@@ -1784,71 +1782,12 @@ class WallDetectionApp(QMainWindow):
             setattr(self, 'last_drawing_position', None)
 
     # drawing
-    def update_brush_size(self, value):
-        """Update the brush size."""
-        self.brush_size = value
-        self.brush_size_value.setText(str(value))
-        
-        # Update brush preview if in edit mode
-        if self.edit_mask_mode_enabled:
-            # Get current cursor position relative to the image label
-            cursor_pos = self.image_label.mapFromGlobal(QCursor.pos())
-            if self.image_label.rect().contains(cursor_pos):
-                self.update_brush_preview(cursor_pos.x(), cursor_pos.y())
+
 
     # drawing
-    def update_brush_preview(self, x, y):
-        """Show a preview of the brush outline at the current mouse position."""
-        if not self.edit_mask_mode_enabled or self.current_image is None:
-            return
-        
-        # Convert display coordinates to image coordinates
-        img_x, img_y = self.convert_to_image_coordinates(x, y)
-        if img_x is None or img_y is None:
-            return
-        
-        # Make a copy of the blended image with mask
-        if self.mask_layer is not None:
-            # Create the blended image (original + current mask)
-            blended_image = blend_image_with_mask(self.current_image, self.mask_layer)
-            
-            # Draw brush outline with different colors for draw/erase mode
-            color = (0, 255, 0) if self.draw_radio.isChecked() else (0, 0, 255)  # Green for draw, Red for erase
-            cv2.circle(blended_image, (img_x, img_y), self.brush_size, color, 1)
-            
-            # Store this as our preview image
-            self.last_preview_image = blended_image.copy()
-            self.brush_preview_active = True
-            
-            # Display the image with brush preview
-            self.display_image(blended_image)
-        elif self.original_processed_image is not None:
-            # If no mask exists yet, draw on the original image
-            preview_image = self.original_processed_image.copy()
-            
-            # Draw brush outline
-            color = (0, 255, 0) if self.draw_radio.isChecked() else (0, 0, 255)
-            cv2.circle(preview_image, (img_x, img_y), self.brush_size, color, 1)
-            
-            # Store this as our preview image
-            self.last_preview_image = preview_image.copy()
-            self.brush_preview_active = True
-            
-            # Display the preview
-            self.display_image(preview_image)
+
 
     # drawing
-    def clear_brush_preview(self):
-        """Clear the brush preview when mouse leaves the widget."""
-        self.brush_preview_active = False
-        
-        # Restore the original display
-        if self.edit_mask_mode_enabled and self.mask_layer is not None:
-            # Redraw the blend without the brush preview
-            self.update_display_with_mask()
-        elif self.original_processed_image is not None:
-            # Restore the original image
-            self.display_image(self.original_processed_image)
 
     # app
     def create_empty_mask(self):
@@ -1903,287 +1842,6 @@ class WallDetectionApp(QMainWindow):
         
         # Important: Also update the processed_image
         self.processed_image = display_image.copy()
-
-    # drawing
-    def start_drawing(self, x, y):
-        """Start drawing on the mask at the given point."""
-        if self.mask_layer is None:
-            self.create_empty_mask()
-        
-        # Save state before modifying
-        self.save_state()
-            
-        # Convert display coordinates to image coordinates
-        img_x, img_y = self.convert_to_image_coordinates(x, y)
-        if img_x is None or img_y is None:
-            return
-            
-        # Store the drawing mode (draw or erase)
-        self.drawing_mode = self.draw_radio.isChecked()
-        
-        # Handle based on the current tool
-        if self.current_tool == "brush":
-            # Same as original brush tool behavior
-            self.last_drawing_position = (img_x, img_y)
-            
-            draw_on_mask(
-                self.mask_layer,
-                img_x, img_y,
-                self.brush_size,
-                color=(0, 255, 0, 255),  # Green
-                erase=not self.drawing_mode
-            )
-            
-            # Keep the brush preview active while drawing
-            self.brush_preview_active = True
-            
-            # Initialize drawing throttling variables
-            self.drawing_update_counter = 0
-            self.drawing_update_threshold = 2  # Update display every N points
-            
-            # Update display with brush preview
-            self.update_display_with_brush(img_x, img_y)
-        elif self.current_tool == "fill":
-            # For fill tool, perform flood fill immediately
-            self.perform_fill(img_x, img_y)
-        else:
-            # For all other shape tools, just record the starting position
-            self.drawing_start_pos = (img_x, img_y)
-            self.temp_drawing = self.mask_layer.copy()
-
-    # drawing
-    def continue_drawing(self, x1, y1, x2, y2):
-        """Continue drawing on the mask between two points (optimized)."""
-        # Convert display coordinates to image coordinates
-        img_x2, img_y2 = self.convert_to_image_coordinates(x2, y2)
-        
-        if img_x2 is None or img_y2 is None:
-            return
-            
-        # Handle based on the current tool
-        if self.current_tool == "brush":
-            # Original brush behavior
-            if not hasattr(self, 'last_drawing_position') or self.last_drawing_position is None:
-                self.last_drawing_position = (img_x2, img_y2)
-                return
-                
-            img_x1, img_y1 = self.last_drawing_position
-                
-            # Get drawing/erasing mode
-            self.drawing_mode = self.draw_radio.isChecked()
-            
-            # Calculate the distance between points
-            distance = np.sqrt((img_x2 - img_x1)**2 + (img_y2 - img_y1)**2)
-            
-            # Determine intermediate points for a smooth line
-            if distance < (self.brush_size * 0.5):
-                draw_on_mask(
-                    self.mask_layer,
-                    img_x2, img_y2,
-                    self.brush_size,
-                    color=(0, 255, 0, 255),
-                    erase=not self.drawing_mode
-                )
-            else:
-                # Calculate points for a continuous line
-                step_size = self.brush_size / 3
-                num_steps = max(int(distance / step_size), 1)
-                
-                for i in range(num_steps + 1):
-                    t = i / num_steps
-                    x = int(img_x1 + t * (img_x2 - img_x1))
-                    y = int(img_y1 + t * (img_y2 - img_y1))
-                    
-                    draw_on_mask(
-                        self.mask_layer,
-                        x, y,
-                        self.brush_size,
-                        color=(0, 255, 0, 255),
-                        erase=not self.drawing_mode
-                    )
-            
-            # Store the current position for next segment
-            self.last_drawing_position = (img_x2, img_y2)
-            
-            # Update display with brush preview at current position
-            # This shows the brush outline during drawing
-            self.update_display_with_brush(img_x2, img_y2)
-            
-            # Reset drawing throttling counter since we're updating on every move now
-            self.drawing_update_counter = 0
-            
-        elif self.current_tool != "fill" and self.drawing_start_pos is not None:
-            # For shape tools, continuously update the preview
-            self.update_shape_preview(img_x2, img_y2)
-
-    # drawing
-    def end_drawing(self):
-        """End drawing on the mask."""
-        # For brush tool
-        if self.current_tool == "brush":
-            # Reset drawing variables
-            self.last_drawing_position = None
-            self.drawing_update_counter = 0
-            
-            # Always update display at the end of drawing
-            self.update_display_with_mask()
-        
-        # For shape tools (except fill which completes immediately)
-        elif self.current_tool != "fill" and self.drawing_start_pos is not None:
-            # Finalize the shape
-            self.finalize_shape()
-            self.drawing_start_pos = None
-            self.temp_drawing = None
-            
-            # Update display
-            self.update_display_with_mask()
-        
-        # Restore brush preview after drawing ends
-        cursor_pos = self.image_label.mapFromGlobal(QCursor.pos())
-        if self.image_label.rect().contains(cursor_pos):
-            self.update_brush_preview(cursor_pos.x(), cursor_pos.y())
-
-    # drawing
-    def update_shape_preview(self, img_x2, img_y2):
-        """Update the preview for shape drawing tools."""
-        if self.drawing_start_pos is None or self.temp_drawing is None:
-            return
-        
-        # Start with a clean copy of the mask (without the current shape)
-        preview_mask = self.temp_drawing.copy()
-        
-        # Get the start position
-        img_x1, img_y1 = self.drawing_start_pos
-        
-        # Get drawing color based on draw/erase mode
-        color = (0, 255, 0, 255) if self.draw_radio.isChecked() else (0, 0, 255, 0)  # Green for draw, Red for erase
-        
-        # Draw the appropriate shape based on the current tool
-        if self.current_tool == "line":
-            # Draw a line from start to current position
-            cv2.line(
-                preview_mask,
-                (img_x1, img_y1),
-                (img_x2, img_y2),
-                color,
-                thickness=self.brush_size
-            )
-        elif self.current_tool == "rectangle":
-            # Draw a rectangle from start to current position
-            cv2.rectangle(
-                preview_mask,
-                (img_x1, img_y1),
-                (img_x2, img_y2),
-                color,
-                thickness=self.brush_size if self.brush_size > 1 else -1  # Filled if size is 1
-            )
-        elif self.current_tool == "circle":
-            # Calculate radius for circle based on distance
-            radius = int(np.sqrt((img_x2 - img_x1)**2 + (img_y2 - img_y1)**2))
-            cv2.circle(
-                preview_mask,
-                (img_x1, img_y1),  # Center at start position
-                radius,
-                color,
-                thickness=self.brush_size if self.brush_size > 1 else -1  # Filled if size is 1
-            )
-        elif self.current_tool == "ellipse":
-            # Calculate width/height for ellipse
-            width = abs(img_x2 - img_x1)
-            height = abs(img_y2 - img_y1)
-            center_x = (img_x1 + img_x2) // 2
-            center_y = (img_y1 + img_y2) // 2
-            cv2.ellipse(
-                preview_mask,
-                (center_x, center_y),
-                (width // 2, height // 2),
-                0,  # Angle
-                0,  # Start angle
-                360,  # End angle
-                color,
-                thickness=self.brush_size if self.brush_size > 1 else -1  # Filled if size is 1
-            )
-        
-        # Temporarily update the mask layer with the preview
-        self.mask_layer = preview_mask
-        
-        # Update display
-        self.update_display_with_mask()
-
-    # drawing
-    def finalize_shape(self):
-        """Finalize the shape being drawn."""
-        # The shape is already in the mask_layer from update_shape_preview
-        # Just make sure it's properly stored
-        if self.mask_layer is not None:
-            # No need to do anything else, the mask is already updated
-            pass
-
-    # drawing
-    def perform_fill(self, img_x, img_y):
-        """Perform flood fill on the mask."""
-        if self.mask_layer is None:
-            return
-        
-        # Get alpha channel for fill (this is where we're drawing/erasing)
-        alpha_channel = self.mask_layer[:, :, 3].copy()
-        
-        # Get current value at fill point
-        current_value = alpha_channel[img_y, img_x]
-        
-        # Get target value based on draw/erase mode
-        target_value = 255 if self.draw_radio.isChecked() else 0
-        
-        # If current value is already the target, no need to fill
-        if current_value == target_value:
-            return
-        
-        # Save state before filling (if not already done)
-        # Note: This might be redundant if start_drawing already saved state
-        if hasattr(self, 'last_saved_state') and self.last_saved_state != id(self.mask_layer):
-            self.save_state()
-            self.last_saved_state = id(self.mask_layer)
-        
-        # Perform flood fill
-        mask = np.zeros((alpha_channel.shape[0] + 2, alpha_channel.shape[1] + 2), dtype=np.uint8)
-        cv2.floodFill(alpha_channel, mask, (img_x, img_y), target_value, 
-                      loDiff=0, upDiff=0, flags=8)
-        
-        # Update the mask's alpha channel
-        if self.draw_radio.isChecked():
-            # For draw mode, set RGB to green where alpha is filled
-            self.mask_layer[:, :, 3] = alpha_channel
-            filled_area = (alpha_channel == 255)
-            self.mask_layer[:, :, 0][filled_area] = 0    # B
-            self.mask_layer[:, :, 1][filled_area] = 255  # G
-            self.mask_layer[:, :, 2][filled_area] = 0    # R
-        else:
-            # For erase mode, just set alpha to 0
-            self.mask_layer[:, :, 3] = alpha_channel
-        
-        # Update display
-        self.update_display_with_mask()
-
-    # drawing
-    def update_drawing_tool(self, checked):
-        """Update the current drawing tool based on radio button selection."""
-        if not checked:
-            return
-            
-        if self.brush_tool_radio.isChecked():
-            self.current_tool = "brush"
-        elif self.line_tool_radio.isChecked():
-            self.current_tool = "line"
-        elif self.rectangle_tool_radio.isChecked():
-            self.current_tool = "rectangle"
-        elif self.circle_tool_radio.isChecked():
-            self.current_tool = "circle"
-        elif self.ellipse_tool_radio.isChecked():
-            self.current_tool = "ellipse"
-        elif self.fill_tool_radio.isChecked():
-            self.current_tool = "fill"
-        
-        self.setStatusTip(f"Using {self.current_tool} tool")
 
     # app
     def toggle_detection_mode_radio(self, checked): # 'checked' parameter is from the signal, might not reflect the final state if called manually
@@ -3973,25 +3631,6 @@ class WallDetectionApp(QMainWindow):
         """Open the update URL when the notification is clicked."""
         if self.update_url:
             QDesktopServices.openUrl(QUrl(self.update_url))
-
-    # drawing
-    def update_display_with_brush(self, img_x, img_y):
-        """Update the display with both the mask and brush outline at current position."""
-        if self.current_image is None or self.mask_layer is None:
-            return
-        
-        # Create the blended image (original + current mask)
-        blended_image = blend_image_with_mask(self.current_image, self.mask_layer)
-        
-        # Draw brush outline with different colors for draw/erase mode
-        color = (0, 255, 0) if self.draw_radio.isChecked() else (0, 0, 255)  # Green for draw, Red for erase
-        cv2.circle(blended_image, (img_x, img_y), self.brush_size, color, 1)
-        
-        # Store this as our preview image
-        self.last_preview_image = blended_image.copy()
-        
-        # Display the image with brush preview
-        self.display_image(blended_image)
 
     # hatching removal
     def toggle_hatching_removal(self, enabled):
