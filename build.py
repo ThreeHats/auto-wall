@@ -1,7 +1,8 @@
+import glob
 import os
-import sys
 import shutil
 import subprocess
+import sys
 
 print("Building Auto-Wall executable...")
 
@@ -20,7 +21,7 @@ except ImportError as e:
     use_module = False
 
 # Get the current directory
-root_dir = os.path.abspath(os.path.dirname(__file__))
+root_dir = os.getcwd()
 
 # Define output directory
 output_dir = os.path.join(root_dir, 'dist', 'Auto-Wall')
@@ -42,7 +43,7 @@ pyinstaller_args = [
     '--clean',                     # Clean PyInstaller cache
     f'--distpath={os.path.join(root_dir, "dist")}',  # Output directory
     f'--workpath={os.path.join(root_dir, "build")}', # Work directory
-    '--add-data=src/gui/style.qss;src/gui/',  # Add style sheet resource
+    f'--add-data=src/gui/style.qss{os.pathsep}src/gui/',  # Add style sheet resource
     '--paths=src',                 # Add source paths
     '--noconfirm',                 # Replace output directory without confirmation
 ]
@@ -75,7 +76,7 @@ try:
         print(f"Executing command: {' '.join(cmd)}")
         subprocess.run(cmd, check=True)
         
-    print(f"Build completed! Executable is located at: {os.path.join(output_dir, 'Auto-Wall.exe')}")
+    print(f"\n\nBuild completed! Executable is located at: {glob.glob(f'{output_dir}/Auto-Wall*')[0]}")
 
     # Copy sample data (optional)
     sample_data_dir = os.path.join(root_dir, 'data')
