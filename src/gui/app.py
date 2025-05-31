@@ -24,11 +24,12 @@ from collections import deque
 import copy
 
 from src.wall_detection.detector import detect_walls, draw_walls, merge_contours, split_edge_contours, remove_hatching_lines
-from src.wall_detection.image_utils import load_image, save_image, convert_to_rgb
+from src.wall_detection.image_utils import load_image, convert_to_rgb
 from src.wall_detection.mask_editor import create_mask_from_contours, blend_image_with_mask, draw_on_mask, export_mask_to_foundry_json, contours_to_foundry_walls, thin_contour
 from src.utils.update_checker import check_for_updates
 from src.gui.drawing_tools import DrawingTools
 from src.gui.preset_manager import PresetManager
+from src.core.image_processor import ImageProcessor
 
 
 class InteractiveImageLabel(QLabel):
@@ -139,6 +140,7 @@ class WallDetectionApp(QMainWindow):
 
         self.drawing_tools = DrawingTools(self)
         self.preset_manager = PresetManager(self)
+        self.image_processor = ImageProcessor(self)
         
         self.setWindowTitle(f"Auto-Wall: Battle Map Wall Detection v{self.app_version}")
         
@@ -600,7 +602,7 @@ class WallDetectionApp(QMainWindow):
         self.high_res_checkbox = QCheckBox("Process at Full Resolution")
         self.high_res_checkbox.setChecked(False)
         self.high_res_checkbox.setToolTip("Process at full resolution (slower but more accurate)")
-        self.high_res_checkbox.stateChanged.connect(self.reload_working_image)
+        self.high_res_checkbox.stateChanged.connect(self.image_processor.reload_working_image)
         self.controls_layout.addWidget(self.high_res_checkbox)
         
         # Group edge detection settings
@@ -701,16 +703,16 @@ class WallDetectionApp(QMainWindow):
         self.controls_layout.addLayout(self.buttons_layout)
 
         self.open_button = QPushButton("Open Image")
-        self.open_button.clicked.connect(self.open_image)
+        self.open_button.clicked.connect(self.image_processor.open_image)
         self.buttons_layout.addWidget(self.open_button)
 
         self.save_button = QPushButton("Save Image")
-        self.save_button.clicked.connect(self.save_image)
+        self.save_button.clicked.connect(self.image_processor.save_image)
         self.buttons_layout.addWidget(self.save_button)
 
         # Add URL image loading button next to Open Image button
         self.url_button = QPushButton("Load from URL")
-        self.url_button.clicked.connect(self.load_image_from_url)
+        self.url_button.clicked.connect(self.image_processor.load_image_from_url)
         self.url_button.setToolTip("Load image from URL in clipboard")
         self.buttons_layout.addWidget(self.url_button)
         
@@ -828,185 +830,6 @@ class WallDetectionApp(QMainWindow):
         # Check for updates
         self.check_for_updates()
 
-    # --- Preset Management ---
-
-
-
-
-    # ... existing methods ...
-
-    # Modify update_image to use self.using_pixels_mode correctly
-    def update_image(self):
-        """Update the displayed image based on the current settings."""
-        if self.current_image is None:
-            return
-
-        # Get slider values
-        blur = self.sliders["Smoothing"]['slider'].value()
-        
-        # Handle special case for blur=1 (no blur) and ensure odd values
-        if blur > 1 and blur % 2 == 0:
-            blur += 1
-        
-        canny1 = self.sliders["Edge Sensitivity"]['slider'].value()
-        canny2 = self.sliders["Edge Threshold"]['slider'].value()
-        edge_margin = self.sliders["Edge Margin"]['slider'].value()
-        
-        # Get min_merge_distance as a float value
-        min_merge_distance = self.sliders["Min Merge Distance"]['slider'].value() * 0.1
-        
-        # Calculate min area based on mode (percentage or pixels)
-        min_area_value = self.sliders["Min Area"]['slider'].value()
-        image_area = self.current_image.shape[0] * self.current_image.shape[1]
-        
-        if hasattr(self, 'using_pixels_mode') and self.using_pixels_mode:
-            # Min area is in pixels (1 to 1000)
-            min_area = min_area_value
-            working_min_area = min_area
-            # For display/logging purposes
-            min_area_percentage = (min_area / image_area) * 100.0
-        else:
-            # Min area is a percentage (0.0001% to 1%)
-            min_area_percentage = min_area_value * 0.001
-            min_area = int(image_area * min_area_percentage / 100.0)
-            working_min_area = min_area
-        
-        # If we're working with a scaled image, the min area needs to be scaled too
-        if self.scale_factor != 1.0 and not (hasattr(self, 'using_pixels_mode') and self.using_pixels_mode):
-            # Only scale min_area if we're using percentages
-            working_min_area = int(min_area * self.scale_factor * self.scale_factor)
-        elif self.scale_factor != 1.0:
-            # If using pixels mode, scale the pixels to the working image size
-            working_min_area = int(min_area * self.scale_factor * self.scale_factor)
-        
-        # Working image that we'll pass to the detection function
-        processed_image = self.current_image.copy()
-        
-        # Apply hatching removal if enabled
-        if self.remove_hatching_checkbox.isChecked():
-            # Convert QColor to BGR tuple for OpenCV
-            hatching_color_bgr = (
-                self.hatching_color.blue(),
-                self.hatching_color.green(),
-                self.hatching_color.red()
-            )
-            print(f"Removing hatching lines: Color={hatching_color_bgr}, Threshold={self.hatching_threshold:.1f}, Width={self.hatching_width}")
-            
-            # Apply the hatching removal
-            from src.wall_detection.detector import remove_hatching_lines
-            processed_image = remove_hatching_lines(
-                processed_image, 
-                hatching_color_bgr, 
-                self.hatching_threshold, 
-                self.hatching_width
-            )
-        
-        # Set up color detection parameters with per-color thresholds
-        wall_colors_with_thresholds = None
-        default_threshold = 0
-        
-        if self.color_detection_radio.isChecked() and self.wall_colors_list.count() > 0:
-            # Extract all colors and thresholds from the list widget
-            wall_colors_with_thresholds = []
-            for i in range(self.wall_colors_list.count()):
-                item = self.wall_colors_list.item(i)
-                color_data = item.data(Qt.ItemDataRole.UserRole)
-                color = color_data["color"]
-                threshold = color_data["threshold"]
-                
-                # Convert Qt QColor to OpenCV BGR color and pair with threshold
-                bgr_color = (
-                    color.blue(),
-                    color.green(),
-                    color.red()
-                )
-                wall_colors_with_thresholds.append((bgr_color, threshold))
-            
-            print(f"Using {len(wall_colors_with_thresholds)} colors for detection with individual thresholds")
-        
-        # Debug output of parameters
-        if hasattr(self, 'using_pixels_mode') and self.using_pixels_mode:
-            print(f"Parameters: min_area={min_area} pixels (working: {working_min_area}), "
-                  f"blur={blur}, canny1={canny1}, canny2={canny2}, edge_margin={edge_margin}")
-        else:
-            print(f"Parameters: min_area={min_area} (working: {working_min_area}, {min_area_percentage:.4f}% of image), "
-                  f"blur={blur}, canny1={canny1}, canny2={canny2}, edge_margin={edge_margin}")
-
-        # Process the image directly with detect_walls
-        contours = detect_walls(
-            processed_image,
-            min_contour_area=working_min_area,
-            max_contour_area=None,
-            blur_kernel_size=blur,
-            canny_threshold1=canny1,
-            canny_threshold2=canny2,
-            edge_margin=edge_margin,
-            wall_colors=wall_colors_with_thresholds,
-            color_threshold=default_threshold
-        )
-        
-        print(f"Detected {len(contours)} contours before merging")
-
-        # Merge before Min Area if specified
-        if self.merge_contours.isChecked():
-            contours = merge_contours(
-                processed_image, 
-                contours, 
-                min_merge_distance=min_merge_distance
-            )
-            print(f"After merge before min area: {len(contours)} contours")
-        
-        # Filter contours by area BEFORE splitting edges
-        contours = [c for c in contours if cv2.contourArea(c) >= working_min_area]
-        print(f"After min area filter: {len(contours)} contours")
-
-        # Split contours that touch image edges AFTER area filtering, but only if not in color detection mode
-        if not self.color_detection_radio.isChecked():
-            split_contours = split_edge_contours(processed_image, contours)
-
-            # Use a much lower threshold for split contours to keep them all
-            # Use absolute minimum value instead of relative to min_area
-            min_split_area = 5.0 * (self.scale_factor * self.scale_factor)  # Scale with image
-            filtered_contours = []
-            
-            # Keep track of how many contours were kept vs filtered
-            kept_count = 0
-            filtered_count = 0
-            
-            for contour in split_contours:
-                area = cv2.contourArea(contour)
-                if area >= min_split_area:
-                    filtered_contours.append(contour)
-                    kept_count += 1
-                else:
-                    filtered_count += 1
-            
-            contours = filtered_contours
-            print(f"After edge splitting: kept {kept_count}, filtered {filtered_count} tiny fragments")
-
-        # Save the current contours for interactive editing
-        self.current_contours = contours
-
-        # Ensure contours are not empty
-        if not contours:
-            print("No contours found after processing.")
-            self.processed_image = processed_image
-        else:
-            # Draw merged contours
-            self.processed_image = draw_walls(processed_image, contours)
-
-        # Save the original image for highlighting
-        if self.processed_image is not None:
-            self.original_processed_image = self.processed_image.copy()
-            
-        # Clear any existing selection when re-detecting
-        self.clear_selection()
-        
-        # Reset highlighted contour when re-detecting
-        self.highlighted_contour_index = -1
-
-        # Convert to QPixmap and display
-        self.display_image(self.processed_image)
 
     # Modify toggle_min_area_mode to update self.using_pixels_mode reliably
     def toggle_min_area_mode(self):
@@ -1056,20 +879,8 @@ class WallDetectionApp(QMainWindow):
 
 
             self.using_pixels_mode = True
-            self.update_image()
+            self.image_processor.update_image()
 
-    # app
-    def reload_working_image(self):
-        """Reload the working image when resolution setting changes."""
-        if self.original_image is None:
-            return
-        
-        # Recreate the working image with the current checkbox state
-        self.current_image, self.scale_factor = self.create_working_image(self.original_image)
-        print(f"Resolution changed: Working size {self.current_image.shape}, Scale factor {self.scale_factor}")
-        
-        # Update the image with new resolution
-        self.update_image()
 
     # app
     def add_slider(self, label, min_val, max_val, initial_val, step=1, scale_factor=None):
@@ -1099,7 +910,7 @@ class WallDetectionApp(QMainWindow):
             lambda value, lbl=slider_label, lbl_text=label, sf=scale_factor: 
             self.update_slider(lbl, lbl_text, value, sf)
         )
-        slider.valueChanged.connect(self.update_image)
+        slider.valueChanged.connect(self.image_processor.update_image)
 
         slider_layout.addWidget(slider_label)
         slider_layout.addWidget(slider)
@@ -1201,7 +1012,7 @@ class WallDetectionApp(QMainWindow):
             self.clear_hover()
             # Display normal image without mask
             if self.processed_image is not None:
-                self.display_image(self.processed_image)
+                self.image_processor.display_image(self.processed_image)
         
         # Clear any selection when switching modes
         self.clear_selection()
@@ -1266,7 +1077,7 @@ class WallDetectionApp(QMainWindow):
         display_image = blend_image_with_mask(self.current_image, self.mask_layer)
         
         # Display the blended image
-        self.display_image(display_image)
+        self.image_processor.display_image(display_image)
         
         # Store this as the baseline image for brush preview
         self.last_preview_image = display_image.copy()
@@ -1316,7 +1127,7 @@ class WallDetectionApp(QMainWindow):
 
         # Update the detection if an image is loaded
         if self.current_image is not None:
-            self.update_image()
+            self.image_processor.update_image()
 
 
     # app
@@ -1341,7 +1152,7 @@ class WallDetectionApp(QMainWindow):
         # Redraw without selection rectangle
         if self.processed_image is not None and self.original_processed_image is not None:
             self.processed_image = self.original_processed_image.copy()
-            self.display_image(self.processed_image)
+            self.image_processor.display_image(self.processed_image)
 
     # app
     def start_selection(self, x, y):
@@ -1498,7 +1309,7 @@ class WallDetectionApp(QMainWindow):
                     break
                     
         # Display the updated image
-        self.display_image(self.processed_image)
+        self.image_processor.display_image(self.processed_image)
 
     # color
     def update_color_selection_display(self):
@@ -1522,7 +1333,7 @@ class WallDetectionApp(QMainWindow):
         cv2.addWeighted(overlay, 0.3, self.processed_image, 0.7, 0, self.processed_image)
                     
         # Display the updated image
-        self.display_image(self.processed_image)
+        self.image_processor.display_image(self.processed_image)
 
     # app
     def end_selection(self, x, y):
@@ -1647,7 +1458,7 @@ class WallDetectionApp(QMainWindow):
         print(f"Extracted {num_colors} colors from selected region")
         
         # Update the image with the new colors
-        self.update_image()
+        self.image_processor.update_image()
     
     # delete
     def delete_selected_contours(self):
@@ -1739,7 +1550,7 @@ class WallDetectionApp(QMainWindow):
             )
             
         # Update the display
-        self.display_image(self.processed_image)
+        self.image_processor.display_image(self.processed_image)
 
     # util
     def convert_to_image_coordinates(self, display_x, display_y):
@@ -1977,169 +1788,19 @@ class WallDetectionApp(QMainWindow):
         if self.current_image is not None and self.current_contours:
             self.processed_image = draw_walls(self.current_image, self.current_contours)
             self.original_processed_image = self.processed_image.copy()
-            self.display_image(self.processed_image)
+            self.image_processor.display_image(self.processed_image)
         elif self.current_image is not None:
             self.processed_image = self.current_image.copy()
             self.original_processed_image = self.processed_image.copy()
-            self.display_image(self.processed_image)
+            self.image_processor.display_image(self.processed_image)
 
     # app
-    def display_image(self, image):
-        """Display an image on the image label."""
-        # Only proceed if the image label exists and has a valid size
-        if not hasattr(self, 'image_label') or self.image_label.width() <= 0 or self.image_label.height() <= 0:
-            return
-            
-        rgb_image = convert_to_rgb(image)
-        height, width, channel = rgb_image.shape
-        bytes_per_line = channel * width
-        q_image = QImage(rgb_image.data.tobytes(), width, height, bytes_per_line, QImage.Format.Format_RGB888)
-        pixmap = QPixmap.fromImage(q_image)
-        self.image_label.setPixmap(pixmap.scaled(self.image_label.size(), Qt.AspectRatioMode.KeepAspectRatio))
 
     # app
-    def open_image(self):
-        """Open an image file and prepare scaled versions for processing."""
-        file_path, _ = QFileDialog.getOpenFileName(self, "Open Image", "", "Images (*.png *.jpg *.jpeg *.bmp *.webp)")
-        if file_path:
-            # Get file extension
-            file_extension = os.path.splitext(file_path)[1].lower()
-            is_webp = file_extension == '.webp'
-            
-            # Load the original full-resolution image
-            print(f"Loading image: {file_path}")
-            self.original_image = load_image(file_path)
-            
-            # Verify image loaded correctly
-            if self.original_image is None:
-                QMessageBox.critical(self, "Error", f"Failed to load image: {file_path}")
-                return
-                
-            # Log the image dimensions and type info for debugging
-            h, w = self.original_image.shape[:2]
-            channels = self.original_image.shape[2] if len(self.original_image.shape) > 2 else 1
-            print(f"Image loaded: {w}x{h}, {channels} channels, {self.original_image.dtype}")
-            
-            # For WebP files, log whether conversion was applied
-            if is_webp:
-                print(f"WebP image detected: {file_path}")
-            
-            # Clear history when loading a new image
-            self.history.clear()
-            self.undo_button.setEnabled(False)
-            
-            # Create a scaled down version for processing if needed
-            self.current_image, self.scale_factor = self.create_working_image(self.original_image)
-            
-            print(f"Image prepared: Original size {self.original_image.shape}, Working size {self.current_image.shape}, Scale factor {self.scale_factor}")
-            
-            # Reset the mask layer when loading a new image to prevent dimension mismatch
-            self.mask_layer = None
-            self.foundry_walls_preview = None
-
-            self.set_controls_enabled(True)
-            
-            # Reset button states when loading a new image
-            self.export_foundry_button.setEnabled(False)
-            
-            # Reset the current overlays and detected contours
-            self.current_contours = None
-            self.edges_overlay = None
-            
-            # Update the image display
-            self.update_image()
 
     # app
-    def load_image_from_url(self):
-        """Load an image from a URL in the clipboard."""
-        # Get clipboard content
-        clipboard = QApplication.clipboard()
-        clipboard_text = clipboard.text().strip()
-        
-        # Check if it's a valid URL
-        if not clipboard_text:
-            QMessageBox.warning(self, "Invalid URL", "Clipboard is empty")
-            return
-            
-        try:
-            # Check if it's a valid URL
-            parsed_url = urllib.parse.urlparse(clipboard_text)
-            if not all([parsed_url.scheme, parsed_url.netloc]):
-                QMessageBox.warning(self, "Invalid URL", f"The clipboard does not contain a valid URL:\n{clipboard_text}")
-                return
-            
-            # Download image from URL
-            self.setStatusTip(f"Downloading image from {clipboard_text}...")
-            response = requests.get(clipboard_text, stream=True, timeout=10)
-            response.raise_for_status()  # Raise exception for 4XX/5XX responses
-            
-            # Check if content type is an image
-            content_type = response.headers.get('Content-Type', '')
-            if not content_type.startswith('image/'):
-                QMessageBox.warning(self, "Invalid Content", f"The URL does not point to an image (Content-Type: {content_type})")
-                return
-                
-            # Convert response content to an image
-            image_data = io.BytesIO(response.content)
-            image_array = np.frombuffer(image_data.read(), dtype=np.uint8)
-            img = cv2.imdecode(image_array, cv2.IMREAD_COLOR)
-            
-            if img is None:
-                QMessageBox.warning(self, "Loading Error", "Could not decode image from URL")
-                return
-            
-            # Load the image into the application
-            self.original_image = img
-            self.current_image, self.scale_factor = self.create_working_image(self.original_image)
-            
-            print(f"Image loaded from URL: Original size {self.original_image.shape}, Working size {self.current_image.shape}, Scale factor {self.scale_factor}")
-            
-            # Reset the mask layer when loading a new image to prevent dimension mismatch
-            self.mask_layer = None
-            self.foundry_walls_preview = None
-
-            self.set_controls_enabled(True)
-            
-            # Reset button states when loading a new image
-            self.export_foundry_button.setEnabled(False)
-            self.save_foundry_button.setEnabled(False)
-            self.cancel_foundry_button.setEnabled(False)
-            self.copy_foundry_button.setEnabled(False)
-            
-            # Update the display
-            self.setStatusTip(f"Image loaded from URL. Size: {img.shape[1]}x{img.shape[0]}")
-            self.update_image()
-            
-        except requests.exceptions.RequestException as e:
-            QMessageBox.warning(self, "Download Error", f"Failed to download the image:\n{str(e)}")
-        except Exception as e:
-            QMessageBox.warning(self, "Error", f"Failed to load image from URL:\n{str(e)}")
 
     # app
-    def create_working_image(self, image):
-        """Create a working copy of the image, scaling it down if it's too large."""
-        # Check if we should use full resolution
-        if self.high_res_checkbox.isChecked():
-            return image.copy(), 1.0
-            
-        # Get image dimensions
-        height, width = image.shape[:2]
-        
-        # Calculate scale factor if image is larger than the maximum working dimension
-        max_dim = max(width, height)
-        if max_dim <= self.max_working_dimension:
-            # Image is already small enough - use as is
-            return image.copy(), 1.0
-        
-        # Calculate scale factor and new dimensions
-        scale_factor = self.max_working_dimension / max_dim
-        new_width = int(width * scale_factor)
-        new_height = int(height * scale_factor)
-        
-        # Resize the image
-        resized = cv2.resize(image, (new_width, new_height), interpolation=cv2.INTER_AREA)
-        
-        return resized, scale_factor
 
     # app
     def scale_contours_to_original(self, contours, scale_factor):
@@ -2174,46 +1835,6 @@ class WallDetectionApp(QMainWindow):
         return scaled_contours
 
     # app
-    def save_image(self):
-        """Save the processed image at full resolution."""
-        if self.original_image is not None:
-            file_path, _ = QFileDialog.getSaveFileName(self, "Save Image", "", "Images (*.png *.jpg *.jpeg *.bmp *.webp)")
-            if file_path:
-                if self.edit_mask_mode_enabled and self.mask_layer is not None:
-                    # Save image with mask overlay
-                    if self.scale_factor != 1.0:
-                        # Scale mask to original resolution
-                        orig_h, orig_w = self.original_image.shape[:2]
-                        full_res_mask = cv2.resize(self.mask_layer, (orig_w, orig_h), 
-                                               interpolation=cv2.INTER_NEAREST)
-                    else:
-                        full_res_mask = self.mask_layer
-                        
-                    # Blend mask with original image
-                    result = blend_image_with_mask(self.original_image, full_res_mask)
-                    
-                    # Save the result
-                    save_image(result, file_path)
-                    print(f"Saved image with mask overlay to {file_path}")
-                else:
-                    # Normal save with contours
-                    if self.original_image is not None and self.current_contours:
-                        # Scale contours back to original image size if needed
-                        if self.scale_factor != 1.0:
-                            full_res_contours = self.scale_contours_to_original(self.current_contours, self.scale_factor)
-                        else:
-                            full_res_contours = self.current_contours
-                            
-                        # Draw walls on the original high-resolution image
-                        high_res_result = draw_walls(self.original_image, full_res_contours)
-                        
-                        # Save the high-resolution result
-                        save_image(high_res_result, file_path)
-                        print(f"Saved high-resolution image ({self.original_image.shape[:2]}) to {file_path}")
-                    else:
-                        # Just save the current view if no contours
-                        save_image(self.original_image, file_path)
-                        print(f"Saved original image to {file_path}")
 
     # color
     def add_wall_color(self):
@@ -2230,7 +1851,7 @@ class WallDetectionApp(QMainWindow):
             
             # Update detection if image is loaded
             if self.current_image is not None:
-                self.update_image()
+                self.image_processor.update_image()
     
     # color
     def select_color(self, item):
@@ -2269,7 +1890,7 @@ class WallDetectionApp(QMainWindow):
         
         # Update detection immediately for visual feedback
         if self.current_image is not None and self.color_detection_radio.isChecked():
-            self.update_image()
+            self.image_processor.update_image()
     
     # color
     def edit_wall_color(self, item):
@@ -2284,7 +1905,7 @@ class WallDetectionApp(QMainWindow):
             self.update_color_list_item(item, new_color, current_threshold)
             # Update detection if image is loaded
             if self.current_image is not None:
-                self.update_image()
+                self.image_processor.update_image()
     
     # color
     def update_color_list_item(self, item, color, threshold):
@@ -2325,7 +1946,7 @@ class WallDetectionApp(QMainWindow):
         
         # Update detection if image is loaded and we still have colors
         if self.current_image is not None and self.wall_colors_list.count() > 0:
-            self.update_image()
+            self.image_processor.update_image()
 
     # app
     def export_to_foundry_vtt(self):
@@ -2773,7 +2394,7 @@ class WallDetectionApp(QMainWindow):
         
         # Update the display with the preview
         self.processed_image = preview_image
-        self.display_image(self.processed_image)
+        self.image_processor.display_image(self.processed_image)
 
     # app
     def save_foundry_preview(self):
@@ -2832,7 +2453,7 @@ class WallDetectionApp(QMainWindow):
         # Restore original display
         if self.original_processed_image is not None:
             self.processed_image = self.original_processed_image.copy()
-            self.display_image(self.processed_image)
+            self.image_processor.display_image(self.processed_image)
         
         # Update status
         self.setStatusTip("Foundry VTT preview canceled")
@@ -2910,7 +2531,7 @@ class WallDetectionApp(QMainWindow):
         
         # If we have a current image displayed, update it to fit the new window size
         if hasattr(self, 'processed_image') and self.processed_image is not None:
-            self.display_image(self.processed_image)
+            self.image_processor.display_image(self.processed_image)
             
         # If we're in foundry preview mode, redraw the preview
         if hasattr(self, 'foundry_preview_active') and self.foundry_preview_active and self.foundry_walls_preview:
@@ -3070,7 +2691,7 @@ class WallDetectionApp(QMainWindow):
         
         # Update the image if one is loaded
         if self.current_image is not None:
-            self.update_image()
+            self.image_processor.update_image()
     
     # hatching removal
     def select_hatching_color(self):
@@ -3083,7 +2704,7 @@ class WallDetectionApp(QMainWindow):
             
             # Update the image if one is loaded and removal is enabled
             if self.current_image is not None and self.remove_hatching_checkbox.isChecked():
-                self.update_image()
+                self.image_processor.update_image()
     
     # hatching removal
     def update_hatching_threshold(self, value):
@@ -3094,7 +2715,7 @@ class WallDetectionApp(QMainWindow):
         
         # Update the image if one is loaded and removal is enabled
         if self.current_image is not None and self.remove_hatching_checkbox.isChecked():
-            self.update_image()
+            self.image_processor.update_image()
     
     # hatching removal
     def update_hatching_width(self, value):
@@ -3104,7 +2725,7 @@ class WallDetectionApp(QMainWindow):
         
         # Update the image if one is loaded and removal is enabled
         if self.current_image is not None and self.remove_hatching_checkbox.isChecked():
-            self.update_image()
+            self.image_processor.update_image()
 
 
 if __name__ == "__main__":

@@ -3,6 +3,7 @@ import json
 
 from PyQt6.QtWidgets import QInputDialog, QMessageBox
 from PyQt6.QtGui import QColor
+from src.core.image_processor import ImageProcessor
 
 # Define preset file paths
 DETECTION_PRESETS_FILE = "detection_presets.json"
@@ -414,7 +415,7 @@ class PresetManager:
 
         # Trigger image update after applying settings
         if self.app.current_image is not None:
-            self.app.update_image()
+            self.app.image_processor.update_image()
         self.app.setStatusTip("Applied detection preset.")
 
     def save_detection_preset(self):
