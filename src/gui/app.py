@@ -24,13 +24,13 @@ from collections import deque
 import copy
 
 from src.wall_detection.detector import detect_walls, draw_walls, merge_contours, split_edge_contours, remove_hatching_lines
-from src.wall_detection.image_utils import load_image, save_image, convert_to_rgb
+from src.wall_detection.image_utils import load_image, convert_to_rgb
 from src.wall_detection.mask_editor import create_mask_from_contours, blend_image_with_mask, draw_on_mask, export_mask_to_foundry_json, contours_to_foundry_walls, thin_contour
 from src.utils.update_checker import check_for_updates
+from src.gui.drawing_tools import DrawingTools
+from src.gui.preset_manager import PresetManager
+from src.core.image_processor import ImageProcessor
 
-# Define preset file paths
-DETECTION_PRESETS_FILE = "detection_presets.json"
-EXPORT_PRESETS_FILE = "export_presets.json" # Add this line
 
 class InteractiveImageLabel(QLabel):
     """Custom QLabel that handles mouse events for contour/line deletion and mask editing."""
@@ -62,7 +62,7 @@ class InteractiveImageLabel(QLabel):
                 elif self.parent_app.edit_mask_mode_enabled:
                     # Start drawing on mask
                     self.last_point = QPoint(x, y)
-                    self.parent_app.start_drawing(x, y)
+                    self.parent_app.drawing_tools.start_drawing(x, y)
                 elif self.parent_app.thin_mode_enabled:
                     self.parent_app.start_selection(x, y)
                 
@@ -82,7 +82,7 @@ class InteractiveImageLabel(QLabel):
                 elif self.parent_app.edit_mask_mode_enabled and self.last_point:
                     # Continue drawing on mask
                     current_point = QPoint(x, y)
-                    self.parent_app.continue_drawing(self.last_point.x(), self.last_point.y(), x, y)
+                    self.parent_app.drawing_tools.continue_drawing(self.last_point.x(), self.last_point.y(), x, y)
                     self.last_point = current_point
                 elif self.parent_app.thin_mode_enabled:
                     self.parent_app.update_selection(x, y)
@@ -92,7 +92,7 @@ class InteractiveImageLabel(QLabel):
                     self.parent_app.handle_hover(pos.x(), pos.y())
                 elif self.parent_app.edit_mask_mode_enabled:
                     # Always update brush preview when hovering in edit mask mode
-                    self.parent_app.update_brush_preview(x, y)
+                    self.parent_app.drawing_tools.update_brush_preview(x, y)
                 
         super().mouseMoveEvent(event)
     
@@ -108,7 +108,7 @@ class InteractiveImageLabel(QLabel):
                     self.parent_app.end_selection(x, y)
                 elif self.parent_app.edit_mask_mode_enabled:
                     # End drawing on mask
-                    self.parent_app.end_drawing()
+                    self.parent_app.drawing_tools.end_drawing()
                     self.last_point = None
                 elif self.parent_app.thin_mode_enabled:
                     self.parent_app.end_selection(x, y)
@@ -126,7 +126,7 @@ class InteractiveImageLabel(QLabel):
                 self.parent_app.clear_hover()
             elif self.parent_app.edit_mask_mode_enabled:
                 # Clear brush preview when mouse leaves the widget
-                self.parent_app.clear_brush_preview()
+                self.parent_app.drawing_tools.clear_brush_preview()
         super().leaveEvent(event)
 
 
@@ -137,6 +137,10 @@ class WallDetectionApp(QMainWindow):
         self.github_repo = github_repo
         self.update_available = False
         self.update_url = ""
+
+        self.drawing_tools = DrawingTools(self)
+        self.preset_manager = PresetManager(self)
+        self.image_processor = ImageProcessor(self)
         
         self.setWindowTitle(f"Auto-Wall: Battle Map Wall Detection v{self.app_version}")
         
@@ -234,7 +238,7 @@ class WallDetectionApp(QMainWindow):
         self.brush_size_slider.setMinimum(1)
         self.brush_size_slider.setMaximum(50)
         self.brush_size_slider.setValue(10)
-        self.brush_size_slider.valueChanged.connect(self.update_brush_size)
+        self.brush_size_slider.valueChanged.connect(self.drawing_tools.update_brush_size)
         self.brush_size_layout.addWidget(self.brush_size_slider)
         
         self.brush_size_value = QLabel("10")
@@ -598,7 +602,7 @@ class WallDetectionApp(QMainWindow):
         self.high_res_checkbox = QCheckBox("Process at Full Resolution")
         self.high_res_checkbox.setChecked(False)
         self.high_res_checkbox.setToolTip("Process at full resolution (slower but more accurate)")
-        self.high_res_checkbox.stateChanged.connect(self.reload_working_image)
+        self.high_res_checkbox.stateChanged.connect(self.image_processor.reload_working_image)
         self.controls_layout.addWidget(self.high_res_checkbox)
         
         # Group edge detection settings
@@ -638,12 +642,7 @@ class WallDetectionApp(QMainWindow):
         self.color_selection_current = None
 
         # Additional state for mask editing
-        self.mask_layer = None  # Will hold the editable mask
-        self.brush_size = 10
-        self.drawing_mode = True  # True for draw, False for erase
-        self.current_tool = "brush"  # Default tool
-        self.drawing_start_pos = None  # Starting position for shape tools
-        self.temp_drawing = None  # For temporary preview of shapes
+
 
         # Add these new variables to track the brush preview state
         self.brush_preview_active = False
@@ -661,7 +660,7 @@ class WallDetectionApp(QMainWindow):
 
         self.detection_preset_combo = QComboBox()
         self.detection_preset_combo.setToolTip("Load a detection settings preset")
-        self.detection_preset_combo.currentIndexChanged.connect(self.load_detection_preset_selected)
+        self.detection_preset_combo.currentIndexChanged.connect(self.preset_manager.load_detection_preset_selected)
         presets_line1_layout.addWidget(self.detection_preset_combo, 1) # Stretch 1 to take available space
 
         # Second line: Buttons
@@ -671,13 +670,13 @@ class WallDetectionApp(QMainWindow):
         save_preset_button = QPushButton("Save Preset")
         save_preset_button.setObjectName("save_preset_button")
         save_preset_button.setToolTip("Save current detection settings as a new preset")
-        save_preset_button.clicked.connect(self.save_detection_preset)
+        save_preset_button.clicked.connect(self.preset_manager.save_detection_preset)
         presets_line2_layout.addWidget(save_preset_button) # Stretch 0
 
         manage_presets_button = QPushButton("Manage")
         manage_presets_button.setObjectName("manage_presets_button")
         manage_presets_button.setToolTip("Manage saved detection presets")
-        manage_presets_button.clicked.connect(self.manage_detection_presets)
+        manage_presets_button.clicked.connect(self.preset_manager.manage_detection_presets)
         presets_line2_layout.addWidget(manage_presets_button) # Stretch 0
 
         # Add the two lines to the main presets layout
@@ -704,16 +703,16 @@ class WallDetectionApp(QMainWindow):
         self.controls_layout.addLayout(self.buttons_layout)
 
         self.open_button = QPushButton("Open Image")
-        self.open_button.clicked.connect(self.open_image)
+        self.open_button.clicked.connect(self.image_processor.open_image)
         self.buttons_layout.addWidget(self.open_button)
 
         self.save_button = QPushButton("Save Image")
-        self.save_button.clicked.connect(self.save_image)
+        self.save_button.clicked.connect(self.image_processor.save_image)
         self.buttons_layout.addWidget(self.save_button)
 
         # Add URL image loading button next to Open Image button
         self.url_button = QPushButton("Load from URL")
-        self.url_button.clicked.connect(self.load_image_from_url)
+        self.url_button.clicked.connect(self.image_processor.load_image_from_url)
         self.url_button.setToolTip("Load image from URL in clipboard")
         self.buttons_layout.addWidget(self.url_button)
         
@@ -760,12 +759,12 @@ class WallDetectionApp(QMainWindow):
         self.wall_actions_layout.addWidget(self.copy_foundry_button)
         
         # Connect drawing tool radio buttons to handler
-        self.brush_tool_radio.toggled.connect(self.update_drawing_tool)
-        self.line_tool_radio.toggled.connect(self.update_drawing_tool)
-        self.rectangle_tool_radio.toggled.connect(self.update_drawing_tool)
-        self.circle_tool_radio.toggled.connect(self.update_drawing_tool)
-        self.ellipse_tool_radio.toggled.connect(self.update_drawing_tool)
-        self.fill_tool_radio.toggled.connect(self.update_drawing_tool)
+        self.brush_tool_radio.toggled.connect(self.drawing_tools.update_drawing_tool)
+        self.line_tool_radio.toggled.connect(self.drawing_tools.update_drawing_tool)
+        self.rectangle_tool_radio.toggled.connect(self.drawing_tools.update_drawing_tool)
+        self.circle_tool_radio.toggled.connect(self.drawing_tools.update_drawing_tool)
+        self.ellipse_tool_radio.toggled.connect(self.drawing_tools.update_drawing_tool)
+        self.fill_tool_radio.toggled.connect(self.drawing_tools.update_drawing_tool)
 
         # Add history tracking for undo feature
         self.history = deque(maxlen=5)  # Store up to 5 previous states
@@ -820,15 +819,10 @@ class WallDetectionApp(QMainWindow):
         self.update_notification.mousePressEvent = self.open_update_url
 
         # Preset management
-        self.detection_presets = {}
-        self.export_presets = {} # Will be used later
-        self.load_presets_from_file() # Load presets on startup
+        self.preset_manager.load_presets_from_file() # Load presets on startup
 
         # Populate preset combo box AFTER loading presets
-        self.update_detection_preset_combo()
-
-        # Initialize last export settings storage
-        self.last_export_settings = None # Will be used later
+        self.preset_manager.update_detection_preset_combo()
 
         # Apply stylesheet at the end
         self.apply_stylesheet()
@@ -836,748 +830,6 @@ class WallDetectionApp(QMainWindow):
         # Check for updates
         self.check_for_updates()
 
-    # --- Preset Management ---
-
-    def get_default_detection_presets(self):
-        """Returns a dictionary of default detection presets."""
-        return {
-            "Default": {
-                "sliders": {"Smoothing": 3, "Edge Sensitivity": 50, "Edge Threshold": 150, "Edge Margin": 2, "Min Merge Distance": 10, "Min Area": 124},
-                "checkboxes": {"High Resolution": False, "Merge Contours": True, "Remove Hatching": False},
-                "radios": {"Edge Detection": True, "Color Detection": False, "Min Area Percentage": True, "Min Area Pixels": False},
-                "colors": [], # Default: no specific colors
-                "hatching": {"color": [0, 0, 0], "threshold": 10.0, "width": 3} # Default hatching settings
-            },
-            "Fine Detail": {
-                "sliders": {
-                    "Min Area": 4450,
-                    "Smoothing": 3,
-                    "Edge Sensitivity": 255,
-                    "Edge Threshold": 140,
-                    "Edge Margin": 1,
-                    "Min Merge Distance": 5
-                },
-                "checkboxes": {
-                    "High Resolution": False,
-                    "Merge Contours": False,
-                    "Remove Hatching": False
-                },
-                "radios": {
-                    "Edge Detection": True,
-                    "Color Detection": False,
-                    "Min Area Percentage": False,
-                    "Min Area Pixels": True
-                },
-                "colors": [],
-                "hatching": {
-                    "color": [
-                        0,
-                        0,
-                        0
-                    ],
-                    "threshold": 10.0,
-                    "width": 3
-                }
-            },
-             "Color Focus (Solid Black)": {
-                "sliders": {"Smoothing": 3, "Edge Sensitivity": 50, "Edge Threshold": 150, "Edge Margin": 2, "Min Merge Distance": 10, "Min Area": 500},
-                "checkboxes": {"High Resolution": False, "Merge Contours": True, "Remove Hatching": False},
-                "radios": {"Edge Detection": False, "Color Detection": True, "Min Area Percentage": True, "Min Area Pixels": False},
-                "colors": [{"color": [0, 0, 0], "threshold": 0.0}], # Black color with threshold 0
-                "hatching": {"color": [0, 0, 0], "threshold": 10.0, "width": 3}
-            },
-            "B/W with Hatching": {
-                "sliders": {
-                    "Min Area": 464,
-                    "Smoothing": 5,
-                    "Edge Sensitivity": 255,
-                    "Edge Threshold": 106,
-                    "Edge Margin": 0,
-                    "Min Merge Distance": 5
-                },
-                "checkboxes": {
-                    "High Resolution": False,
-                    "Merge Contours": False,
-                    "Remove Hatching": True
-                },
-                "radios": {
-                    "Edge Detection": False,
-                    "Color Detection": True,
-                    "Min Area Percentage": False,
-                    "Min Area Pixels": True
-                },
-                "colors": [
-                    {
-                        "color": [
-                            0,
-                            0,
-                            0
-                        ],
-                        "threshold": 0.0
-                    }
-                ],
-                "hatching": {
-                    "color": [
-                        0,
-                        0,
-                        0
-                    ],
-                    "threshold": 0.0,
-                    "width": 1
-                }
-            }
-        }
-
-    def get_default_export_presets(self):
-        return {
-            "Default": {
-                "simplify_tolerance": 0.0005,
-                "max_wall_length": 50,
-                "max_walls": 5000,
-                "merge_distance": 25.0,
-                "angle_tolerance": 1.0,
-                "max_gap": 10.0,
-                "grid_size": 0,
-                "allow_half_grid": False
-            },
-            "Maze Example": {
-                "simplify_tolerance": 0.0,
-                "max_wall_length": 50,
-                "max_walls": 20000,
-                "merge_distance": 25.0,
-                "angle_tolerance": 1.0,
-                "max_gap": 10.0,
-                "grid_size": 72,
-                "allow_half_grid": False
-            },
-            "Large Optimized": {
-                "simplify_tolerance": 0.0005,
-                "max_wall_length": 200,
-                "max_walls": 20000,
-                "merge_distance": 100.0,
-                "angle_tolerance": 1.0,
-                "max_gap": 10.0,
-                "grid_size": 0,
-                "allow_half_grid": False
-            },
-            "Large Extra Optimized": {
-                "simplify_tolerance": 0.0005,
-                "max_wall_length": 200,
-                "max_walls": 20000,
-                "merge_distance": 200.0,
-                "angle_tolerance": 1.0,
-                "max_gap": 10.0,
-                "grid_size": 0,
-                "allow_half_grid": False
-            }
-        }
-
-    def load_presets_from_file(self):
-        """Load detection and export presets from JSON files."""
-        # Load Detection Presets
-        self.detection_presets = self.get_default_detection_presets() # Start with defaults
-        if os.path.exists(DETECTION_PRESETS_FILE):
-            try:
-                with open(DETECTION_PRESETS_FILE, 'r') as f:
-                    user_presets = json.load(f)
-                    # Merge user presets, potentially overwriting defaults if names clash
-                    self.detection_presets.update(user_presets)
-                print(f"Loaded detection presets from {DETECTION_PRESETS_FILE}")
-            except json.JSONDecodeError:
-                print(f"Error: Could not decode {DETECTION_PRESETS_FILE}. Using defaults.")
-            except Exception as e:
-                print(f"Error loading detection presets: {e}. Using defaults.")
-        else:
-            print(f"{DETECTION_PRESETS_FILE} not found. Using default detection presets.")
-
-        # Load Export Presets (Placeholder for later)
-        # self.export_presets = self.get_default_export_presets()
-        # if os.path.exists(EXPORT_PRESETS_FILE):
-        #     try:
-        #         with open(EXPORT_PRESETS_FILE, 'r') as f:
-        #             user_presets = json.load(f)
-        #             self.export_presets.update(user_presets)
-        #         print(f"Loaded export presets from {EXPORT_PRESETS_FILE}")
-        #     except Exception as e:
-        #         print(f"Error loading export presets: {e}")
-        # else:
-        #     print(f"{EXPORT_PRESETS_FILE} not found. Using default export presets.")
-
-        # Load Export Presets
-        self.export_presets = self.get_default_export_presets()
-        if os.path.exists(EXPORT_PRESETS_FILE):
-            try:
-                with open(EXPORT_PRESETS_FILE, 'r') as f:
-                    user_presets = json.load(f)
-                    self.export_presets.update(user_presets)
-            except Exception as e:
-                print(f"Error loading export presets: {e}")
-
-    def save_presets_to_file(self):
-        """Save user-defined detection and export presets to JSON files."""
-        # Save Detection Presets (only non-default ones)
-        default_preset_names = self.get_default_detection_presets().keys()
-        user_detection_presets = {
-            name: preset for name, preset in self.detection_presets.items()
-            if name not in default_preset_names
-        }
-        try:
-            with open(DETECTION_PRESETS_FILE, 'w') as f:
-                json.dump(user_detection_presets, f, indent=4)
-            print(f"Saved user detection presets to {DETECTION_PRESETS_FILE}")
-        except Exception as e:
-            print(f"Error saving detection presets: {e}")
-
-        # Save Export Presets (Placeholder for later)
-        # default_export_names = self.get_default_export_presets().keys()
-        # user_export_presets = { ... }
-        # try:
-        #     with open(EXPORT_PRESETS_FILE, 'w') as f:
-        #         json.dump(user_export_presets, f, indent=4)
-        #     print(f"Saved user export presets to {EXPORT_PRESETS_FILE}")
-        # except Exception as e:
-        #     print(f"Error saving export presets: {e}")
-
-        # Save Export Presets
-        default_export_names = self.get_default_export_presets().keys()
-        user_export_presets = {
-            name: preset for name, preset in self.export_presets.items()
-            if name not in default_export_names
-        }
-        try:
-            with open(EXPORT_PRESETS_FILE, 'w') as f:
-                json.dump(user_export_presets, f, indent=4)
-        except Exception as e:
-            print(f"Error saving export presets: {e}")
-
-    def update_detection_preset_combo(self):
-        """Update the detection preset combo box with current preset names."""
-        self.detection_preset_combo.blockSignals(True) # Prevent triggering load while updating
-        current_selection = self.detection_preset_combo.currentText()
-        self.detection_preset_combo.clear()
-        # Add a placeholder item first
-        self.detection_preset_combo.addItem("-- Select Preset --")
-        # Add sorted preset names
-        sorted_names = sorted(self.detection_presets.keys())
-        for name in sorted_names:
-            self.detection_preset_combo.addItem(name)
-
-        # Try to restore previous selection
-        index = self.detection_preset_combo.findText(current_selection)
-        if index != -1:
-            self.detection_preset_combo.setCurrentIndex(index)
-        else:
-            self.detection_preset_combo.setCurrentIndex(0) # Select placeholder
-
-        self.detection_preset_combo.blockSignals(False)
-
-    def update_export_preset_combo(self):
-        self.export_preset_combo.blockSignals(True)
-        self.export_preset_combo.clear()
-        self.export_preset_combo.addItem("-- Select Preset --")
-        for name in sorted(self.export_presets.keys()):
-            self.export_preset_combo.addItem(name)
-        self.export_preset_combo.blockSignals(False)
-
-    def get_current_detection_settings(self):
-        """Gather current detection settings into a dictionary."""
-        settings = {
-            "sliders": {},
-            "checkboxes": {},
-            "radios": {},
-            "colors": [],
-            "hatching": {}
-        }
-
-        # Sliders
-        for name, info in self.sliders.items():
-            if 'slider' in info:
-                settings["sliders"][name] = info['slider'].value()
-
-        # Checkboxes
-        settings["checkboxes"]["High Resolution"] = self.high_res_checkbox.isChecked()
-        settings["checkboxes"]["Merge Contours"] = self.merge_contours.isChecked()
-        settings["checkboxes"]["Remove Hatching"] = self.remove_hatching_checkbox.isChecked()
-
-        # Radio Buttons
-        settings["radios"]["Edge Detection"] = self.edge_detection_radio.isChecked()
-        settings["radios"]["Color Detection"] = self.color_detection_radio.isChecked()
-        settings["radios"]["Min Area Percentage"] = self.min_area_percentage_radio.isChecked()
-        settings["radios"]["Min Area Pixels"] = self.min_area_pixels_radio.isChecked()
-
-        # Colors
-        for i in range(self.wall_colors_list.count()):
-            item = self.wall_colors_list.item(i)
-            color_data = item.data(Qt.ItemDataRole.UserRole)
-            qcolor = color_data["color"]
-            settings["colors"].append({
-                "color": [qcolor.red(), qcolor.green(), qcolor.blue()],
-                "threshold": color_data["threshold"]
-            })
-
-        # Hatching Settings
-        settings["hatching"]["color"] = [self.hatching_color.red(), self.hatching_color.green(), self.hatching_color.blue()]
-        settings["hatching"]["threshold"] = self.hatching_threshold
-        settings["hatching"]["width"] = self.hatching_width
-
-        return settings
-
-    def get_current_export_settings(self):
-        """Gather current export settings into a dictionary."""
-        settings = {
-            "simplify_tolerance": self.simplify_tolerance_input.value(),
-            "max_wall_length": self.max_wall_length_input.value(),
-            "max_walls": self.max_walls_input.value(),
-            "merge_distance": self.merge_distance_input.value(),
-            "angle_tolerance": self.angle_tolerance_input.value(),
-            "max_gap": self.max_gap_input.value(),
-            "grid_size": self.grid_size_input.value(),
-            "allow_half_grid": self.allow_half_grid.isChecked()
-        }
-        return settings
-
-    def apply_detection_settings(self, settings):
-        """Apply settings from a dictionary to the UI and internal state."""
-        if not settings:
-            print("Warning: Attempted to apply empty settings.")
-            return
-
-        # Block signals to prevent unwanted updates during application
-        for info in self.sliders.values():
-            if 'slider' in info: 
-                info['slider'].blockSignals(True)
-        self.high_res_checkbox.blockSignals(True)
-        self.merge_contours.blockSignals(True)
-        self.remove_hatching_checkbox.blockSignals(True)
-        self.edge_detection_radio.blockSignals(True)
-        self.color_detection_radio.blockSignals(True)
-        self.min_area_percentage_radio.blockSignals(True)
-        self.min_area_pixels_radio.blockSignals(True)
-        self.wall_colors_list.blockSignals(True)
-        self.hatching_color_button.blockSignals(True)
-        self.hatching_threshold_slider.blockSignals(True)
-        self.hatching_width_slider.blockSignals(True)
-
-        try:
-            # Apply Radio Buttons FIRST (handle mutually exclusive groups)
-            # This ensures min_area mode is set before we apply the slider values
-            if "radios" in settings:
-                # Set detection mode radio buttons
-                if "Edge Detection" in settings["radios"]:
-                    self.edge_detection_radio.setChecked(settings["radios"]["Edge Detection"])
-                if "Color Detection" in settings["radios"]:
-                    self.color_detection_radio.setChecked(settings["radios"]["Color Detection"])
-                
-                # Set min area mode radio buttons
-                if "Min Area Percentage" in settings["radios"] and settings["radios"]["Min Area Percentage"]:
-                    self.min_area_percentage_radio.setChecked(True)
-                    self.using_pixels_mode = False
-                elif "Min Area Pixels" in settings["radios"] and settings["radios"]["Min Area Pixels"]:
-                    self.min_area_pixels_radio.setChecked(True)
-                    self.using_pixels_mode = True
-
-            # Apply Sliders
-            if "sliders" in settings:
-                for name, value in settings["sliders"].items():
-                    if name in self.sliders:
-                        # Update slider with the preset value
-                        self.sliders[name]['slider'].setValue(value)
-                        
-                        # Update label with proper format based on mode
-                        if name == "Min Area":
-                            label = self.sliders[name]['label']
-                            if hasattr(self, 'using_pixels_mode') and self.using_pixels_mode:
-                                # In pixel mode, show raw value
-                                label.setText(f"Min Area: {value} px")
-                            elif 'scale' in self.sliders[name]:
-                                # In percentage mode, apply scale factor
-                                scale = self.sliders[name]['scale']
-                                label.setText(f"Min Area: {value * scale:.1f}")
-
-            # Apply Checkboxes
-            if "checkboxes" in settings:
-                if "High Resolution" in settings["checkboxes"]:
-                    self.high_res_checkbox.setChecked(settings["checkboxes"]["High Resolution"])
-                if "Merge Contours" in settings["checkboxes"]:
-                    self.merge_contours.setChecked(settings["checkboxes"]["Merge Contours"])
-                if "Remove Hatching" in settings["checkboxes"]:
-                    self.remove_hatching_checkbox.setChecked(settings["checkboxes"]["Remove Hatching"])
-
-            # Apply Colors
-            if "colors" in settings:
-                # Clear existing colors
-                self.wall_colors_list.clear()
-                
-                # Add all colors from the preset
-                for color_data in settings["colors"]:
-                    rgb = color_data["color"]
-                    qcolor = QColor(rgb[0], rgb[1], rgb[2])
-                    threshold = color_data["threshold"]
-                    self.add_wall_color_to_list(qcolor, threshold)
-
-            # Apply Hatching Settings
-            if "hatching" in settings:
-                if "color" in settings["hatching"]:
-                    rgb = settings["hatching"]["color"]
-                    self.hatching_color = QColor(rgb[0], rgb[1], rgb[2])
-                    self.hatching_color_button.setStyleSheet(f"background-color: rgb({rgb[0]}, {rgb[1]}, {rgb[2]});")
-                
-                if "threshold" in settings["hatching"]:
-                    self.hatching_threshold = settings["hatching"]["threshold"]
-                    self.hatching_threshold_slider.setValue(int(self.hatching_threshold * 10))
-                    self.hatching_threshold_value.setText(f"{self.hatching_threshold:.1f}")
-                
-                if "width" in settings["hatching"]:
-                    self.hatching_width = settings["hatching"]["width"]
-                    self.hatching_width_slider.setValue(self.hatching_width)
-                    self.hatching_width_value.setText(str(self.hatching_width))
-
-        finally:
-            # Unblock signals
-            for info in self.sliders.values():
-                if 'slider' in info:
-                    info['slider'].blockSignals(False)
-            self.high_res_checkbox.blockSignals(False)
-            self.merge_contours.blockSignals(False)
-            self.remove_hatching_checkbox.blockSignals(False)
-            self.edge_detection_radio.blockSignals(False)
-            self.color_detection_radio.blockSignals(False)
-            self.min_area_percentage_radio.blockSignals(False)
-            self.min_area_pixels_radio.blockSignals(False)
-            self.wall_colors_list.blockSignals(False)
-            self.hatching_color_button.blockSignals(False)
-            self.hatching_threshold_slider.blockSignals(False)
-            self.hatching_width_slider.blockSignals(False)
-
-        # Now that all settings are applied, explicitly call toggle_detection_mode_radio
-        # to ensure the UI reflects the detection mode correctly
-        if "radios" in settings:
-            self.toggle_detection_mode_radio(self.color_detection_radio.isChecked())
-
-        # Trigger image update after applying settings
-        if self.current_image is not None:
-            self.update_image()
-        self.setStatusTip("Applied detection preset.")
-
-    def save_detection_preset(self):
-        """Save the current detection settings as a new preset."""
-        preset_name, ok = QInputDialog.getText(self, "Save Detection Preset", "Enter preset name:")
-        if ok and preset_name:
-            # Check if overwriting a default preset
-            if preset_name in self.get_default_detection_presets():
-                 reply = QMessageBox.question(self, "Overwrite Default Preset?",
-                                             f"'{preset_name}' is a default preset. Overwrite it?",
-                                             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                                             QMessageBox.StandardButton.No)
-                 if reply == QMessageBox.StandardButton.No:
-                     return # User cancelled overwrite
-
-            # Check if overwriting an existing user preset
-            elif preset_name in self.detection_presets:
-                 reply = QMessageBox.question(self, "Overwrite Preset?",
-                                             f"Preset '{preset_name}' already exists. Overwrite?",
-                                             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                                             QMessageBox.StandardButton.No)
-                 if reply == QMessageBox.StandardButton.No:
-                     return # User cancelled overwrite
-
-            current_settings = self.get_current_detection_settings()
-            self.detection_presets[preset_name] = current_settings
-            self.update_detection_preset_combo()
-            # Select the newly saved preset in the combo box
-            index = self.detection_preset_combo.findText(preset_name)
-            if index != -1:
-                self.detection_preset_combo.setCurrentIndex(index)
-            self.save_presets_to_file() # Persist changes
-            self.setStatusTip(f"Saved detection preset '{preset_name}'.")
-        elif ok and not preset_name:
-             QMessageBox.warning(self, "Invalid Name", "Preset name cannot be empty.")
-
-
-    def load_detection_preset_selected(self, index):
-        """Load the detection preset selected in the combo box."""
-        preset_name = self.detection_preset_combo.itemText(index)
-        if index > 0 and preset_name in self.detection_presets: # Index 0 is placeholder
-            print(f"Loading detection preset: {preset_name}")
-            self.apply_detection_settings(self.detection_presets[preset_name])
-            self.setStatusTip(f"Loaded detection preset '{preset_name}'.")
-        elif index == 0:
-             self.setStatusTip("Select a detection preset to load.")
-
-
-    def manage_detection_presets(self):
-        """Show a dialog or menu to manage (delete) user presets."""
-        default_preset_names = set(self.get_default_detection_presets().keys())
-        user_preset_names = sorted([name for name in self.detection_presets.keys() if name not in default_preset_names])
-
-        if not user_preset_names:
-            QMessageBox.information(self, "Manage Presets", "No user-defined presets to manage.")
-            return
-
-        preset_to_delete, ok = QInputDialog.getItem(self, "Delete User Preset",
-                                                    "Select preset to delete:", user_preset_names, 0, False)
-
-        if ok and preset_to_delete:
-            reply = QMessageBox.question(self, "Confirm Deletion",
-                                         f"Are you sure you want to delete the preset '{preset_to_delete}'?",
-                                         QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                                         QMessageBox.StandardButton.No)
-            if reply == QMessageBox.StandardButton.Yes:
-                if preset_to_delete in self.detection_presets:
-                    del self.detection_presets[preset_to_delete]
-                    self.update_detection_preset_combo()
-                    self.save_presets_to_file() # Persist deletion
-                    self.setStatusTip(f"Deleted preset '{preset_to_delete}'.")
-                    print(f"Deleted preset: {preset_to_delete}")
-                else:
-                     QMessageBox.warning(self, "Error", f"Preset '{preset_to_delete}' not found.")
-
-
-    def save_export_preset(self):
-        if self.current_export_settings is None:
-            QMessageBox.warning(self, "Save Export Preset", "No export settings available to save.")
-            return
-
-        preset_name, ok = QInputDialog.getText(self, "Save Export Preset", "Enter preset name:")
-        if ok and preset_name:
-            self.export_presets[preset_name] = copy.deepcopy(self.current_export_settings)
-            self.save_presets_to_file()
-            self.setStatusTip(f"Saved export preset '{preset_name}'")
-
-    def load_export_preset_selected(self, index):
-        preset_name = self.export_preset_combo.itemText(index)
-        if index > 0 and preset_name in self.export_presets:
-            self.current_export_settings = copy.deepcopy(self.export_presets[preset_name])
-
-    def manage_export_presets(self):
-        user_preset_names = [name for name in self.export_presets.keys() if name not in self.get_default_export_presets()]
-        if not user_preset_names:
-            QMessageBox.information(self, "Manage Export Presets", "No user-defined export presets to manage.")
-            return
-
-        preset_to_delete, ok = QInputDialog.getItem(self, "Delete Export Preset", "Select preset to delete:", user_preset_names, 0, False)
-        if ok and preset_to_delete:
-            del self.export_presets[preset_to_delete]
-            self.save_presets_to_file()
-            self.setStatusTip(f"Deleted export preset '{preset_to_delete}'")
-
-    def save_export_preset_dialog(self):
-        """Open a dialog to save current export settings as a preset."""
-        if self.current_export_settings is None:
-            # Create default export settings if none exist
-            self.current_export_settings = {
-                "simplify_tolerance": 0.0005,
-                "max_wall_length": 50,
-                "max_walls": 5000,
-                "merge_distance": 25.0,
-                "angle_tolerance": 1.0,
-                "max_gap": 10.0,
-                "grid_size": 0,
-                "allow_half_grid": False
-            }
-
-        preset_name, ok = QInputDialog.getText(self, "Save Export Preset", "Enter preset name:")
-        if ok and preset_name:
-            # Check if overwriting a default preset
-            if preset_name in self.get_default_export_presets():
-                reply = QMessageBox.question(self, "Overwrite Default Preset?",
-                                            f"'{preset_name}' is a default preset. Overwrite it?",
-                                            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                                            QMessageBox.StandardButton.No)
-                if reply == QMessageBox.StandardButton.No:
-                    return  # User cancelled overwrite
-
-            # Check if overwriting an existing user preset
-            elif preset_name in self.export_presets:
-                reply = QMessageBox.question(self, "Overwrite Preset?",
-                                            f"Preset '{preset_name}' already exists. Overwrite?",
-                                            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                                            QMessageBox.StandardButton.No)
-                if reply == QMessageBox.StandardButton.No:
-                    return  # User cancelled overwrite
-
-            # Save the preset
-            self.export_presets[preset_name] = copy.deepcopy(self.current_export_settings)
-            self.update_export_preset_combo()
-            self.save_presets_to_file()
-            self.setStatusTip(f"Saved export preset '{preset_name}'")
-        elif ok and not preset_name:
-            QMessageBox.warning(self, "Invalid Name", "Preset name cannot be empty.")
-
-    # ... existing methods ...
-
-    # Modify update_image to use self.using_pixels_mode correctly
-    def update_image(self):
-        """Update the displayed image based on the current settings."""
-        if self.current_image is None:
-            return
-
-        # Get slider values
-        blur = self.sliders["Smoothing"]['slider'].value()
-        
-        # Handle special case for blur=1 (no blur) and ensure odd values
-        if blur > 1 and blur % 2 == 0:
-            blur += 1
-        
-        canny1 = self.sliders["Edge Sensitivity"]['slider'].value()
-        canny2 = self.sliders["Edge Threshold"]['slider'].value()
-        edge_margin = self.sliders["Edge Margin"]['slider'].value()
-        
-        # Get min_merge_distance as a float value
-        min_merge_distance = self.sliders["Min Merge Distance"]['slider'].value() * 0.1
-        
-        # Calculate min area based on mode (percentage or pixels)
-        min_area_value = self.sliders["Min Area"]['slider'].value()
-        image_area = self.current_image.shape[0] * self.current_image.shape[1]
-        
-        if hasattr(self, 'using_pixels_mode') and self.using_pixels_mode:
-            # Min area is in pixels (1 to 1000)
-            min_area = min_area_value
-            working_min_area = min_area
-            # For display/logging purposes
-            min_area_percentage = (min_area / image_area) * 100.0
-        else:
-            # Min area is a percentage (0.0001% to 1%)
-            min_area_percentage = min_area_value * 0.001
-            min_area = int(image_area * min_area_percentage / 100.0)
-            working_min_area = min_area
-        
-        # If we're working with a scaled image, the min area needs to be scaled too
-        if self.scale_factor != 1.0 and not (hasattr(self, 'using_pixels_mode') and self.using_pixels_mode):
-            # Only scale min_area if we're using percentages
-            working_min_area = int(min_area * self.scale_factor * self.scale_factor)
-        elif self.scale_factor != 1.0:
-            # If using pixels mode, scale the pixels to the working image size
-            working_min_area = int(min_area * self.scale_factor * self.scale_factor)
-        
-        # Working image that we'll pass to the detection function
-        processed_image = self.current_image.copy()
-        
-        # Apply hatching removal if enabled
-        if self.remove_hatching_checkbox.isChecked():
-            # Convert QColor to BGR tuple for OpenCV
-            hatching_color_bgr = (
-                self.hatching_color.blue(),
-                self.hatching_color.green(),
-                self.hatching_color.red()
-            )
-            print(f"Removing hatching lines: Color={hatching_color_bgr}, Threshold={self.hatching_threshold:.1f}, Width={self.hatching_width}")
-            
-            # Apply the hatching removal
-            from src.wall_detection.detector import remove_hatching_lines
-            processed_image = remove_hatching_lines(
-                processed_image, 
-                hatching_color_bgr, 
-                self.hatching_threshold, 
-                self.hatching_width
-            )
-        
-        # Set up color detection parameters with per-color thresholds
-        wall_colors_with_thresholds = None
-        default_threshold = 0
-        
-        if self.color_detection_radio.isChecked() and self.wall_colors_list.count() > 0:
-            # Extract all colors and thresholds from the list widget
-            wall_colors_with_thresholds = []
-            for i in range(self.wall_colors_list.count()):
-                item = self.wall_colors_list.item(i)
-                color_data = item.data(Qt.ItemDataRole.UserRole)
-                color = color_data["color"]
-                threshold = color_data["threshold"]
-                
-                # Convert Qt QColor to OpenCV BGR color and pair with threshold
-                bgr_color = (
-                    color.blue(),
-                    color.green(),
-                    color.red()
-                )
-                wall_colors_with_thresholds.append((bgr_color, threshold))
-            
-            print(f"Using {len(wall_colors_with_thresholds)} colors for detection with individual thresholds")
-        
-        # Debug output of parameters
-        if hasattr(self, 'using_pixels_mode') and self.using_pixels_mode:
-            print(f"Parameters: min_area={min_area} pixels (working: {working_min_area}), "
-                  f"blur={blur}, canny1={canny1}, canny2={canny2}, edge_margin={edge_margin}")
-        else:
-            print(f"Parameters: min_area={min_area} (working: {working_min_area}, {min_area_percentage:.4f}% of image), "
-                  f"blur={blur}, canny1={canny1}, canny2={canny2}, edge_margin={edge_margin}")
-
-        # Process the image directly with detect_walls
-        contours = detect_walls(
-            processed_image,
-            min_contour_area=working_min_area,
-            max_contour_area=None,
-            blur_kernel_size=blur,
-            canny_threshold1=canny1,
-            canny_threshold2=canny2,
-            edge_margin=edge_margin,
-            wall_colors=wall_colors_with_thresholds,
-            color_threshold=default_threshold
-        )
-        
-        print(f"Detected {len(contours)} contours before merging")
-
-        # Merge before Min Area if specified
-        if self.merge_contours.isChecked():
-            contours = merge_contours(
-                processed_image, 
-                contours, 
-                min_merge_distance=min_merge_distance
-            )
-            print(f"After merge before min area: {len(contours)} contours")
-        
-        # Filter contours by area BEFORE splitting edges
-        contours = [c for c in contours if cv2.contourArea(c) >= working_min_area]
-        print(f"After min area filter: {len(contours)} contours")
-
-        # Split contours that touch image edges AFTER area filtering, but only if not in color detection mode
-        if not self.color_detection_radio.isChecked():
-            split_contours = split_edge_contours(processed_image, contours)
-
-            # Use a much lower threshold for split contours to keep them all
-            # Use absolute minimum value instead of relative to min_area
-            min_split_area = 5.0 * (self.scale_factor * self.scale_factor)  # Scale with image
-            filtered_contours = []
-            
-            # Keep track of how many contours were kept vs filtered
-            kept_count = 0
-            filtered_count = 0
-            
-            for contour in split_contours:
-                area = cv2.contourArea(contour)
-                if area >= min_split_area:
-                    filtered_contours.append(contour)
-                    kept_count += 1
-                else:
-                    filtered_count += 1
-            
-            contours = filtered_contours
-            print(f"After edge splitting: kept {kept_count}, filtered {filtered_count} tiny fragments")
-
-        # Save the current contours for interactive editing
-        self.current_contours = contours
-
-        # Ensure contours are not empty
-        if not contours:
-            print("No contours found after processing.")
-            self.processed_image = processed_image
-        else:
-            # Draw merged contours
-            self.processed_image = draw_walls(processed_image, contours)
-
-        # Save the original image for highlighting
-        if self.processed_image is not None:
-            self.original_processed_image = self.processed_image.copy()
-            
-        # Clear any existing selection when re-detecting
-        self.clear_selection()
-        
-        # Reset highlighted contour when re-detecting
-        self.highlighted_contour_index = -1
-
-        # Convert to QPixmap and display
-        self.display_image(self.processed_image)
 
     # Modify toggle_min_area_mode to update self.using_pixels_mode reliably
     def toggle_min_area_mode(self):
@@ -1627,20 +879,8 @@ class WallDetectionApp(QMainWindow):
 
 
             self.using_pixels_mode = True
-            self.update_image()
+            self.image_processor.update_image()
 
-    # app
-    def reload_working_image(self):
-        """Reload the working image when resolution setting changes."""
-        if self.original_image is None:
-            return
-        
-        # Recreate the working image with the current checkbox state
-        self.current_image, self.scale_factor = self.create_working_image(self.original_image)
-        print(f"Resolution changed: Working size {self.current_image.shape}, Scale factor {self.scale_factor}")
-        
-        # Update the image with new resolution
-        self.update_image()
 
     # app
     def add_slider(self, label, min_val, max_val, initial_val, step=1, scale_factor=None):
@@ -1670,7 +910,7 @@ class WallDetectionApp(QMainWindow):
             lambda value, lbl=slider_label, lbl_text=label, sf=scale_factor: 
             self.update_slider(lbl, lbl_text, value, sf)
         )
-        slider.valueChanged.connect(self.update_image)
+        slider.valueChanged.connect(self.image_processor.update_image)
 
         slider_layout.addWidget(slider_label)
         slider_layout.addWidget(slider)
@@ -1760,7 +1000,7 @@ class WallDetectionApp(QMainWindow):
             if self.current_image is not None:
                 cursor_pos = self.image_label.mapFromGlobal(QCursor.pos())
                 if self.image_label.rect().contains(cursor_pos):
-                    self.update_brush_preview(cursor_pos.x(), cursor_pos.y())
+                    self.drawing_tools.update_brush_preview(cursor_pos.x(), cursor_pos.y())
         elif self.thin_mode_enabled:
             self.setStatusTip("Thinning Mode: Click on contours to thin them")
             # Store original image for highlighting
@@ -1772,7 +1012,7 @@ class WallDetectionApp(QMainWindow):
             self.clear_hover()
             # Display normal image without mask
             if self.processed_image is not None:
-                self.display_image(self.processed_image)
+                self.image_processor.display_image(self.processed_image)
         
         # Clear any selection when switching modes
         self.clear_selection()
@@ -1784,71 +1024,12 @@ class WallDetectionApp(QMainWindow):
             setattr(self, 'last_drawing_position', None)
 
     # drawing
-    def update_brush_size(self, value):
-        """Update the brush size."""
-        self.brush_size = value
-        self.brush_size_value.setText(str(value))
-        
-        # Update brush preview if in edit mode
-        if self.edit_mask_mode_enabled:
-            # Get current cursor position relative to the image label
-            cursor_pos = self.image_label.mapFromGlobal(QCursor.pos())
-            if self.image_label.rect().contains(cursor_pos):
-                self.update_brush_preview(cursor_pos.x(), cursor_pos.y())
+
 
     # drawing
-    def update_brush_preview(self, x, y):
-        """Show a preview of the brush outline at the current mouse position."""
-        if not self.edit_mask_mode_enabled or self.current_image is None:
-            return
-        
-        # Convert display coordinates to image coordinates
-        img_x, img_y = self.convert_to_image_coordinates(x, y)
-        if img_x is None or img_y is None:
-            return
-        
-        # Make a copy of the blended image with mask
-        if self.mask_layer is not None:
-            # Create the blended image (original + current mask)
-            blended_image = blend_image_with_mask(self.current_image, self.mask_layer)
-            
-            # Draw brush outline with different colors for draw/erase mode
-            color = (0, 255, 0) if self.draw_radio.isChecked() else (0, 0, 255)  # Green for draw, Red for erase
-            cv2.circle(blended_image, (img_x, img_y), self.brush_size, color, 1)
-            
-            # Store this as our preview image
-            self.last_preview_image = blended_image.copy()
-            self.brush_preview_active = True
-            
-            # Display the image with brush preview
-            self.display_image(blended_image)
-        elif self.original_processed_image is not None:
-            # If no mask exists yet, draw on the original image
-            preview_image = self.original_processed_image.copy()
-            
-            # Draw brush outline
-            color = (0, 255, 0) if self.draw_radio.isChecked() else (0, 0, 255)
-            cv2.circle(preview_image, (img_x, img_y), self.brush_size, color, 1)
-            
-            # Store this as our preview image
-            self.last_preview_image = preview_image.copy()
-            self.brush_preview_active = True
-            
-            # Display the preview
-            self.display_image(preview_image)
+
 
     # drawing
-    def clear_brush_preview(self):
-        """Clear the brush preview when mouse leaves the widget."""
-        self.brush_preview_active = False
-        
-        # Restore the original display
-        if self.edit_mask_mode_enabled and self.mask_layer is not None:
-            # Redraw the blend without the brush preview
-            self.update_display_with_mask()
-        elif self.original_processed_image is not None:
-            # Restore the original image
-            self.display_image(self.original_processed_image)
 
     # app
     def create_empty_mask(self):
@@ -1896,294 +1077,13 @@ class WallDetectionApp(QMainWindow):
         display_image = blend_image_with_mask(self.current_image, self.mask_layer)
         
         # Display the blended image
-        self.display_image(display_image)
+        self.image_processor.display_image(display_image)
         
         # Store this as the baseline image for brush preview
         self.last_preview_image = display_image.copy()
         
         # Important: Also update the processed_image
         self.processed_image = display_image.copy()
-
-    # drawing
-    def start_drawing(self, x, y):
-        """Start drawing on the mask at the given point."""
-        if self.mask_layer is None:
-            self.create_empty_mask()
-        
-        # Save state before modifying
-        self.save_state()
-            
-        # Convert display coordinates to image coordinates
-        img_x, img_y = self.convert_to_image_coordinates(x, y)
-        if img_x is None or img_y is None:
-            return
-            
-        # Store the drawing mode (draw or erase)
-        self.drawing_mode = self.draw_radio.isChecked()
-        
-        # Handle based on the current tool
-        if self.current_tool == "brush":
-            # Same as original brush tool behavior
-            self.last_drawing_position = (img_x, img_y)
-            
-            draw_on_mask(
-                self.mask_layer,
-                img_x, img_y,
-                self.brush_size,
-                color=(0, 255, 0, 255),  # Green
-                erase=not self.drawing_mode
-            )
-            
-            # Keep the brush preview active while drawing
-            self.brush_preview_active = True
-            
-            # Initialize drawing throttling variables
-            self.drawing_update_counter = 0
-            self.drawing_update_threshold = 2  # Update display every N points
-            
-            # Update display with brush preview
-            self.update_display_with_brush(img_x, img_y)
-        elif self.current_tool == "fill":
-            # For fill tool, perform flood fill immediately
-            self.perform_fill(img_x, img_y)
-        else:
-            # For all other shape tools, just record the starting position
-            self.drawing_start_pos = (img_x, img_y)
-            self.temp_drawing = self.mask_layer.copy()
-
-    # drawing
-    def continue_drawing(self, x1, y1, x2, y2):
-        """Continue drawing on the mask between two points (optimized)."""
-        # Convert display coordinates to image coordinates
-        img_x2, img_y2 = self.convert_to_image_coordinates(x2, y2)
-        
-        if img_x2 is None or img_y2 is None:
-            return
-            
-        # Handle based on the current tool
-        if self.current_tool == "brush":
-            # Original brush behavior
-            if not hasattr(self, 'last_drawing_position') or self.last_drawing_position is None:
-                self.last_drawing_position = (img_x2, img_y2)
-                return
-                
-            img_x1, img_y1 = self.last_drawing_position
-                
-            # Get drawing/erasing mode
-            self.drawing_mode = self.draw_radio.isChecked()
-            
-            # Calculate the distance between points
-            distance = np.sqrt((img_x2 - img_x1)**2 + (img_y2 - img_y1)**2)
-            
-            # Determine intermediate points for a smooth line
-            if distance < (self.brush_size * 0.5):
-                draw_on_mask(
-                    self.mask_layer,
-                    img_x2, img_y2,
-                    self.brush_size,
-                    color=(0, 255, 0, 255),
-                    erase=not self.drawing_mode
-                )
-            else:
-                # Calculate points for a continuous line
-                step_size = self.brush_size / 3
-                num_steps = max(int(distance / step_size), 1)
-                
-                for i in range(num_steps + 1):
-                    t = i / num_steps
-                    x = int(img_x1 + t * (img_x2 - img_x1))
-                    y = int(img_y1 + t * (img_y2 - img_y1))
-                    
-                    draw_on_mask(
-                        self.mask_layer,
-                        x, y,
-                        self.brush_size,
-                        color=(0, 255, 0, 255),
-                        erase=not self.drawing_mode
-                    )
-            
-            # Store the current position for next segment
-            self.last_drawing_position = (img_x2, img_y2)
-            
-            # Update display with brush preview at current position
-            # This shows the brush outline during drawing
-            self.update_display_with_brush(img_x2, img_y2)
-            
-            # Reset drawing throttling counter since we're updating on every move now
-            self.drawing_update_counter = 0
-            
-        elif self.current_tool != "fill" and self.drawing_start_pos is not None:
-            # For shape tools, continuously update the preview
-            self.update_shape_preview(img_x2, img_y2)
-
-    # drawing
-    def end_drawing(self):
-        """End drawing on the mask."""
-        # For brush tool
-        if self.current_tool == "brush":
-            # Reset drawing variables
-            self.last_drawing_position = None
-            self.drawing_update_counter = 0
-            
-            # Always update display at the end of drawing
-            self.update_display_with_mask()
-        
-        # For shape tools (except fill which completes immediately)
-        elif self.current_tool != "fill" and self.drawing_start_pos is not None:
-            # Finalize the shape
-            self.finalize_shape()
-            self.drawing_start_pos = None
-            self.temp_drawing = None
-            
-            # Update display
-            self.update_display_with_mask()
-        
-        # Restore brush preview after drawing ends
-        cursor_pos = self.image_label.mapFromGlobal(QCursor.pos())
-        if self.image_label.rect().contains(cursor_pos):
-            self.update_brush_preview(cursor_pos.x(), cursor_pos.y())
-
-    # drawing
-    def update_shape_preview(self, img_x2, img_y2):
-        """Update the preview for shape drawing tools."""
-        if self.drawing_start_pos is None or self.temp_drawing is None:
-            return
-        
-        # Start with a clean copy of the mask (without the current shape)
-        preview_mask = self.temp_drawing.copy()
-        
-        # Get the start position
-        img_x1, img_y1 = self.drawing_start_pos
-        
-        # Get drawing color based on draw/erase mode
-        color = (0, 255, 0, 255) if self.draw_radio.isChecked() else (0, 0, 255, 0)  # Green for draw, Red for erase
-        
-        # Draw the appropriate shape based on the current tool
-        if self.current_tool == "line":
-            # Draw a line from start to current position
-            cv2.line(
-                preview_mask,
-                (img_x1, img_y1),
-                (img_x2, img_y2),
-                color,
-                thickness=self.brush_size
-            )
-        elif self.current_tool == "rectangle":
-            # Draw a rectangle from start to current position
-            cv2.rectangle(
-                preview_mask,
-                (img_x1, img_y1),
-                (img_x2, img_y2),
-                color,
-                thickness=self.brush_size if self.brush_size > 1 else -1  # Filled if size is 1
-            )
-        elif self.current_tool == "circle":
-            # Calculate radius for circle based on distance
-            radius = int(np.sqrt((img_x2 - img_x1)**2 + (img_y2 - img_y1)**2))
-            cv2.circle(
-                preview_mask,
-                (img_x1, img_y1),  # Center at start position
-                radius,
-                color,
-                thickness=self.brush_size if self.brush_size > 1 else -1  # Filled if size is 1
-            )
-        elif self.current_tool == "ellipse":
-            # Calculate width/height for ellipse
-            width = abs(img_x2 - img_x1)
-            height = abs(img_y2 - img_y1)
-            center_x = (img_x1 + img_x2) // 2
-            center_y = (img_y1 + img_y2) // 2
-            cv2.ellipse(
-                preview_mask,
-                (center_x, center_y),
-                (width // 2, height // 2),
-                0,  # Angle
-                0,  # Start angle
-                360,  # End angle
-                color,
-                thickness=self.brush_size if self.brush_size > 1 else -1  # Filled if size is 1
-            )
-        
-        # Temporarily update the mask layer with the preview
-        self.mask_layer = preview_mask
-        
-        # Update display
-        self.update_display_with_mask()
-
-    # drawing
-    def finalize_shape(self):
-        """Finalize the shape being drawn."""
-        # The shape is already in the mask_layer from update_shape_preview
-        # Just make sure it's properly stored
-        if self.mask_layer is not None:
-            # No need to do anything else, the mask is already updated
-            pass
-
-    # drawing
-    def perform_fill(self, img_x, img_y):
-        """Perform flood fill on the mask."""
-        if self.mask_layer is None:
-            return
-        
-        # Get alpha channel for fill (this is where we're drawing/erasing)
-        alpha_channel = self.mask_layer[:, :, 3].copy()
-        
-        # Get current value at fill point
-        current_value = alpha_channel[img_y, img_x]
-        
-        # Get target value based on draw/erase mode
-        target_value = 255 if self.draw_radio.isChecked() else 0
-        
-        # If current value is already the target, no need to fill
-        if current_value == target_value:
-            return
-        
-        # Save state before filling (if not already done)
-        # Note: This might be redundant if start_drawing already saved state
-        if hasattr(self, 'last_saved_state') and self.last_saved_state != id(self.mask_layer):
-            self.save_state()
-            self.last_saved_state = id(self.mask_layer)
-        
-        # Perform flood fill
-        mask = np.zeros((alpha_channel.shape[0] + 2, alpha_channel.shape[1] + 2), dtype=np.uint8)
-        cv2.floodFill(alpha_channel, mask, (img_x, img_y), target_value, 
-                      loDiff=0, upDiff=0, flags=8)
-        
-        # Update the mask's alpha channel
-        if self.draw_radio.isChecked():
-            # For draw mode, set RGB to green where alpha is filled
-            self.mask_layer[:, :, 3] = alpha_channel
-            filled_area = (alpha_channel == 255)
-            self.mask_layer[:, :, 0][filled_area] = 0    # B
-            self.mask_layer[:, :, 1][filled_area] = 255  # G
-            self.mask_layer[:, :, 2][filled_area] = 0    # R
-        else:
-            # For erase mode, just set alpha to 0
-            self.mask_layer[:, :, 3] = alpha_channel
-        
-        # Update display
-        self.update_display_with_mask()
-
-    # drawing
-    def update_drawing_tool(self, checked):
-        """Update the current drawing tool based on radio button selection."""
-        if not checked:
-            return
-            
-        if self.brush_tool_radio.isChecked():
-            self.current_tool = "brush"
-        elif self.line_tool_radio.isChecked():
-            self.current_tool = "line"
-        elif self.rectangle_tool_radio.isChecked():
-            self.current_tool = "rectangle"
-        elif self.circle_tool_radio.isChecked():
-            self.current_tool = "circle"
-        elif self.ellipse_tool_radio.isChecked():
-            self.current_tool = "ellipse"
-        elif self.fill_tool_radio.isChecked():
-            self.current_tool = "fill"
-        
-        self.setStatusTip(f"Using {self.current_tool} tool")
 
     # app
     def toggle_detection_mode_radio(self, checked): # 'checked' parameter is from the signal, might not reflect the final state if called manually
@@ -2227,7 +1127,7 @@ class WallDetectionApp(QMainWindow):
 
         # Update the detection if an image is loaded
         if self.current_image is not None:
-            self.update_image()
+            self.image_processor.update_image()
 
 
     # app
@@ -2252,7 +1152,7 @@ class WallDetectionApp(QMainWindow):
         # Redraw without selection rectangle
         if self.processed_image is not None and self.original_processed_image is not None:
             self.processed_image = self.original_processed_image.copy()
-            self.display_image(self.processed_image)
+            self.image_processor.display_image(self.processed_image)
 
     # app
     def start_selection(self, x, y):
@@ -2409,7 +1309,7 @@ class WallDetectionApp(QMainWindow):
                     break
                     
         # Display the updated image
-        self.display_image(self.processed_image)
+        self.image_processor.display_image(self.processed_image)
 
     # color
     def update_color_selection_display(self):
@@ -2433,7 +1333,7 @@ class WallDetectionApp(QMainWindow):
         cv2.addWeighted(overlay, 0.3, self.processed_image, 0.7, 0, self.processed_image)
                     
         # Display the updated image
-        self.display_image(self.processed_image)
+        self.image_processor.display_image(self.processed_image)
 
     # app
     def end_selection(self, x, y):
@@ -2558,7 +1458,7 @@ class WallDetectionApp(QMainWindow):
         print(f"Extracted {num_colors} colors from selected region")
         
         # Update the image with the new colors
-        self.update_image()
+        self.image_processor.update_image()
     
     # delete
     def delete_selected_contours(self):
@@ -2650,7 +1550,7 @@ class WallDetectionApp(QMainWindow):
             )
             
         # Update the display
-        self.display_image(self.processed_image)
+        self.image_processor.display_image(self.processed_image)
 
     # util
     def convert_to_image_coordinates(self, display_x, display_y):
@@ -2888,169 +1788,19 @@ class WallDetectionApp(QMainWindow):
         if self.current_image is not None and self.current_contours:
             self.processed_image = draw_walls(self.current_image, self.current_contours)
             self.original_processed_image = self.processed_image.copy()
-            self.display_image(self.processed_image)
+            self.image_processor.display_image(self.processed_image)
         elif self.current_image is not None:
             self.processed_image = self.current_image.copy()
             self.original_processed_image = self.processed_image.copy()
-            self.display_image(self.processed_image)
+            self.image_processor.display_image(self.processed_image)
 
     # app
-    def display_image(self, image):
-        """Display an image on the image label."""
-        # Only proceed if the image label exists and has a valid size
-        if not hasattr(self, 'image_label') or self.image_label.width() <= 0 or self.image_label.height() <= 0:
-            return
-            
-        rgb_image = convert_to_rgb(image)
-        height, width, channel = rgb_image.shape
-        bytes_per_line = channel * width
-        q_image = QImage(rgb_image.data.tobytes(), width, height, bytes_per_line, QImage.Format.Format_RGB888)
-        pixmap = QPixmap.fromImage(q_image)
-        self.image_label.setPixmap(pixmap.scaled(self.image_label.size(), Qt.AspectRatioMode.KeepAspectRatio))
 
     # app
-    def open_image(self):
-        """Open an image file and prepare scaled versions for processing."""
-        file_path, _ = QFileDialog.getOpenFileName(self, "Open Image", "", "Images (*.png *.jpg *.jpeg *.bmp *.webp)")
-        if file_path:
-            # Get file extension
-            file_extension = os.path.splitext(file_path)[1].lower()
-            is_webp = file_extension == '.webp'
-            
-            # Load the original full-resolution image
-            print(f"Loading image: {file_path}")
-            self.original_image = load_image(file_path)
-            
-            # Verify image loaded correctly
-            if self.original_image is None:
-                QMessageBox.critical(self, "Error", f"Failed to load image: {file_path}")
-                return
-                
-            # Log the image dimensions and type info for debugging
-            h, w = self.original_image.shape[:2]
-            channels = self.original_image.shape[2] if len(self.original_image.shape) > 2 else 1
-            print(f"Image loaded: {w}x{h}, {channels} channels, {self.original_image.dtype}")
-            
-            # For WebP files, log whether conversion was applied
-            if is_webp:
-                print(f"WebP image detected: {file_path}")
-            
-            # Clear history when loading a new image
-            self.history.clear()
-            self.undo_button.setEnabled(False)
-            
-            # Create a scaled down version for processing if needed
-            self.current_image, self.scale_factor = self.create_working_image(self.original_image)
-            
-            print(f"Image prepared: Original size {self.original_image.shape}, Working size {self.current_image.shape}, Scale factor {self.scale_factor}")
-            
-            # Reset the mask layer when loading a new image to prevent dimension mismatch
-            self.mask_layer = None
-            self.foundry_walls_preview = None
-
-            self.set_controls_enabled(True)
-            
-            # Reset button states when loading a new image
-            self.export_foundry_button.setEnabled(False)
-            
-            # Reset the current overlays and detected contours
-            self.current_contours = None
-            self.edges_overlay = None
-            
-            # Update the image display
-            self.update_image()
 
     # app
-    def load_image_from_url(self):
-        """Load an image from a URL in the clipboard."""
-        # Get clipboard content
-        clipboard = QApplication.clipboard()
-        clipboard_text = clipboard.text().strip()
-        
-        # Check if it's a valid URL
-        if not clipboard_text:
-            QMessageBox.warning(self, "Invalid URL", "Clipboard is empty")
-            return
-            
-        try:
-            # Check if it's a valid URL
-            parsed_url = urllib.parse.urlparse(clipboard_text)
-            if not all([parsed_url.scheme, parsed_url.netloc]):
-                QMessageBox.warning(self, "Invalid URL", f"The clipboard does not contain a valid URL:\n{clipboard_text}")
-                return
-            
-            # Download image from URL
-            self.setStatusTip(f"Downloading image from {clipboard_text}...")
-            response = requests.get(clipboard_text, stream=True, timeout=10)
-            response.raise_for_status()  # Raise exception for 4XX/5XX responses
-            
-            # Check if content type is an image
-            content_type = response.headers.get('Content-Type', '')
-            if not content_type.startswith('image/'):
-                QMessageBox.warning(self, "Invalid Content", f"The URL does not point to an image (Content-Type: {content_type})")
-                return
-                
-            # Convert response content to an image
-            image_data = io.BytesIO(response.content)
-            image_array = np.frombuffer(image_data.read(), dtype=np.uint8)
-            img = cv2.imdecode(image_array, cv2.IMREAD_COLOR)
-            
-            if img is None:
-                QMessageBox.warning(self, "Loading Error", "Could not decode image from URL")
-                return
-            
-            # Load the image into the application
-            self.original_image = img
-            self.current_image, self.scale_factor = self.create_working_image(self.original_image)
-            
-            print(f"Image loaded from URL: Original size {self.original_image.shape}, Working size {self.current_image.shape}, Scale factor {self.scale_factor}")
-            
-            # Reset the mask layer when loading a new image to prevent dimension mismatch
-            self.mask_layer = None
-            self.foundry_walls_preview = None
-
-            self.set_controls_enabled(True)
-            
-            # Reset button states when loading a new image
-            self.export_foundry_button.setEnabled(False)
-            self.save_foundry_button.setEnabled(False)
-            self.cancel_foundry_button.setEnabled(False)
-            self.copy_foundry_button.setEnabled(False)
-            
-            # Update the display
-            self.setStatusTip(f"Image loaded from URL. Size: {img.shape[1]}x{img.shape[0]}")
-            self.update_image()
-            
-        except requests.exceptions.RequestException as e:
-            QMessageBox.warning(self, "Download Error", f"Failed to download the image:\n{str(e)}")
-        except Exception as e:
-            QMessageBox.warning(self, "Error", f"Failed to load image from URL:\n{str(e)}")
 
     # app
-    def create_working_image(self, image):
-        """Create a working copy of the image, scaling it down if it's too large."""
-        # Check if we should use full resolution
-        if self.high_res_checkbox.isChecked():
-            return image.copy(), 1.0
-            
-        # Get image dimensions
-        height, width = image.shape[:2]
-        
-        # Calculate scale factor if image is larger than the maximum working dimension
-        max_dim = max(width, height)
-        if max_dim <= self.max_working_dimension:
-            # Image is already small enough - use as is
-            return image.copy(), 1.0
-        
-        # Calculate scale factor and new dimensions
-        scale_factor = self.max_working_dimension / max_dim
-        new_width = int(width * scale_factor)
-        new_height = int(height * scale_factor)
-        
-        # Resize the image
-        resized = cv2.resize(image, (new_width, new_height), interpolation=cv2.INTER_AREA)
-        
-        return resized, scale_factor
 
     # app
     def scale_contours_to_original(self, contours, scale_factor):
@@ -3085,46 +1835,6 @@ class WallDetectionApp(QMainWindow):
         return scaled_contours
 
     # app
-    def save_image(self):
-        """Save the processed image at full resolution."""
-        if self.original_image is not None:
-            file_path, _ = QFileDialog.getSaveFileName(self, "Save Image", "", "Images (*.png *.jpg *.jpeg *.bmp *.webp)")
-            if file_path:
-                if self.edit_mask_mode_enabled and self.mask_layer is not None:
-                    # Save image with mask overlay
-                    if self.scale_factor != 1.0:
-                        # Scale mask to original resolution
-                        orig_h, orig_w = self.original_image.shape[:2]
-                        full_res_mask = cv2.resize(self.mask_layer, (orig_w, orig_h), 
-                                               interpolation=cv2.INTER_NEAREST)
-                    else:
-                        full_res_mask = self.mask_layer
-                        
-                    # Blend mask with original image
-                    result = blend_image_with_mask(self.original_image, full_res_mask)
-                    
-                    # Save the result
-                    save_image(result, file_path)
-                    print(f"Saved image with mask overlay to {file_path}")
-                else:
-                    # Normal save with contours
-                    if self.original_image is not None and self.current_contours:
-                        # Scale contours back to original image size if needed
-                        if self.scale_factor != 1.0:
-                            full_res_contours = self.scale_contours_to_original(self.current_contours, self.scale_factor)
-                        else:
-                            full_res_contours = self.current_contours
-                            
-                        # Draw walls on the original high-resolution image
-                        high_res_result = draw_walls(self.original_image, full_res_contours)
-                        
-                        # Save the high-resolution result
-                        save_image(high_res_result, file_path)
-                        print(f"Saved high-resolution image ({self.original_image.shape[:2]}) to {file_path}")
-                    else:
-                        # Just save the current view if no contours
-                        save_image(self.original_image, file_path)
-                        print(f"Saved original image to {file_path}")
 
     # color
     def add_wall_color(self):
@@ -3141,7 +1851,7 @@ class WallDetectionApp(QMainWindow):
             
             # Update detection if image is loaded
             if self.current_image is not None:
-                self.update_image()
+                self.image_processor.update_image()
     
     # color
     def select_color(self, item):
@@ -3180,7 +1890,7 @@ class WallDetectionApp(QMainWindow):
         
         # Update detection immediately for visual feedback
         if self.current_image is not None and self.color_detection_radio.isChecked():
-            self.update_image()
+            self.image_processor.update_image()
     
     # color
     def edit_wall_color(self, item):
@@ -3195,7 +1905,7 @@ class WallDetectionApp(QMainWindow):
             self.update_color_list_item(item, new_color, current_threshold)
             # Update detection if image is loaded
             if self.current_image is not None:
-                self.update_image()
+                self.image_processor.update_image()
     
     # color
     def update_color_list_item(self, item, color, threshold):
@@ -3236,7 +1946,7 @@ class WallDetectionApp(QMainWindow):
         
         # Update detection if image is loaded and we still have colors
         if self.current_image is not None and self.wall_colors_list.count() > 0:
-            self.update_image()
+            self.image_processor.update_image()
 
     # app
     def export_to_foundry_vtt(self):
@@ -3285,7 +1995,7 @@ class WallDetectionApp(QMainWindow):
         preset_label = QLabel("Export Preset:")
         preset_combo = QComboBox()
         preset_combo.addItem("-- Select Preset --")
-        for name in sorted(self.export_presets.keys()):
+        for name in sorted(self.preset_manager.export_presets.keys()):
             preset_combo.addItem(name)
         preset_layout.addWidget(preset_label)
         preset_layout.addWidget(preset_combo, 1)
@@ -3436,8 +2146,8 @@ class WallDetectionApp(QMainWindow):
                 return
                 
             preset_name = preset_combo.itemText(index)
-            if preset_name in self.export_presets:
-                preset = self.export_presets[preset_name]
+            if preset_name in self.preset_manager.export_presets:
+                preset = self.preset_manager.export_presets[preset_name]
                 tolerance_input.setValue(preset.get("simplify_tolerance", 0.0005))
                 max_length_input.setValue(preset.get("max_wall_length", 50))
                 max_walls_input.setValue(preset.get("max_walls", 5000))
@@ -3458,7 +2168,7 @@ class WallDetectionApp(QMainWindow):
         # Connect the preset management buttons
         def save_preset_handler():
             # Call the save method and get the new preset name if successful
-            new_preset_name = self.save_export_preset_from_dialog(
+            new_preset_name = self.preset_manager.save_export_preset_from_dialog(
                 tolerance_input.value(),
                 max_length_input.value(),
                 max_walls_input.value(),
@@ -3478,7 +2188,7 @@ class WallDetectionApp(QMainWindow):
                 # Clear and rebuild the preset list to ensure it's sorted
                 preset_combo.clear()
                 preset_combo.addItem("-- Select Preset --")
-                for name in sorted(self.export_presets.keys()):
+                for name in sorted(self.preset_manager.export_presets.keys()):
                     preset_combo.addItem(name)
                 
                 # Select the new preset
@@ -3491,7 +2201,7 @@ class WallDetectionApp(QMainWindow):
                 preset_combo.blockSignals(False)
         
         save_preset_button.clicked.connect(save_preset_handler)
-        manage_presets_button.clicked.connect(self.manage_export_presets)
+        manage_presets_button.clicked.connect(self.preset_manager.manage_export_presets)
 
         # Show dialog and get results
         if dialog.exec() != QDialog.DialogCode.Accepted:
@@ -3684,7 +2394,7 @@ class WallDetectionApp(QMainWindow):
         
         # Update the display with the preview
         self.processed_image = preview_image
-        self.display_image(self.processed_image)
+        self.image_processor.display_image(self.processed_image)
 
     # app
     def save_foundry_preview(self):
@@ -3743,7 +2453,7 @@ class WallDetectionApp(QMainWindow):
         # Restore original display
         if self.original_processed_image is not None:
             self.processed_image = self.original_processed_image.copy()
-            self.display_image(self.processed_image)
+            self.image_processor.display_image(self.processed_image)
         
         # Update status
         self.setStatusTip("Foundry VTT preview canceled")
@@ -3821,7 +2531,7 @@ class WallDetectionApp(QMainWindow):
         
         # If we have a current image displayed, update it to fit the new window size
         if hasattr(self, 'processed_image') and self.processed_image is not None:
-            self.display_image(self.processed_image)
+            self.image_processor.display_image(self.processed_image)
             
         # If we're in foundry preview mode, redraw the preview
         if hasattr(self, 'foundry_preview_active') and self.foundry_preview_active and self.foundry_walls_preview:
@@ -3974,25 +2684,6 @@ class WallDetectionApp(QMainWindow):
         if self.update_url:
             QDesktopServices.openUrl(QUrl(self.update_url))
 
-    # drawing
-    def update_display_with_brush(self, img_x, img_y):
-        """Update the display with both the mask and brush outline at current position."""
-        if self.current_image is None or self.mask_layer is None:
-            return
-        
-        # Create the blended image (original + current mask)
-        blended_image = blend_image_with_mask(self.current_image, self.mask_layer)
-        
-        # Draw brush outline with different colors for draw/erase mode
-        color = (0, 255, 0) if self.draw_radio.isChecked() else (0, 0, 255)  # Green for draw, Red for erase
-        cv2.circle(blended_image, (img_x, img_y), self.brush_size, color, 1)
-        
-        # Store this as our preview image
-        self.last_preview_image = blended_image.copy()
-        
-        # Display the image with brush preview
-        self.display_image(blended_image)
-
     # hatching removal
     def toggle_hatching_removal(self, enabled):
         """Toggle hatching removal options visibility."""
@@ -4000,7 +2691,7 @@ class WallDetectionApp(QMainWindow):
         
         # Update the image if one is loaded
         if self.current_image is not None:
-            self.update_image()
+            self.image_processor.update_image()
     
     # hatching removal
     def select_hatching_color(self):
@@ -4013,7 +2704,7 @@ class WallDetectionApp(QMainWindow):
             
             # Update the image if one is loaded and removal is enabled
             if self.current_image is not None and self.remove_hatching_checkbox.isChecked():
-                self.update_image()
+                self.image_processor.update_image()
     
     # hatching removal
     def update_hatching_threshold(self, value):
@@ -4024,7 +2715,7 @@ class WallDetectionApp(QMainWindow):
         
         # Update the image if one is loaded and removal is enabled
         if self.current_image is not None and self.remove_hatching_checkbox.isChecked():
-            self.update_image()
+            self.image_processor.update_image()
     
     # hatching removal
     def update_hatching_width(self, value):
@@ -4034,57 +2725,8 @@ class WallDetectionApp(QMainWindow):
         
         # Update the image if one is loaded and removal is enabled
         if self.current_image is not None and self.remove_hatching_checkbox.isChecked():
-            self.update_image()
+            self.image_processor.update_image()
 
-    def save_export_preset_from_dialog(self, tolerance, max_length, max_walls, merge_distance, angle_tolerance, max_gap, grid_size, allow_half_grid):
-        """Save current export settings from the dialog as a preset."""
-        preset_name, ok = QInputDialog.getText(self, "Save Export Preset", "Enter preset name:")
-        if ok and preset_name:
-            # Check if overwriting a default preset
-            if preset_name in self.get_default_export_presets():
-                reply = QMessageBox.question(self, "Overwrite Default Preset?",
-                                            f"'{preset_name}' is a default preset. Overwrite it?",
-                                            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                                            QMessageBox.StandardButton.No)
-                if reply == QMessageBox.StandardButton.No:
-                    return  # User cancelled overwrite
-
-            # Check if overwriting an existing user preset
-            elif preset_name in self.export_presets:
-                reply = QMessageBox.question(self, "Overwrite Preset?",
-                                            f"Preset '{preset_name}' already exists. Overwrite?",
-                                            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                                            QMessageBox.StandardButton.No)
-                if reply == QMessageBox.StandardButton.No:
-                    return  # User cancelled overwrite
-
-            # Save the preset using the parameters provided directly from the dialog
-            new_preset = {
-                "simplify_tolerance": tolerance,
-                "max_wall_length": max_length,
-                "max_walls": max_walls,
-                "merge_distance": merge_distance,
-                "angle_tolerance": angle_tolerance,
-                "max_gap": max_gap,
-                "grid_size": grid_size,
-                "allow_half_grid": allow_half_grid
-            }
-            
-            # Store the preset and save to file
-            self.export_presets[preset_name] = new_preset
-            self.save_presets_to_file()
-            
-            # Also update current_export_settings for consistency
-            self.current_export_settings = new_preset.copy()
-            
-            self.setStatusTip(f"Saved export preset '{preset_name}'")
-            
-            # Return the preset name so the dialog can update its dropdown
-            return preset_name
-        elif ok and not preset_name:
-            QMessageBox.warning(self, "Invalid Name", "Preset name cannot be empty.")
-            
-        return None
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
