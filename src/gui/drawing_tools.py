@@ -63,7 +63,7 @@ class DrawingTools:
             self.app.brush_preview_active = True
             
             # Display the image with brush preview
-            self.app.display_image(blended_image)
+            self.app.image_processor.display_image(blended_image)
         elif self.app.original_processed_image is not None:
             # If no mask exists yet, draw on the original image
             preview_image = self.app.original_processed_image.copy()
@@ -77,7 +77,7 @@ class DrawingTools:
             self.app.brush_preview_active = True
             
             # Display the preview
-            self.app.display_image(preview_image)
+            self.app.image_processor.display_image(preview_image)
 
     def clear_brush_preview(self):
         """Clear the brush preview when mouse leaves the widget."""
@@ -89,7 +89,7 @@ class DrawingTools:
             self.app.update_display_with_mask()
         elif self.app.original_processed_image is not None:
             # Restore the original image
-            self.app.display_image(self.app.original_processed_image)
+            self.app.image_processor.display_image(self.app.original_processed_image)
     
     def start_drawing(self, x, y):
         """Start drawing on the mask at the given point."""
@@ -368,7 +368,7 @@ class DrawingTools:
         self.last_preview_image = blended_image.copy()
         
         # Display the image with brush preview
-        self.app.display_image(blended_image)
+        self.app.image_processor.display_image(blended_image)
 
     # drawing
     def update_drawing_tool(self, checked):
