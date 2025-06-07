@@ -48,9 +48,9 @@ jobs:
         pip install -r requirements.txt
         pip install pyinstaller --no-cache-dir
     
-    - name: Build with build.bat
+    - name: Build with python
       run: |
-        .\build.bat --ci
+        python build.py
         
     - name: Create GitHub Release
       id: create_version_release
@@ -61,5 +61,5 @@ jobs:
         draft: false
         prerelease: false
         token: ${{ secrets.GITHUB_TOKEN }}
-        artifacts: "./dist/Auto-Wall.exe"
+        artifacts: "./dist/Auto-Wall/Auto-Wall.exe"
         tag: ${{ github.ref_name }}
