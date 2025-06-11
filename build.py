@@ -88,7 +88,6 @@ pyinstaller_args.extend(hidden_imports)
 # These might not all be needed, but excluuding them anyway.
 excludes = [
     '--exclude-module=tkinter',
-    '--exclude-module=unittest',
     '--exclude-module=test',
     '--exclude-module=pytest',
     '--exclude-module=doctest',

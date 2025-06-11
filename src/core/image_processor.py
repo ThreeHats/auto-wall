@@ -1,5 +1,9 @@
 import os
 import cv2
+import urllib.request
+import requests
+import io
+import numpy as np
 
 from PyQt6.QtWidgets import QFileDialog, QMessageBox, QApplication
 from src.wall_detection.image_utils import load_image, convert_to_rgb

@@ -10,7 +10,7 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=['tkinter', 'unittest', 'test', 'pytest', 'doctest', 'pdb', 'profile', 'cProfile', 'pstats', 'IPython', 'jupyter', 'notebook', 'spyder', 'sympy', 'sage', 'matplotlib.tests', 'scipy.tests', 'sklearn.tests', 'numpy.tests', 'PIL.tests', 'cv2.tests', 'pandas', 'statsmodels', 'seaborn', 'plotly', 'nltk', 'nltk.collocations', 'nltk.metrics', 'nltk.util', 'gensim', 'spacy', 'transformers', 'torch', 'tensorflow'],
+    excludes=['tkinter', 'test', 'pytest', 'doctest', 'pdb', 'profile', 'cProfile', 'pstats', 'IPython', 'jupyter', 'notebook', 'spyder', 'sympy', 'sage', 'matplotlib.tests', 'scipy.tests', 'sklearn.tests', 'numpy.tests', 'PIL.tests', 'cv2.tests', 'pandas', 'statsmodels', 'seaborn', 'plotly', 'nltk', 'nltk.collocations', 'nltk.metrics', 'nltk.util', 'gensim', 'spacy', 'transformers', 'torch', 'tensorflow'],
     noarchive=False,
     optimize=0,
 )
