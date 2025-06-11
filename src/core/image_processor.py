@@ -179,7 +179,7 @@ class ImageProcessor:
             self.app.original_processed_image = self.app.processed_image.copy()
             
         # Clear any existing selection when re-detecting
-        self.app.clear_selection()
+        self.app.selection_manager.clear_selection()
         
         # Reset highlighted contour when re-detecting
         self.app.highlighted_contour_index = -1

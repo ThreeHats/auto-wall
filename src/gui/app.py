@@ -30,6 +30,7 @@ from src.utils.update_checker import check_for_updates
 from src.gui.drawing_tools import DrawingTools
 from src.gui.preset_manager import PresetManager
 from src.core.image_processor import ImageProcessor
+from src.core.selection import SelectionManager
 
 
 class InteractiveImageLabel(QLabel):
@@ -58,13 +59,13 @@ class InteractiveImageLabel(QLabel):
             # Handle left button clicks
             if event.button() == Qt.MouseButton.LeftButton:
                 if self.parent_app.deletion_mode_enabled or self.parent_app.color_selection_mode_enabled:
-                    self.parent_app.start_selection(x, y)
+                    self.parent_app.selection_manager.start_selection(x, y)
                 elif self.parent_app.edit_mask_mode_enabled:
                     # Start drawing on mask
                     self.last_point = QPoint(x, y)
                     self.parent_app.drawing_tools.start_drawing(x, y)
                 elif self.parent_app.thin_mode_enabled:
-                    self.parent_app.start_selection(x, y)
+                    self.parent_app.selection_manager.start_selection(x, y)
                 
         super().mousePressEvent(event)
     
@@ -78,14 +79,14 @@ class InteractiveImageLabel(QLabel):
             if self.selection_start and event.buttons() & Qt.MouseButton.LeftButton:
                 self.selection_current = QPoint(x, y)
                 if self.parent_app.deletion_mode_enabled or self.parent_app.color_selection_mode_enabled:
-                    self.parent_app.update_selection(x, y)
+                    self.parent_app.selection_manager.update_selection(x, y)
                 elif self.parent_app.edit_mask_mode_enabled and self.last_point:
                     # Continue drawing on mask
                     current_point = QPoint(x, y)
                     self.parent_app.drawing_tools.continue_drawing(self.last_point.x(), self.last_point.y(), x, y)
                     self.last_point = current_point
                 elif self.parent_app.thin_mode_enabled:
-                    self.parent_app.update_selection(x, y)
+                    self.parent_app.selection_manager.update_selection(x, y)
             # Just hovering - this always runs for any mouse movement
             else:
                 if self.parent_app.deletion_mode_enabled or self.parent_app.thin_mode_enabled:
@@ -105,13 +106,13 @@ class InteractiveImageLabel(QLabel):
                 self.selection_current = QPoint(x, y)
                 
                 if self.parent_app.deletion_mode_enabled or self.parent_app.color_selection_mode_enabled:
-                    self.parent_app.end_selection(x, y)
+                    self.parent_app.selection_manager.end_selection(x, y)
                 elif self.parent_app.edit_mask_mode_enabled:
                     # End drawing on mask
                     self.parent_app.drawing_tools.end_drawing()
                     self.last_point = None
                 elif self.parent_app.thin_mode_enabled:
-                    self.parent_app.end_selection(x, y)
+                    self.parent_app.selection_manager.end_selection(x, y)
                 
                 # Clear selection points
                 self.selection_start = None
@@ -141,6 +142,7 @@ class WallDetectionApp(QMainWindow):
         self.drawing_tools = DrawingTools(self)
         self.preset_manager = PresetManager(self)
         self.image_processor = ImageProcessor(self)
+        self.selection_manager = SelectionManager(self)
         
         self.setWindowTitle(f"Auto-Wall: Battle Map Wall Detection v{self.app_version}")
         
@@ -1015,7 +1017,7 @@ class WallDetectionApp(QMainWindow):
                 self.image_processor.display_image(self.processed_image)
         
         # Clear any selection when switching modes
-        self.clear_selection()
+        self.selection_manager.clear_selection()
         
         # Make sure to initialize the drawing position attribute
         if hasattr(self, 'last_drawing_position'):
@@ -1130,335 +1132,6 @@ class WallDetectionApp(QMainWindow):
             self.image_processor.update_image()
 
 
-    # app
-    def clear_selection(self):
-        """Clear the current selection."""
-        # Also check if we're in Foundry preview mode
-        if self.foundry_preview_active and self.foundry_walls_preview:
-            # If in preview mode, redraw the preview instead
-            self.display_foundry_preview()
-            return
-        
-        # Original code for normal mode
-        self.selecting = False
-        self.selection_start_img = None
-        self.selection_current_img = None
-        self.selected_contour_indices = []
-        
-        self.selecting_colors = False
-        self.color_selection_start = None
-        self.color_selection_current = None
-        
-        # Redraw without selection rectangle
-        if self.processed_image is not None and self.original_processed_image is not None:
-            self.processed_image = self.original_processed_image.copy()
-            self.image_processor.display_image(self.processed_image)
-
-    # app
-    def start_selection(self, x, y):
-        """Start a selection rectangle at the given coordinates."""
-        # Convert to image coordinates
-        img_x, img_y = self.convert_to_image_coordinates(x, y)
-        
-        if img_x is None or img_y is None:
-            return
-            
-        if self.deletion_mode_enabled:
-            # Check if click is on a contour edge
-            min_distance = float('inf')
-            found_contour_index = -1
-            
-            for i, contour in enumerate(self.current_contours):
-                contour_points = contour.reshape(-1, 2)
-                
-                for j in range(len(contour_points)):
-                    p1 = contour_points[j]
-                    p2 = contour_points[(j + 1) % len(contour_points)]
-                    distance = self.point_to_line_distance(img_x, img_y, p1[0], p1[1], p2[0], p2[1])
-                    
-                    # If point is close enough to a line segment
-                    if distance < 5 and distance < min_distance:  # Threshold for line detection (pixels)
-                        min_distance = distance
-                        found_contour_index = i
-            
-            # If click is on a contour edge, handle as single click
-            if found_contour_index != -1:
-                self.handle_deletion_click(x, y)
-                return
-                
-            # Otherwise, start a selection
-            self.selecting = True
-            self.selection_start_img = (img_x, img_y)
-            self.selection_current_img = (img_x, img_y)
-            self.selected_contour_indices = []
-            
-        elif self.color_selection_mode_enabled:
-            # Start color selection rectangle
-            self.selecting_colors = True
-            self.color_selection_start = (img_x, img_y)
-            self.color_selection_current = (img_x, img_y)
-        elif self.thin_mode_enabled:
-            # Check if click is on a contour edge
-            min_distance = float('inf')
-            found_contour_index = -1
-            
-            for i, contour in enumerate(self.current_contours):
-                contour_points = contour.reshape(-1, 2)
-                
-                for j in range(len(contour_points)):
-                    p1 = contour_points[j]
-                    p2 = contour_points[(j + 1) % len(contour_points)]
-                    distance = self.point_to_line_distance(img_x, img_y, p1[0], p1[1], p2[0], p2[1])
-                    
-                    # If point is close enough to a line segment
-                    if distance < 5 and distance < min_distance:  # Threshold for line detection (pixels)
-                        min_distance = distance
-                        found_contour_index = i
-            
-            # If click is on a contour edge, handle as single click
-            if found_contour_index != -1:
-                self.handle_thinning_click(x, y)
-                return
-                
-            # Otherwise, start a selection for thinning multiple contours
-            self.selecting = True
-            self.selection_start_img = (img_x, img_y)
-            self.selection_current_img = (img_x, img_y)
-            self.selected_contour_indices = []
-
-    # app
-    def update_selection(self, x, y):
-        """Update the current selection rectangle to the given coordinates."""
-        # Convert to image coordinates
-        img_x, img_y = self.convert_to_image_coordinates(x, y)
-        
-        if img_x is None or img_y is None:
-            return
-            
-        if self.deletion_mode_enabled and self.selecting:
-            self.selection_current_img = (img_x, img_y)
-            self.update_selection_display()
-            
-        elif self.color_selection_mode_enabled and self.selecting_colors:
-            self.color_selection_current = (img_x, img_y)
-            self.update_color_selection_display()
-        elif self.thin_mode_enabled and self.selecting:
-            self.selection_current_img = (img_x, img_y)
-            self.update_selection_display()
-
-    # app
-    def update_selection_display(self):
-        """Update the display with the selection rectangle and highlighted contours."""
-        if not self.selecting or self.original_processed_image is None:
-            return
-            
-        # Start with the original image
-        self.processed_image = self.original_processed_image.copy()
-        
-        # Calculate selection rectangle
-        x1 = min(self.selection_start_img[0], self.selection_current_img[0])
-        y1 = min(self.selection_start_img[1], self.selection_current_img[1])
-        x2 = max(self.selection_start_img[0], self.selection_current_img[0])
-        y2 = max(self.selection_start_img[1], self.selection_current_img[1])
-        
-        # Draw semi-transparent selection rectangle
-        overlay = self.processed_image.copy()
-        cv2.rectangle(overlay, (x1, y1), (x2, y2), (0, 100, 200), 2)
-        cv2.rectangle(overlay, (x1, y1), (x2, y2), (0, 100, 200), -1)
-        cv2.addWeighted(overlay, 0.3, self.processed_image, 0.7, 0, self.processed_image)
-        
-        # Find and highlight contours within the selection - only using edge detection
-        self.selected_contour_indices = []
-        
-        for i, contour in enumerate(self.current_contours):
-            contour_points = contour.reshape(-1, 2)
-            for j in range(len(contour_points)):
-                p1 = contour_points[j]
-                p2 = contour_points[(j + 1) % len(contour_points)]
-                
-                # Check if any part of this line segment is in the selection rectangle
-                # First check if either endpoint is in the rectangle
-                if ((x1 <= p1[0] <= x2 and y1 <= p1[1] <= y2) or 
-                    (x1 <= p2[0] <= x2 and y1 <= p2[1] <= y2)):
-                    self.selected_contour_indices.append(i)
-                    # Highlight with different colors based on mode
-                    highlight_color = (0, 0, 255) if self.deletion_mode_enabled else (255, 0, 255)  # Red for delete, Magenta for thin
-                    cv2.drawContours(self.processed_image, [contour], 0, highlight_color, 2)
-                    break
-                
-                # If neither endpoint is in the rectangle, check if the line intersects the rectangle
-                # by checking against all four edges of the rectangle
-                rect_edges = [
-                    ((x1, y1), (x2, y1)),  # Top edge
-                    ((x2, y1), (x2, y2)),  # Right edge
-                    ((x2, y2), (x1, y2)),  # Bottom edge
-                    ((x1, y2), (x1, y1))   # Left edge
-                ]
-                
-                for rect_p1, rect_p2 in rect_edges:
-                    if self.line_segments_intersect(p1[0], p1[1], p2[0], p2[1], 
-                                                  rect_p1[0], rect_p1[1], rect_p2[0], rect_p2[1]):
-                        self.selected_contour_indices.append(i)
-                        # Highlight with different colors based on mode
-                        highlight_color = (0, 0, 255) if self.deletion_mode_enabled else (255, 0, 255)
-                        cv2.drawContours(self.processed_image, [contour], 0, highlight_color, 2)
-                        break
-                
-                # If we've already added this contour, no need to check more line segments
-                if i in self.selected_contour_indices:
-                    break
-                    
-        # Display the updated image
-        self.image_processor.display_image(self.processed_image)
-
-    # color
-    def update_color_selection_display(self):
-        """Update the display with the color selection rectangle."""
-        if not self.selecting_colors or self.original_processed_image is None:
-            return
-            
-        # Start with the original image
-        self.processed_image = self.original_processed_image.copy()
-        
-        # Calculate selection rectangle
-        x1 = min(self.color_selection_start[0], self.color_selection_current[0])
-        y1 = min(self.color_selection_start[1], self.color_selection_current[1])
-        x2 = max(self.color_selection_start[0], self.color_selection_current[0])
-        y2 = max(self.color_selection_start[1], self.color_selection_current[1])
-        
-        # Draw semi-transparent selection rectangle
-        overlay = self.processed_image.copy()
-        cv2.rectangle(overlay, (x1, y1), (x2, y2), (0, 200, 255), 2)
-        cv2.rectangle(overlay, (x1, y1), (x2, y2), (0, 200, 255), -1)
-        cv2.addWeighted(overlay, 0.3, self.processed_image, 0.7, 0, self.processed_image)
-                    
-        # Display the updated image
-        self.image_processor.display_image(self.processed_image)
-
-    # app
-    def end_selection(self, x, y):
-        """Complete the selection and process it according to the current mode."""
-        # Convert to image coordinates
-        img_x, img_y = self.convert_to_image_coordinates(x, y)
-        
-        if img_x is None or img_y is None:
-            self.clear_selection()
-            return
-            
-        if self.deletion_mode_enabled and self.selecting:
-            self.selection_current_img = (img_x, img_y)
-            
-            # Calculate selection rectangle
-            x1 = min(self.selection_start_img[0], self.selection_current_img[0])
-            y1 = min(self.selection_start_img[1], self.selection_current_img[1])
-            x2 = max(self.selection_start_img[0], self.selection_current_img[0])
-            y2 = max(self.selection_start_img[1], self.selection_current_img[1])
-            
-            # Find contours within the selection
-            self.selected_contour_indices = []
-            
-            for i, contour in enumerate(self.current_contours):
-                # Check if contour is at least partially within selection rectangle
-                for point in contour:
-                    px, py = point[0]
-                    if x1 <= px <= x2 and y1 <= py <= y2:
-                        self.selected_contour_indices.append(i)
-                        break
-            
-            # If we have selected contours, delete them immediately
-            if self.selected_contour_indices:
-                self.delete_selected_contours()
-            else:
-                # If no contours were selected, just clear the selection
-                self.clear_selection()
-                
-        elif self.color_selection_mode_enabled and self.selecting_colors:
-            self.color_selection_current = (img_x, img_y)
-            
-            # Calculate selection rectangle
-            x1 = min(self.color_selection_start[0], self.color_selection_current[0])
-            y1 = min(self.color_selection_start[1], self.color_selection_current[1])
-            x2 = max(self.color_selection_start[0], self.color_selection_current[0])
-            y2 = max(self.color_selection_start[1], self.color_selection_current[1])
-            
-            # Make sure we have a valid selection area
-            if x1 < x2 and y1 < y2 and x2 - x1 > 5 and y2 - y1 > 5:
-                # Extract colors from the selected area
-                self.extract_colors_from_selection(x1, y1, x2, y2)
-            else:
-                print("Selection area too small")
-            
-            # Clear the selection
-            self.clear_selection()
-        elif self.thin_mode_enabled and self.selecting:
-            self.selection_current_img = (img_x, img_y)
-            
-            # Calculate selection rectangle
-            x1 = min(self.selection_start_img[0], self.selection_current_img[0])
-            y1 = min(self.selection_start_img[1], self.selection_current_img[1])
-            x2 = max(self.selection_start_img[0], self.selection_current_img[0])
-            y2 = max(self.selection_start_img[1], self.selection_current_img[1])
-            
-            # Find contours within the selection
-            self.selected_contour_indices = []
-            
-            for i, contour in enumerate(self.current_contours):
-                # Check if contour is at least partially within selection rectangle
-                for point in contour:
-                    px, py = point[0]
-                    if x1 <= px <= x2 and y1 <= py <= y2:
-                        self.selected_contour_indices.append(i)
-                        break
-            
-            # If we have selected contours, thin them
-            if self.selected_contour_indices:
-                self.thin_selected_contours()
-            else:
-                # If no contours were selected, just clear the selection
-                self.clear_selection()
-
-    # color
-    def extract_colors_from_selection(self, x1, y1, x2, y2):
-        """Extract dominant colors from the selected region."""
-        if self.current_image is None:
-            return
-            
-        # Extract the selected region from the image
-        region = self.current_image[y1:y2, x1:x2]
-        
-        if region.size == 0:
-            print("Selected region is empty")
-            return
-            
-        # Reshape the region for clustering
-        pixels = region.reshape(-1, 3)
-        
-        # Get the number of colors to extract
-        num_colors = self.color_count_spinner.value()
-        
-        # Use K-means clustering to find the dominant colors
-        kmeans = KMeans(n_clusters=num_colors, n_init=10)
-        kmeans.fit(pixels)
-        
-        # Get the colors (cluster centers)
-        colors = kmeans.cluster_centers_
-        
-        # Add each color to the color list
-        for color in colors:
-            bgr_color = color.astype(int)
-            qt_color = QColor(bgr_color[2], bgr_color[1], bgr_color[0])  # Convert BGR to RGB
-            
-            # Add the color with a threshold of 0 (exact match) initially
-            item = self.add_wall_color_to_list(qt_color, 0)
-            
-            # Select the new color
-            self.wall_colors_list.setCurrentItem(item)
-            self.select_color(item)
-        
-        print(f"Extracted {num_colors} colors from selected region")
-        
-        # Update the image with the new colors
-        self.image_processor.update_image()
     
     # delete
     def delete_selected_contours(self):
@@ -1476,7 +1149,7 @@ class WallDetectionApp(QMainWindow):
                 self.current_contours.pop(index)
         
         # Clear selection and update display
-        self.clear_selection()
+        self.selection_manager.clear_selection()
         self.update_display_from_contours()
 
     # app
@@ -1594,7 +1267,7 @@ class WallDetectionApp(QMainWindow):
             return
             
         # Clear any existing selection when handling a single click
-        self.clear_selection()
+        self.selection_manager.clear_selection()
         
         # Save state before deleting
         self.save_state()
@@ -1670,7 +1343,7 @@ class WallDetectionApp(QMainWindow):
                 self.current_contours[idx] = thinned_contour
         
         # Clear selection and update display
-        self.clear_selection()
+        self.selection_manager.clear_selection()
         self.update_display_from_contours()
 
     # thinning
@@ -1687,7 +1360,7 @@ class WallDetectionApp(QMainWindow):
             return
             
         # Clear any existing selection when handling a single click
-        self.clear_selection()
+        self.selection_manager.clear_selection()
         
         # Save state before modifying
         self.save_state()
