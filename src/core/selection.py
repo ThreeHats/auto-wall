@@ -235,7 +235,7 @@ class SelectionManager:
             
             # If we have selected contours, delete them immediately
             if self.app.selected_contour_indices:
-                self.app.delete_selected_contours()
+                self.app.contour_processor.delete_selected_contours()
             else:
                 # If no contours were selected, just clear the selection
                 self.clear_selection()
@@ -280,7 +280,7 @@ class SelectionManager:
             
             # If we have selected contours, thin them
             if self.app.selected_contour_indices:
-                self.app.thin_selected_contours()
+                self.app.contour_processor.thin_selected_contours()
             else:
                 # If no contours were selected, just clear the selection
                 self.clear_selection()

@@ -32,6 +32,7 @@ from src.gui.preset_manager import PresetManager
 from src.core.image_processor import ImageProcessor
 from src.core.selection import SelectionManager
 from src.gui.image_viewer import InteractiveImageLabel
+from src.core.contour_processor import ContourProcessor
 
 
 
@@ -47,6 +48,7 @@ class WallDetectionApp(QMainWindow):
         self.preset_manager = PresetManager(self)
         self.image_processor = ImageProcessor(self)
         self.selection_manager = SelectionManager(self)
+        self.contour_processor = ContourProcessor(self)
         
         self.setWindowTitle(f"Auto-Wall: Battle Map Wall Detection v{self.app_version}")
         
@@ -1038,23 +1040,7 @@ class WallDetectionApp(QMainWindow):
 
     
     # delete
-    def delete_selected_contours(self):
-        """Delete the selected contours from the current image."""
-        if not self.selected_contour_indices:
-            return
-        
-        # Save state before modifying
-        self.save_state()
-        
-        # Delete selected contours
-        for index in sorted(self.selected_contour_indices, reverse=True):
-            if 0 <= index < len(self.current_contours):
-                print(f"Deleting contour {index} (area: {cv2.contourArea(self.current_contours[index])})")
-                self.current_contours.pop(index)
-        
-        # Clear selection and update display
-        self.selection_manager.clear_selection()
-        self.update_display_from_contours()
+
 
     # app
     def handle_hover(self, x, y):
@@ -1181,7 +1167,7 @@ class WallDetectionApp(QMainWindow):
             print(f"Deleting highlighted contour {self.highlighted_contour_index}")
             self.current_contours.pop(self.highlighted_contour_index)
             self.highlighted_contour_index = -1  # Reset highlight
-            self.update_display_from_contours()
+            self.contour_processor.update_display_from_contours()
             return
         
         # Find contours where the click is on or near an edge
@@ -1206,49 +1192,12 @@ class WallDetectionApp(QMainWindow):
         if closest_contour_index != -1:
             print(f"Deleting contour {closest_contour_index} (edge clicked)")
             self.current_contours.pop(closest_contour_index)
-            self.update_display_from_contours()
+            self.contour_processor.update_display_from_contours()
             return
 
-    # thinning
-    def thin_selected_contour(self, contour):
-        """Thin a single contour using morphological thinning."""
-        # Create a mask for the contour
-        mask = np.zeros(self.current_image.shape[:2], dtype=np.uint8)
-        cv2.drawContours(mask, [contour], -1, 255, -1)
-        
-        # Apply the thinning operation using the imported function
-        # Pass the current target width and max iterations settings
-        thinned_contour = thin_contour(mask, target_width=self.target_width, max_iterations=self.max_iterations)
-        
-        # No need to extract contours, thin_contour() already returns a contour object
-        if thinned_contour is not None:
-            return thinned_contour
-        else:
-            # If thinning failed, return the original contour
-            return contour
 
     # thinning
-    def thin_selected_contours(self):
-        """Thin the selected contours."""
-        if not self.selected_contour_indices:
-            return
-        
-        # Save state before modifying
-        self.save_state()
-        
-        # Thin each selected contour
-        for idx in sorted(self.selected_contour_indices):
-            if 0 <= idx < len(self.current_contours):
-                # Get the contour
-                contour = self.current_contours[idx]
-                # Apply thinning
-                thinned_contour = self.thin_selected_contour(contour)
-                # Replace the original with the thinned version
-                self.current_contours[idx] = thinned_contour
-        
-        # Clear selection and update display
-        self.selection_manager.clear_selection()
-        self.update_display_from_contours()
+
 
     # thinning
     def handle_thinning_click(self, x, y):
@@ -1273,10 +1222,10 @@ class WallDetectionApp(QMainWindow):
         if self.highlighted_contour_index != -1:
             print(f"Thinning highlighted contour {self.highlighted_contour_index}")
             contour = self.current_contours[self.highlighted_contour_index]
-            thinned_contour = self.thin_selected_contour(contour)
+            thinned_contour = self.contour_processor.thin_selected_contour(contour)
             self.current_contours[self.highlighted_contour_index] = thinned_contour
             self.highlighted_contour_index = -1  # Reset highlight
-            self.update_display_from_contours()
+            self.contour_processor.update_display_from_contours()
             return
             
         # Find contours where the click is on or near an edge
@@ -1301,17 +1250,11 @@ class WallDetectionApp(QMainWindow):
         if closest_contour_index != -1:
             print(f"Thinning contour {closest_contour_index} (edge clicked)")
             contour = self.current_contours[closest_contour_index]
-            thinned_contour = self.thin_selected_contour(contour)
+            thinned_contour = self.contour_processor.thin_selected_contour(contour)
             self.current_contours[closest_contour_index] = thinned_contour
-            self.update_display_from_contours()
+            self.contour_processor.update_display_from_contours()
             return
 
-    # thinning
-    def thin_contour(self, contour):
-        """Thin a single contour using morphological thinning."""
-        # Create a mask for the contour
-        mask = np.zeros(self.current_image.shape[:2], dtype=np.uint8)
-        cv2.drawContours(mask, [contour], -1, 255, -1)
 
     # util
     def point_to_line_distance(self, x, y, x1, y1, x2, y2):
@@ -1359,59 +1302,6 @@ class WallDetectionApp(QMainWindow):
         # Check if the intersection point lies on both line segments
         return 0 <= t1 <= 1 and 0 <= t2 <= 1
 
-    # app
-    def update_display_from_contours(self):
-        """Update the display with the current contours."""
-        if self.current_image is not None and self.current_contours:
-            self.processed_image = draw_walls(self.current_image, self.current_contours)
-            self.original_processed_image = self.processed_image.copy()
-            self.image_processor.display_image(self.processed_image)
-        elif self.current_image is not None:
-            self.processed_image = self.current_image.copy()
-            self.original_processed_image = self.processed_image.copy()
-            self.image_processor.display_image(self.processed_image)
-
-    # app
-
-    # app
-
-    # app
-
-    # app
-
-    # app
-    def scale_contours_to_original(self, contours, scale_factor):
-        """Scale contours back to the original image size."""
-        if scale_factor == 1.0:
-            # No scaling needed
-            return contours
-            
-        scaled_contours = []
-        for contour in contours:
-            # Create a scaled copy of the contour
-            scaled_contour = contour.copy().astype(np.float32)
-            scaled_contour /= scale_factor  # Scale coordinates
-            scaled_contours.append(scaled_contour.astype(np.int32))
-        
-        return scaled_contours
-    
-    # app
-    def scale_contours_to_working(self, contours, scale_factor):
-        """Scale contours to the working image size."""
-        if scale_factor == 1.0:
-            # No scaling needed
-            return contours
-            
-        scaled_contours = []
-        for contour in contours:
-            # Create a scaled copy of the contour
-            scaled_contour = contour.copy().astype(np.float32)
-            scaled_contour *= scale_factor  # Scale coordinates
-            scaled_contours.append(scaled_contour.astype(np.int32))
-        
-        return scaled_contours
-
-    # app
 
     # color
     def add_wall_color(self):
@@ -1557,7 +1447,7 @@ class WallDetectionApp(QMainWindow):
             
             # If using working image, scale contours back to original size
             if (self.scale_factor != 1.0):
-                walls_to_export = self.scale_contours_to_original(walls_to_export, self.scale_factor)
+                walls_to_export = self.contour_processor.scale_contours_to_original(walls_to_export, self.scale_factor)
         else:
             print("No walls to export.")
             return
@@ -2204,7 +2094,7 @@ class WallDetectionApp(QMainWindow):
                 self.toggle_mode()
             
             # Update the display
-            self.update_display_from_contours()
+            self.contour_processor.update_display_from_contours()
             self.setStatusTip("Restored previous contour state")
             print("Restored previous contour state")
 
