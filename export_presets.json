@@ -1,1 +1,12 @@
-{}
+{
+    "t1": {
+        "simplify_tolerance": 0.0,
+        "max_wall_length": 100,
+        "max_walls": 5000,
+        "merge_distance": 25.0,
+        "angle_tolerance": 1.0,
+        "max_gap": 10.0,
+        "grid_size": 0,
+        "allow_half_grid": false
+    }
+}

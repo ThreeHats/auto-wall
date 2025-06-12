@@ -1,4 +1,6 @@
 import cv2
+from sklearn.cluster import KMeans
+from PyQt6.QtGui import QColor
 
 class SelectionManager:
     def __init__(self, app):
@@ -9,7 +11,7 @@ class SelectionManager:
         # Also check if we're in Foundry preview mode
         if self.app.foundry_preview_active and self.app.foundry_walls_preview:
             # If in preview mode, redraw the preview instead
-            self.app.display_foundry_preview()
+            self.app.export_panel.display_foundry_preview()
             return
         
         # Original code for normal mode
@@ -112,7 +114,7 @@ class SelectionManager:
             
         elif self.app.color_selection_mode_enabled and self.app.selecting_colors:
             self.app.color_selection_current = (img_x, img_y)
-            self.app.update_color_selection_display()
+            self.update_color_selection_display()
         elif self.app.thin_mode_enabled and self.app.selecting:
             self.app.selection_current_img = (img_x, img_y)
             self.update_selection_display()

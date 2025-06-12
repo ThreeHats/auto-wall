@@ -244,7 +244,7 @@ class DetectionPanel:
     # Color detection specific
     def add_wall_color(self):
         """Open a color dialog to add a new wall color."""
-        color = QColorDialog.getColor(QColor(0, 0, 0), self, "Select Wall Color")
+        color = QColorDialog.getColor(QColor(0, 0, 0), self.app, "Select Wall Color")
         if color.isValid():
             # Use the global threshold value as default for new colors
             default_threshold = 0
@@ -302,7 +302,7 @@ class DetectionPanel:
         current_color = color_data["color"]
         current_threshold = color_data["threshold"]
         
-        new_color = QColorDialog.getColor(current_color, self, "Edit Wall Color")
+        new_color = QColorDialog.getColor(current_color, self.app, "Edit Wall Color")
         if new_color.isValid():
             # Keep the threshold and update the color
             self.update_color_list_item(item, new_color, current_threshold)
@@ -359,7 +359,7 @@ class DetectionPanel:
 
     def select_hatching_color(self):
         """Open a color dialog to select hatching color."""
-        color = QColorDialog.getColor(self.app.hatching_color, self, "Select Hatching Color")
+        color = QColorDialog.getColor(self.app.hatching_color, self.app, "Select Hatching Color")
         if color.isValid():
             self.app.hatching_color = color
             # Update button color

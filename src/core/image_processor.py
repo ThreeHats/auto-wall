@@ -239,7 +239,7 @@ class ImageProcessor:
             self.app.mask_layer = None
             self.app.foundry_walls_preview = None
 
-            self.app.set_controls_enabled(True)
+            self.app.export_panel.set_controls_enabled(True)
             
             # Reset button states when loading a new image
             self.app.export_foundry_button.setEnabled(False)
@@ -299,7 +299,7 @@ class ImageProcessor:
             self.app.mask_layer = None
             self.app.foundry_walls_preview = None
 
-            self.app.set_controls_enabled(True)
+            self.app.export_panel.set_controls_enabled(True)
             
             # Reset button states when loading a new image
             self.app.export_foundry_button.setEnabled(False)
