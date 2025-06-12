@@ -33,6 +33,7 @@ from src.core.image_processor import ImageProcessor
 from src.core.selection import SelectionManager
 from src.gui.image_viewer import InteractiveImageLabel
 from src.core.contour_processor import ContourProcessor
+from src.gui.detection_panel import DetectionPanel
 
 
 
@@ -49,6 +50,7 @@ class WallDetectionApp(QMainWindow):
         self.image_processor = ImageProcessor(self)
         self.selection_manager = SelectionManager(self)
         self.contour_processor = ContourProcessor(self)
+        self.detection_panel = DetectionPanel(self)
         
         self.setWindowTitle(f"Auto-Wall: Battle Map Wall Detection v{self.app_version}")
         
@@ -91,8 +93,8 @@ class WallDetectionApp(QMainWindow):
         self.detection_mode_layout.addWidget(self.color_detection_radio)
         
         # Connect detection mode radio buttons
-        self.edge_detection_radio.toggled.connect(self.toggle_detection_mode_radio)
-        self.color_detection_radio.toggled.connect(self.toggle_detection_mode_radio)
+        self.edge_detection_radio.toggled.connect(self.detection_panel.toggle_detection_mode_radio)
+        self.color_detection_radio.toggled.connect(self.detection_panel.toggle_detection_mode_radio)
         
         # Add a separator after detection mode
         separator = QFrame()
@@ -121,10 +123,10 @@ class WallDetectionApp(QMainWindow):
         self.mode_layout.addWidget(self.edit_mask_mode_radio)
         
         # Connect mode radio buttons
-        self.deletion_mode_radio.toggled.connect(self.toggle_mode)
-        self.thin_mode_radio.toggled.connect(self.toggle_mode)
-        self.color_selection_mode_radio.toggled.connect(self.toggle_mode)
-        self.edit_mask_mode_radio.toggled.connect(self.toggle_mode)
+        self.deletion_mode_radio.toggled.connect(self.detection_panel.toggle_mode)
+        self.thin_mode_radio.toggled.connect(self.detection_panel.toggle_mode)
+        self.color_selection_mode_radio.toggled.connect(self.detection_panel.toggle_mode)
+        self.edit_mask_mode_radio.toggled.connect(self.detection_panel.toggle_mode)
 
         # Add a separator after Tool selection
         separator = QFrame()
@@ -228,7 +230,7 @@ class WallDetectionApp(QMainWindow):
         self.target_width_slider.setMinimum(1)
         self.target_width_slider.setMaximum(10)
         self.target_width_slider.setValue(5)
-        self.target_width_slider.valueChanged.connect(self.update_target_width)
+        self.target_width_slider.valueChanged.connect(self.detection_panel.update_target_width)
         self.target_width_layout.addWidget(self.target_width_slider)
         
         self.target_width_value = QLabel("5")
@@ -244,7 +246,7 @@ class WallDetectionApp(QMainWindow):
         self.max_iterations_slider.setMinimum(1)
         self.max_iterations_slider.setMaximum(20)
         self.max_iterations_slider.setValue(3)
-        self.max_iterations_slider.valueChanged.connect(self.update_max_iterations)
+        self.max_iterations_slider.valueChanged.connect(self.detection_panel.update_max_iterations)
         self.max_iterations_layout.addWidget(self.max_iterations_slider)
         
         self.max_iterations_value = QLabel("3")
@@ -330,17 +332,17 @@ class WallDetectionApp(QMainWindow):
         self.min_area_mode_layout.addWidget(self.min_area_pixels_radio)
         
         # Connect mode radio buttons
-        self.min_area_percentage_radio.toggled.connect(self.toggle_min_area_mode)
-        self.min_area_pixels_radio.toggled.connect(self.toggle_min_area_mode)
+        self.min_area_percentage_radio.toggled.connect(self.detection_panel.toggle_min_area_mode)
+        self.min_area_pixels_radio.toggled.connect(self.detection_panel.toggle_min_area_mode)
         
         self.controls_layout.addLayout(self.min_area_mode_layout)
         
         # Min Area is now a percentage (0.0001% to 1% of image area) or pixels (1 to 1000)
-        self.add_slider("Min Area", 1, 25000, 100, scale_factor=0.001)  # Default 0.1%
-        self.add_slider("Smoothing", 1, 21, 5, step=2)  # Changed from "Blur"
-        self.add_slider("Edge Sensitivity", 0, 255, 255)  # Changed from "Canny1"
-        self.add_slider("Edge Threshold", 0, 255, 106)  # Changed from "Canny2"
-        self.add_slider("Edge Margin", 0, 50, 0)
+        self.detection_panel.add_slider("Min Area", 1, 25000, 100, scale_factor=0.001)  # Default 0.1%
+        self.detection_panel.add_slider("Smoothing", 1, 21, 5, step=2)  # Changed from "Blur"
+        self.detection_panel.add_slider("Edge Sensitivity", 0, 255, 255)  # Changed from "Canny1"
+        self.detection_panel.add_slider("Edge Threshold", 0, 255, 106)  # Changed from "Canny2"
+        self.detection_panel.add_slider("Edge Margin", 0, 50, 0)
         
         # Checkboxes for merge options
         self.merge_options_layout = QVBoxLayout()
@@ -351,7 +353,7 @@ class WallDetectionApp(QMainWindow):
         self.merge_options_layout.addWidget(self.merge_contours)
 
         # Use a scaling factor of 10 for float values (0 to 10.0 with 0.1 precision)
-        self.add_slider("Min Merge Distance", 0, 100, 5, scale_factor=0.1)  # Default 0.5
+        self.detection_panel.add_slider("Min Merge Distance", 0, 100, 5, scale_factor=0.1)  # Default 0.5
         
         # Deletion mode is initially disabled
         self.deletion_mode_enabled = True
@@ -366,7 +368,7 @@ class WallDetectionApp(QMainWindow):
         # Checkbox to enable/disable hatching removal
         self.remove_hatching_checkbox = QCheckBox("Enable Hatching Removal")
         self.remove_hatching_checkbox.setChecked(False)
-        self.remove_hatching_checkbox.toggled.connect(self.toggle_hatching_removal)
+        self.remove_hatching_checkbox.toggled.connect(self.detection_panel.toggle_hatching_removal)
         self.hatching_layout.addWidget(self.remove_hatching_checkbox)
         
         # Create container for hatching options
@@ -385,7 +387,7 @@ class WallDetectionApp(QMainWindow):
         self.hatching_color_button = QPushButton()
         self.hatching_color_button.setFixedSize(30, 20)
         self.hatching_color_button.setStyleSheet("background-color: rgb(0, 0, 0);")
-        self.hatching_color_button.clicked.connect(self.select_hatching_color)
+        self.hatching_color_button.clicked.connect(self.detection_panel.select_hatching_color)
         self.hatching_color_layout.addWidget(self.hatching_color_button)
         self.hatching_color = QColor(0, 0, 0)  # Default to black
         
@@ -400,7 +402,7 @@ class WallDetectionApp(QMainWindow):
         self.hatching_threshold_slider.setMinimum(0)
         self.hatching_threshold_slider.setMaximum(300)
         self.hatching_threshold_slider.setValue(100)  # Default value 10.0
-        self.hatching_threshold_slider.valueChanged.connect(self.update_hatching_threshold)
+        self.hatching_threshold_slider.valueChanged.connect(self.detection_panel.update_hatching_threshold)
         self.hatching_threshold_layout.addWidget(self.hatching_threshold_slider)
         
         self.hatching_threshold_value = QLabel("10.0")
@@ -418,7 +420,7 @@ class WallDetectionApp(QMainWindow):
         self.hatching_width_slider.setMinimum(1)
         self.hatching_width_slider.setMaximum(20)
         self.hatching_width_slider.setValue(3)
-        self.hatching_width_slider.valueChanged.connect(self.update_hatching_width)
+        self.hatching_width_slider.valueChanged.connect(self.detection_panel.update_hatching_width)
         self.hatching_width_layout.addWidget(self.hatching_width_slider)
         
         self.hatching_width_value = QLabel("3")
@@ -446,8 +448,8 @@ class WallDetectionApp(QMainWindow):
         # List widget to display selected colors
         self.wall_colors_list = QListWidget()
         self.wall_colors_list.setMaximumHeight(100)
-        self.wall_colors_list.itemClicked.connect(self.select_color)
-        self.wall_colors_list.itemDoubleClicked.connect(self.edit_wall_color)
+        self.wall_colors_list.itemClicked.connect(self.detection_panel.select_color)
+        self.wall_colors_list.itemDoubleClicked.connect(self.detection_panel.edit_wall_color)
         self.wall_colors_layout.addWidget(self.wall_colors_list)
         
         # Buttons for color management
@@ -455,11 +457,11 @@ class WallDetectionApp(QMainWindow):
         self.wall_colors_layout.addLayout(self.color_buttons_layout)
         
         self.add_color_button = QPushButton("Add Color")
-        self.add_color_button.clicked.connect(self.add_wall_color)
+        self.add_color_button.clicked.connect(self.detection_panel.add_wall_color)
         self.color_buttons_layout.addWidget(self.add_color_button)
         
         self.remove_color_button = QPushButton("Remove Color")
-        self.remove_color_button.clicked.connect(self.remove_wall_color)
+        self.remove_color_button.clicked.connect(self.detection_panel.remove_wall_color)
         self.color_buttons_layout.addWidget(self.remove_color_button)
         
         # Replace the edit threshold button with direct threshold controls
@@ -483,7 +485,7 @@ class WallDetectionApp(QMainWindow):
         self.threshold_slider.setMinimum(0)
         self.threshold_slider.setMaximum(300)
         self.threshold_slider.setValue(100)  # Default value 10.0
-        self.threshold_slider.valueChanged.connect(self.update_selected_threshold)
+        self.threshold_slider.valueChanged.connect(self.detection_panel.update_selected_threshold)
         self.current_threshold_layout.addWidget(self.threshold_slider)
         
         # Add a separator
@@ -522,7 +524,7 @@ class WallDetectionApp(QMainWindow):
         self.wall_colors = []  # List to store QColor objects
         
         # Add a default black color with default threshold
-        self.add_wall_color_to_list(QColor(0, 0, 0), 10.0)
+        self.detection_panel.add_wall_color_to_list(QColor(0, 0, 0), 10.0)
         
         # State
         self.original_image = None  # Original full-size image
@@ -738,207 +740,6 @@ class WallDetectionApp(QMainWindow):
         # Check for updates
         self.check_for_updates()
 
-
-    # Modify toggle_min_area_mode to update self.using_pixels_mode reliably
-    def toggle_min_area_mode(self):
-        """Toggle between percentage and pixel mode for Min Area."""
-        min_area_slider = self.sliders["Min Area"]['slider']
-        min_area_label = self.sliders["Min Area"]['label']
-        label_text = "Min Area"
-
-        if self.min_area_percentage_radio.isChecked():
-            # Switch to percentage mode (0.001% to 25%)
-            # Slider range 1 to 25000 represents this
-            min_area_slider.setMinimum(1)
-            min_area_slider.setMaximum(25000) # Represents 25% with scale 0.001
-
-            # If coming from pixels mode, try to convert value
-            if hasattr(self, 'using_pixels_mode') and self.using_pixels_mode and self.current_image is not None:
-                current_pixel_value = min_area_slider.value()
-                image_area = self.current_image.shape[0] * self.current_image.shape[1]
-                if image_area > 0:
-                    percentage = (current_pixel_value / image_area) * 100.0
-                    slider_value = max(1, min(25000, int(percentage / 0.001))) # Convert back to slider scale
-                    min_area_slider.setValue(slider_value)
-
-            self.using_pixels_mode = False
-            self.update_slider(min_area_label, label_text, min_area_slider.value(), 0.001)
-            print("Switched Min Area mode to Percentage")
-
-        else: # Pixels mode is checked
-            # Switch to pixels mode (1 to 1000 pixels)
-            min_area_slider.setMinimum(1)
-            min_area_slider.setMaximum(1000)
-
-            # If coming from percentage mode, try to convert value
-            if (not hasattr(self, 'using_pixels_mode') or not self.using_pixels_mode) and self.current_image is not None:
-                 current_slider_value = min_area_slider.value()
-                 percentage = current_slider_value * 0.001
-                 image_area = self.current_image.shape[0] * self.current_image.shape[1]
-                 if image_area > 0:
-                     pixel_value = max(1, min(1000, int((percentage / 100.0) * image_area)))
-                     min_area_slider.setValue(pixel_value)
-                 else:
-                      # If no image, set to a reasonable default pixel value if converting
-                      min_area_slider.setValue(min(1000, max(1, 50))) # e.g., 50 pixels
-            elif self.current_image is None:
-                 # If no image and already in pixels mode (or first time), ensure value is in range
-                 min_area_slider.setValue(min(1000, max(1, min_area_slider.value())))
-
-
-            self.using_pixels_mode = True
-            self.image_processor.update_image()
-
-
-    # app
-    def add_slider(self, label, min_val, max_val, initial_val, step=1, scale_factor=None):
-        """Add a slider with a label."""
-        # Create a container widget to hold the slider and label
-        slider_container = QWidget()
-        slider_layout = QHBoxLayout(slider_container)
-        slider_layout.setContentsMargins(0, 0, 0, 0)
-        
-        # Store scale factor if provided
-        if scale_factor:
-            display_value = initial_val * scale_factor
-            display_text = f"{label}: {display_value:.1f}"
-        else:
-            display_value = initial_val
-            display_text = f"{label}: {display_value}"
-            
-        slider_label = QLabel(display_text)
-        slider = QSlider(Qt.Orientation.Horizontal)
-        slider.setMinimum(min_val)
-        slider.setMaximum(max_val)
-        slider.setValue(initial_val)
-        slider.setSingleStep(step)
-        
-        # Connect with scale factor handling
-        slider.valueChanged.connect(
-            lambda value, lbl=slider_label, lbl_text=label, sf=scale_factor: 
-            self.update_slider(lbl, lbl_text, value, sf)
-        )
-        slider.valueChanged.connect(self.image_processor.update_image)
-
-        slider_layout.addWidget(slider_label)
-        slider_layout.addWidget(slider)
-        
-        # Add the container to the controls layout
-        self.controls_layout.addWidget(slider_container)
-
-        # Store both the slider, its container, AND the label in the dictionary
-        self.sliders[label] = {'slider': slider, 'container': slider_container, 'label': slider_label}
-        
-        # Store scale factor if provided (moved after self.sliders assignment)
-        if scale_factor:
-            self.sliders[label]['scale'] = scale_factor
-
-    # app
-    def update_slider(self, label, label_text, value, scale_factor=None):
-        """Update the slider label."""
-        # Special case for Min Area slider in pixel mode
-        if label_text == "Min Area" and hasattr(self, 'using_pixels_mode') and self.using_pixels_mode:
-            label.setText(f"{label_text}: {value} px")
-        elif scale_factor:
-            display_value = value * scale_factor
-            label.setText(f"{label_text}: {display_value:.3f}%")
-        else:
-            label.setText(f"{label_text}: {value}")
-
-    # app
-    def toggle_mode(self):
-        """Toggle between detection, deletion, color selection, edit mask, and thinning modes."""
-        # Check if we need to save state before mode changes
-        if self.processed_image is not None:
-            previous_mode = None
-            if hasattr(self, 'edit_mask_mode_enabled') and self.edit_mask_mode_enabled:
-                previous_mode = 'mask'
-            
-            # Update mode flags based on radio button states
-            self.color_selection_mode_enabled = self.color_selection_mode_radio.isChecked()
-            self.deletion_mode_enabled = self.deletion_mode_radio.isChecked()
-            self.edit_mask_mode_enabled = self.edit_mask_mode_radio.isChecked()
-            self.thin_mode_enabled = self.thin_mode_radio.isChecked()
-            
-            # If switching to/from mask mode, save state
-            current_mode = 'mask' if self.edit_mask_mode_enabled else 'contour'
-            if previous_mode != current_mode:
-                self.save_state()
-        else:
-            # Just update the mode flags as before
-            self.color_selection_mode_enabled = self.color_selection_mode_radio.isChecked()
-            self.deletion_mode_enabled = self.deletion_mode_radio.isChecked()
-            self.edit_mask_mode_enabled = self.edit_mask_mode_radio.isChecked()
-            self.thin_mode_enabled = self.thin_mode_radio.isChecked()
-        
-        # Show/hide color selection options
-        self.color_selection_options.setVisible(self.color_selection_mode_enabled)
-        
-        # Show/hide mask edit options
-        self.mask_edit_options.setVisible(self.edit_mask_mode_enabled)
-        
-        # Show/hide thinning options
-        self.thin_options.setVisible(self.thin_mode_enabled)
-        
-        if self.deletion_mode_enabled:
-            self.setStatusTip("Deletion Mode: Click inside contours or on lines to delete them")
-            # Store original image for highlighting
-            if self.processed_image is not None:
-                self.original_processed_image = self.processed_image.copy()
-        elif self.color_selection_mode_enabled:
-            self.setStatusTip("Color Selection Mode: Drag to select an area for color extraction")
-            # Store original image for selection rectangle
-            if self.processed_image is not None:
-                self.original_processed_image = self.processed_image.copy()
-        elif self.edit_mask_mode_enabled:
-            self.setStatusTip("Edit Mask Mode: Draw or erase on the mask layer")
-            # Make sure we have a mask to edit
-            if self.mask_layer is None and self.current_image is not None:
-                # Create an empty mask if none exists
-                self.create_empty_mask()
-            if self.processed_image is not None:
-                self.original_processed_image = self.processed_image.copy()
-                # Display the mask with the image
-                self.update_display_with_mask()
-                
-            # Reset brush preview state when entering edit mode
-            self.brush_preview_active = False
-            
-            # Get current cursor position to start showing brush immediately
-            if self.current_image is not None:
-                cursor_pos = self.image_label.mapFromGlobal(QCursor.pos())
-                if self.image_label.rect().contains(cursor_pos):
-                    self.drawing_tools.update_brush_preview(cursor_pos.x(), cursor_pos.y())
-        elif self.thin_mode_enabled:
-            self.setStatusTip("Thinning Mode: Click on contours to thin them")
-            # Store original image for highlighting
-            if self.processed_image is not None:
-                self.original_processed_image = self.processed_image.copy()
-        else:
-            self.setStatusTip("")
-            # Clear any highlighting
-            self.clear_hover()
-            # Display normal image without mask
-            if self.processed_image is not None:
-                self.image_processor.display_image(self.processed_image)
-        
-        # Clear any selection when switching modes
-        self.selection_manager.clear_selection()
-        
-        # Make sure to initialize the drawing position attribute
-        if hasattr(self, 'last_drawing_position'):
-            self.last_drawing_position = None
-        else:
-            setattr(self, 'last_drawing_position', None)
-
-    # drawing
-
-
-    # drawing
-
-
-    # drawing
-
     # app
     def create_empty_mask(self):
         """Create an empty transparent mask layer."""
@@ -992,54 +793,6 @@ class WallDetectionApp(QMainWindow):
         
         # Important: Also update the processed_image
         self.processed_image = display_image.copy()
-
-    # app
-    def toggle_detection_mode_radio(self, checked): # 'checked' parameter is from the signal, might not reflect the final state if called manually
-        """Toggle controls visibility based on the currently selected detection mode radio button."""
-        # Always check the current state of the radio buttons, ignore the 'checked' parameter from the signal
-
-        if self.color_detection_radio.isChecked():
-            # Color Detection Mode is active
-            self.edge_detection_radio.setChecked(False) # Ensure consistency
-
-            # Hide edge detection controls and their labels
-            sliders_to_hide = ["Smoothing", "Edge Sensitivity", "Edge Threshold", "Edge Margin"]
-            for slider_name, slider_info in self.sliders.items():
-                # Hide the entire container which includes both slider and label
-                if 'container' in slider_info and slider_name in sliders_to_hide:
-                    slider_info['container'].setVisible(False)
-
-            # Show color detection controls
-            self.color_section.setVisible(True)
-            self.color_selection_mode_radio.setVisible(True) # Show color pick tool
-
-            # Update labels to reflect active/inactive state (optional)
-            # self.color_section_title.setText("Color Detection:")
-            # self.color_section_title.setStyleSheet("font-weight: bold;")
-        else: # Edge Detection Mode is active (self.edge_detection_radio should be checked)
-            self.color_detection_radio.setChecked(False) # Ensure consistency
-            if not self.edge_detection_radio.isChecked(): # Double check and force if needed
-                 self.edge_detection_radio.setChecked(True)
-
-            # Show edge detection controls and their labels
-            sliders_to_show = ["Smoothing", "Edge Sensitivity", "Edge Threshold", "Edge Margin"]
-            for slider_name, slider_info in self.sliders.items():
-                # Show the entire container which includes both slider and label
-                if 'container' in slider_info and slider_name in sliders_to_show:
-                    slider_info['container'].setVisible(True)
-
-            # Hide color detection controls
-            self.color_section.setVisible(False)
-            self.color_selection_mode_radio.setVisible(False) # Hide color pick tool
-
-
-        # Update the detection if an image is loaded
-        if self.current_image is not None:
-            self.image_processor.update_image()
-
-
-    
-    # delete
 
 
     # app
@@ -1304,116 +1057,23 @@ class WallDetectionApp(QMainWindow):
 
 
     # color
-    def add_wall_color(self):
-        """Open a color dialog to add a new wall color."""
-        color = QColorDialog.getColor(QColor(0, 0, 0), self, "Select Wall Color")
-        if color.isValid():
-            # Use the global threshold value as default for new colors
-            default_threshold = 0
-            item = self.add_wall_color_to_list(color, default_threshold)
-            
-            # Select the new color
-            self.wall_colors_list.setCurrentItem(item)
-            self.select_color(item)
-            
-            # Update detection if image is loaded
-            if self.current_image is not None:
-                self.image_processor.update_image()
+
+    # color
+
     
     # color
-    def select_color(self, item):
-        """Handle selection of a color in the list."""
-        self.selected_color_item = item
-        
-        # Get color data
-        color_data = item.data(Qt.ItemDataRole.UserRole)
-        threshold = color_data["threshold"]
-        
-        # Update the threshold slider to show the selected color's threshold
-        self.threshold_slider.blockSignals(True)
-        self.threshold_slider.setValue(int(threshold * 10))
-        self.threshold_slider.blockSignals(False)
-        self.threshold_label.setText(f"Threshold: {threshold:.1f}")
-        
-        # Show the threshold container
-        self.threshold_container.setVisible(True)
+
+    # color
+
     
     # color
-    def update_selected_threshold(self, value):
-        """Update the threshold for the selected color."""
-        if not self.selected_color_item:
-            return
-            
-        # Calculate the actual threshold value
-        threshold = value / 10.0
-        self.threshold_label.setText(f"Threshold: {threshold:.1f}")
-        
-        # Get the current color data
-        color_data = self.selected_color_item.data(Qt.ItemDataRole.UserRole)
-        color = color_data["color"]
-        
-        # Update the color data with the new threshold
-        self.update_color_list_item(self.selected_color_item, color, threshold)
-        
-        # Update detection immediately for visual feedback
-        if self.current_image is not None and self.color_detection_radio.isChecked():
-            self.image_processor.update_image()
+
     
     # color
-    def edit_wall_color(self, item):
-        """Edit an existing color."""
-        color_data = item.data(Qt.ItemDataRole.UserRole)
-        current_color = color_data["color"]
-        current_threshold = color_data["threshold"]
-        
-        new_color = QColorDialog.getColor(current_color, self, "Edit Wall Color")
-        if new_color.isValid():
-            # Keep the threshold and update the color
-            self.update_color_list_item(item, new_color, current_threshold)
-            # Update detection if image is loaded
-            if self.current_image is not None:
-                self.image_processor.update_image()
+
     
     # color
-    def update_color_list_item(self, item, color, threshold):
-        """Update a color list item with new color and threshold."""
-        # Store both color and threshold in the item data
-        color_data = {"color": color, "threshold": threshold}
-        item.setData(Qt.ItemDataRole.UserRole, color_data)
-        
-        # Update item text and appearance
-        item.setText(f"RGB: {color.red()}, {color.green()}, {color.blue()} (T: {threshold:.1f})")
-        item.setBackground(color)
-        
-        # Set text color based on background brightness
-        if color.lightness() < 128:
-            item.setForeground(QColor(255, 255, 255))
-        else:
-            item.setForeground(QColor(0, 0, 0))
-    
-    # color
-    def add_wall_color_to_list(self, color, threshold=10.0):
-        """Add a color with threshold to the wall colors list."""
-        item = QListWidgetItem()
-        self.update_color_list_item(item, color, threshold)
-        self.wall_colors_list.addItem(item)
-        return item
-    
-    # color
-    def remove_wall_color(self):
-        """Remove the selected color from the list."""
-        selected_items = self.wall_colors_list.selectedItems()
-        for item in selected_items:
-            self.wall_colors_list.takeItem(self.wall_colors_list.row(item))
-        
-        # Hide threshold controls if no colors are selected or all are removed
-        if not self.wall_colors_list.selectedItems() or self.wall_colors_list.count() == 0:
-            self.threshold_container.setVisible(False)
-            self.selected_color_item = None
-        
-        # Update detection if image is loaded and we still have colors
-        if self.current_image is not None and self.wall_colors_list.count() > 0:
-            self.image_processor.update_image()
+
 
     # app
     def export_to_foundry_vtt(self):
@@ -1954,19 +1614,7 @@ class WallDetectionApp(QMainWindow):
         
         # If re-enabling, respect color detection mode
         if enabled and self.color_detection_radio.isChecked():
-            self.toggle_detection_mode_radio(True)
-
-    # thinning
-    def update_target_width(self, value):
-        """Update the target width parameter for thinning."""
-        self.target_width = value
-        self.target_width_value.setText(str(value))
-    
-    # thinning
-    def update_max_iterations(self, value):
-        """Update the max iterations parameter for thinning."""
-        self.max_iterations = value
-        self.max_iterations_value.setText(str(value))
+            self.detection_panel.toggle_detection_mode_radio(True)
 
     # app
     def copy_foundry_to_clipboard(self):
@@ -2073,7 +1721,7 @@ class WallDetectionApp(QMainWindow):
             if not self.edit_mask_mode_enabled:
                 self.edit_mask_mode_radio.setChecked(True)
                 # This is important - toggle_mode needs to be called explicitly
-                self.toggle_mode()
+                self.detection_panel.toggle_mode()
             
             # Update the display
             self.update_display_with_mask()
@@ -2091,7 +1739,7 @@ class WallDetectionApp(QMainWindow):
             if self.edit_mask_mode_enabled:
                 self.deletion_mode_radio.setChecked(True)
                 # This is important - toggle_mode needs to be called explicitly
-                self.toggle_mode()
+                self.detection_panel.toggle_mode()
             
             # Update the display
             self.contour_processor.update_display_from_contours()
@@ -2150,50 +1798,6 @@ class WallDetectionApp(QMainWindow):
         """Open the update URL when the notification is clicked."""
         if self.update_url:
             QDesktopServices.openUrl(QUrl(self.update_url))
-
-    # hatching removal
-    def toggle_hatching_removal(self, enabled):
-        """Toggle hatching removal options visibility."""
-        self.hatching_options.setVisible(enabled)
-        
-        # Update the image if one is loaded
-        if self.current_image is not None:
-            self.image_processor.update_image()
-    
-    # hatching removal
-    def select_hatching_color(self):
-        """Open a color dialog to select hatching color."""
-        color = QColorDialog.getColor(self.hatching_color, self, "Select Hatching Color")
-        if color.isValid():
-            self.hatching_color = color
-            # Update button color
-            self.hatching_color_button.setStyleSheet(f"background-color: rgb({color.red()}, {color.green()}, {color.blue()});")
-            
-            # Update the image if one is loaded and removal is enabled
-            if self.current_image is not None and self.remove_hatching_checkbox.isChecked():
-                self.image_processor.update_image()
-    
-    # hatching removal
-    def update_hatching_threshold(self, value):
-        """Update the threshold for hatching color matching."""
-        # Convert from slider value (0-300) to actual threshold (0-30.0)
-        self.hatching_threshold = value / 10.0
-        self.hatching_threshold_value.setText(f"{self.hatching_threshold:.1f}")
-        
-        # Update the image if one is loaded and removal is enabled
-        if self.current_image is not None and self.remove_hatching_checkbox.isChecked():
-            self.image_processor.update_image()
-    
-    # hatching removal
-    def update_hatching_width(self, value):
-        """Update the maximum width of lines to remove."""
-        self.hatching_width = value
-        self.hatching_width_value.setText(str(value))
-        
-        # Update the image if one is loaded and removal is enabled
-        if self.current_image is not None and self.remove_hatching_checkbox.isChecked():
-            self.image_processor.update_image()
-
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)

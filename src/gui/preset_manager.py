@@ -372,7 +372,7 @@ class PresetManager:
                     rgb = color_data["color"]
                     qcolor = QColor(rgb[0], rgb[1], rgb[2])
                     threshold = color_data["threshold"]
-                    self.app.add_wall_color_to_list(qcolor, threshold)
+                    self.app.detection_panel.add_wall_color_to_list(qcolor, threshold)
 
             # Apply Hatching Settings
             if "hatching" in settings:
@@ -411,7 +411,7 @@ class PresetManager:
         # Now that all settings are applied, explicitly call toggle_detection_mode_radio
         # to ensure the UI reflects the detection mode correctly
         if "radios" in settings:
-            self.app.toggle_detection_mode_radio(self.app.color_detection_radio.isChecked())
+            self.app.detection_panel.toggle_detection_mode_radio(self.app.color_detection_radio.isChecked())
 
         # Trigger image update after applying settings
         if self.app.current_image is not None:

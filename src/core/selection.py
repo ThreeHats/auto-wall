@@ -316,11 +316,11 @@ class SelectionManager:
             qt_color = QColor(bgr_color[2], bgr_color[1], bgr_color[0])  # Convert BGR to RGB
             
             # Add the color with a threshold of 0 (exact match) initially
-            item = self.app.add_wall_color_to_list(qt_color, 0)
+            item = self.app.detection_panel.add_wall_color_to_list(qt_color, 0)
             
             # Select the new color
             self.app.wall_colors_list.setCurrentItem(item)
-            self.app.select_color(item)
+            self.app.detection_panel.select_color(item)
         
         print(f"Extracted {num_colors} colors from selected region")
         
