@@ -2,6 +2,8 @@ import cv2
 from sklearn.cluster import KMeans
 from PyQt6.QtGui import QColor
 
+from src.utils.geometry import convert_to_image_coordinates, point_to_line_distance, line_segments_intersect
+
 class SelectionManager:
     def __init__(self, app):
         self.app = app
@@ -32,7 +34,7 @@ class SelectionManager:
     def start_selection(self, x, y):
         """Start a selection rectangle at the given coordinates."""
         # Convert to image coordinates
-        img_x, img_y = self.app.convert_to_image_coordinates(x, y)
+        img_x, img_y = convert_to_image_coordinates(self.app, x, y)
         
         if img_x is None or img_y is None:
             return
@@ -48,7 +50,7 @@ class SelectionManager:
                 for j in range(len(contour_points)):
                     p1 = contour_points[j]
                     p2 = contour_points[(j + 1) % len(contour_points)]
-                    distance = self.app.point_to_line_distance(img_x, img_y, p1[0], p1[1], p2[0], p2[1])
+                    distance = point_to_line_distance(self.app, img_x, img_y, p1[0], p1[1], p2[0], p2[1])
                     
                     # If point is close enough to a line segment
                     if distance < 5 and distance < min_distance:  # Threshold for line detection (pixels)
@@ -82,7 +84,7 @@ class SelectionManager:
                 for j in range(len(contour_points)):
                     p1 = contour_points[j]
                     p2 = contour_points[(j + 1) % len(contour_points)]
-                    distance = self.app.point_to_line_distance(img_x, img_y, p1[0], p1[1], p2[0], p2[1])
+                    distance = point_to_line_distance(self.app, img_x, img_y, p1[0], p1[1], p2[0], p2[1])
                     
                     # If point is close enough to a line segment
                     if distance < 5 and distance < min_distance:  # Threshold for line detection (pixels)
@@ -103,7 +105,7 @@ class SelectionManager:
     def update_selection(self, x, y):
         """Update the current selection rectangle to the given coordinates."""
         # Convert to image coordinates
-        img_x, img_y = self.app.convert_to_image_coordinates(x, y)
+        img_x, img_y = convert_to_image_coordinates(self.app, x, y)
         
         if img_x is None or img_y is None:
             return
@@ -168,7 +170,7 @@ class SelectionManager:
                 ]
                 
                 for rect_p1, rect_p2 in rect_edges:
-                    if self.app.line_segments_intersect(p1[0], p1[1], p2[0], p2[1], 
+                    if line_segments_intersect(self.app, p1[0], p1[1], p2[0], p2[1], 
                                                   rect_p1[0], rect_p1[1], rect_p2[0], rect_p2[1]):
                         self.app.selected_contour_indices.append(i)
                         # Highlight with different colors based on mode
@@ -209,7 +211,7 @@ class SelectionManager:
     def end_selection(self, x, y):
         """Complete the selection and process it according to the current mode."""
         # Convert to image coordinates
-        img_x, img_y = self.app.convert_to_image_coordinates(x, y)
+        img_x, img_y = convert_to_image_coordinates(self.app, x, y)
         
         if img_x is None or img_y is None:
             self.clear_selection()

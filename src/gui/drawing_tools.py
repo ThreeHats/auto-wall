@@ -2,6 +2,7 @@ from PyQt6.QtGui import QCursor
 import cv2
 import numpy as np
 from src.wall_detection.mask_editor import create_mask_from_contours, blend_image_with_mask, draw_on_mask, export_mask_to_foundry_json, contours_to_foundry_walls, thin_contour
+from src.utils.geometry import convert_to_image_coordinates, point_to_line_distance, line_segments_intersect
 
 class DrawingTools:
     def __init__(self, app):
@@ -45,7 +46,7 @@ class DrawingTools:
             return
         
         # Convert display coordinates to image coordinates
-        img_x, img_y = self.app.convert_to_image_coordinates(x, y)
+        img_x, img_y = convert_to_image_coordinates(self.app, x, y)
         if img_x is None or img_y is None:
             return
         
@@ -101,7 +102,7 @@ class DrawingTools:
         self.app.mask_processor.save_state()
         
         # Convert display coordinates to image coordinates
-        img_x, img_y = self.app.convert_to_image_coordinates(x, y)
+        img_x, img_y = convert_to_image_coordinates(self.app, x, y)
         if img_x is None or img_y is None:
             return
         
@@ -141,7 +142,7 @@ class DrawingTools:
     def continue_drawing(self, x1, y1, x2, y2):
         """Continue drawing on the mask between two points (optimized)."""
         # Convert display coordinates to image coordinates
-        img_x2, img_y2 = self.app.convert_to_image_coordinates(x2, y2)
+        img_x2, img_y2 = convert_to_image_coordinates(self.app, x2, y2)
         
         if img_x2 is None or img_y2 is None:
             return
