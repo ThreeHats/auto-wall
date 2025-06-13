@@ -124,7 +124,7 @@ class DetectionPanel:
             # If switching to/from mask mode, save state
             current_mode = 'mask' if self.app.edit_mask_mode_enabled else 'contour'
             if previous_mode != current_mode:
-                self.app.save_state()
+                self.app.mask_processor.save_state()
         else:
             # Just update the mode flags as before
             self.app.color_selection_mode_enabled = self.app.color_selection_mode_radio.isChecked()
@@ -156,11 +156,11 @@ class DetectionPanel:
             # Make sure we have a mask to edit
             if self.app.mask_layer is None and self.app.current_image is not None:
                 # Create an empty mask if none exists
-                self.app.create_empty_mask()
+                self.app.mask_processor.create_empty_mask()
             if self.app.processed_image is not None:
                 self.app.original_processed_image = self.app.processed_image.copy()
                 # Display the mask with the image
-                self.app.update_display_with_mask()
+                self.app.mask_processor.update_display_with_mask()
                 
             # Reset brush preview state when entering edit mode
             self.app.brush_preview_active = False

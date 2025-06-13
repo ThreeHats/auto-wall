@@ -35,6 +35,7 @@ from src.gui.image_viewer import InteractiveImageLabel
 from src.core.contour_processor import ContourProcessor
 from src.gui.detection_panel import DetectionPanel
 from src.gui.export_panel import ExportPanel
+from src.core.mask_processor import MaskProcessor
 
 
 
@@ -53,6 +54,7 @@ class WallDetectionApp(QMainWindow):
         self.contour_processor = ContourProcessor(self)
         self.detection_panel = DetectionPanel(self)
         self.export_panel = ExportPanel(self)
+        self.mask_processor = MaskProcessor(self)
         
         self.setWindowTitle(f"Auto-Wall: Battle Map Wall Detection v{self.app_version}")
         
@@ -634,14 +636,14 @@ class WallDetectionApp(QMainWindow):
 
         # Move the Bake button to the main sidebar
         self.bake_button = QPushButton("Bake Contours to Mask")
-        self.bake_button.clicked.connect(self.bake_contours_to_mask)
+        self.bake_button.clicked.connect(self.mask_processor.bake_contours_to_mask)
         self.wall_actions_layout.addWidget(self.bake_button)
         
         # Add Undo button
-        self.undo_button = QPushButton("Undo (Ctrl+Z)")
-        self.undo_button.clicked.connect(self.undo)
-        self.undo_button.setEnabled(False)  # Initially disabled until actions are performed
-        self.wall_actions_layout.addWidget(self.undo_button)
+        self.mask_processor.undo_button = QPushButton("Undo (Ctrl+Z)")
+        self.mask_processor.undo_button.clicked.connect(self.mask_processor.undo)
+        self.mask_processor.undo_button.setEnabled(False)  # Initially disabled until actions are performed
+        self.wall_actions_layout.addWidget(self.mask_processor.undo_button)
         
         # Move the Export to Foundry button
         self.export_foundry_button = QPushButton("Export to Foundry VTT")
@@ -682,8 +684,8 @@ class WallDetectionApp(QMainWindow):
         self.history = deque(maxlen=5)  # Store up to 5 previous states
         
         # Add keyboard shortcut for undo
-        self.undo_shortcut = QShortcut(QKeySequence.StandardKey.Undo, self)
-        self.undo_shortcut.activated.connect(self.undo)
+        self.mask_processor.undo_shortcut = QShortcut(QKeySequence.StandardKey.Undo, self)
+        self.mask_processor.undo_shortcut.activated.connect(self.mask_processor.undo)
 
         # Create the update notification widget (initially hidden)
         self.update_notification = QWidget(self)
@@ -741,61 +743,6 @@ class WallDetectionApp(QMainWindow):
 
         # Check for updates
         self.check_for_updates()
-
-    # app
-    def create_empty_mask(self):
-        """Create an empty transparent mask layer."""
-        if self.current_image is None:
-            return
-            
-        height, width = self.current_image.shape[:2]
-        # Create a transparent mask (4th channel is alpha, all 0 = fully transparent)
-        self.mask_layer = np.zeros((height, width, 4), dtype=np.uint8)
-
-    # app
-    def bake_contours_to_mask(self):
-        """Bake the current contours to the mask layer."""
-        if self.current_image is None or not self.current_contours:
-            return
-        
-        # Save state before modifying
-        self.save_state()
-            
-        # Create the mask from contours
-        self.mask_layer = create_mask_from_contours(
-            self.current_image.shape, 
-            self.current_contours,
-            color=(0, 255, 0, 255)  # Green
-        )
-        
-        # Switch to mask editing mode
-        self.edit_mask_mode_radio.setVisible(True)
-        self.edit_mask_mode_radio.setChecked(True)
-        
-        # Enable the Export to Foundry VTT button
-        self.export_foundry_button.setEnabled(True)
-        
-        # Update display
-        self.update_display_with_mask()
-
-    # app
-    def update_display_with_mask(self):
-        """Update the display to show the image with the mask overlay."""
-        if self.current_image is None or self.mask_layer is None:
-            return
-        
-        # Blend the image with the mask
-        display_image = blend_image_with_mask(self.current_image, self.mask_layer)
-        
-        # Display the blended image
-        self.image_processor.display_image(display_image)
-        
-        # Store this as the baseline image for brush preview
-        self.last_preview_image = display_image.copy()
-        
-        # Important: Also update the processed_image
-        self.processed_image = display_image.copy()
-
 
     # app
     def handle_hover(self, x, y):
@@ -915,7 +862,7 @@ class WallDetectionApp(QMainWindow):
         self.selection_manager.clear_selection()
         
         # Save state before deleting
-        self.save_state()
+        self.mask_processor.save_state()
         
         # Use the highlighted contour if available
         if self.highlighted_contour_index != -1:
@@ -971,7 +918,7 @@ class WallDetectionApp(QMainWindow):
         self.selection_manager.clear_selection()
         
         # Save state before modifying
-        self.save_state()
+        self.mask_processor.save_state()
         
         # Use the highlighted contour if available
         if self.highlighted_contour_index != -1:
@@ -1077,100 +1024,12 @@ class WallDetectionApp(QMainWindow):
             )
 
     # app
-    def save_state(self):
-        """Save the current state to history for undo functionality."""
-        if self.current_image is None:
-            # Don't save state if there's no image loaded
-            return
-            
-        # Save different data depending on the current mode
-        if self.edit_mask_mode_enabled and self.mask_layer is not None:
-            state = {
-                'mode': 'mask',
-                'mask': self.mask_layer.copy(),
-                'original_image': None if self.original_processed_image is None else self.original_processed_image.copy()
-            }
-        else:
-            state = {
-                'mode': 'contour',
-                'contours': copy.deepcopy(self.current_contours),
-                'original_image': None if self.original_processed_image is None else self.original_processed_image.copy()
-            }
-        
-        # Add state to history
-        self.history.append(state)
-        
-        # Enable the undo button once we have history
-        self.undo_button.setEnabled(True)
-        
-        print(f"State saved to history. History size: {len(self.history)}")
-
-    # app
-    def undo(self):
-        """Restore the previous state from history."""
-        if not self.history:
-            print("No history available to undo")
-            self.setStatusTip("Nothing to undo")
-            return
-            
-        print(f"Undoing action. History size before: {len(self.history)}")
-        
-        # Pop the most recent state (we don't need it anymore)
-        self.history.pop()
-        
-        # If no more history, disable undo button
-        if not self.history:
-            self.undo_button.setEnabled(False)
-            self.setStatusTip("No more undo history available")
-            return
-        
-        # Get the previous state (now the last item in the queue)
-        prev_state = self.history[-1]
-        
-        # Restore based on the mode of the previous state
-        if prev_state['mode'] == 'mask':
-            self.mask_layer = prev_state['mask'].copy()
-            
-            if prev_state['original_image'] is not None:
-                self.original_processed_image = prev_state['original_image'].copy()
-                self.processed_image = self.original_processed_image.copy()
-            
-            # Make sure we're in edit mask mode
-            if not self.edit_mask_mode_enabled:
-                self.edit_mask_mode_radio.setChecked(True)
-                # This is important - toggle_mode needs to be called explicitly
-                self.detection_panel.toggle_mode()
-            
-            # Update the display
-            self.update_display_with_mask()
-            self.setStatusTip("Restored previous mask state")
-            print("Restored previous mask state")
-            
-        else:  # contour mode
-            self.current_contours = copy.deepcopy(prev_state['contours'])
-            
-            if prev_state['original_image'] is not None:
-                self.original_processed_image = prev_state['original_image'].copy()
-                self.processed_image = self.original_processed_image.copy()
-            
-            # Make sure we're not in mask edit mode
-            if self.edit_mask_mode_enabled:
-                self.deletion_mode_radio.setChecked(True)
-                # This is important - toggle_mode needs to be called explicitly
-                self.detection_panel.toggle_mode()
-            
-            # Update the display
-            self.contour_processor.update_display_from_contours()
-            self.setStatusTip("Restored previous contour state")
-            print("Restored previous contour state")
-
-    # app
     def keyPressEvent(self, event):
         """Handle key press events."""
         # Add debugging for Ctrl+Z
         if event.key() == Qt.Key.Key_Z and event.modifiers() & Qt.KeyboardModifier.ControlModifier:
             print("Ctrl+Z detected via keyPressEvent")
-            self.undo()
+            self.mask_processor.undo()
         else:
             super().keyPressEvent(event)
 

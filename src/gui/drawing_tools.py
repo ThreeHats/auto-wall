@@ -86,7 +86,7 @@ class DrawingTools:
         # Restore the original display
         if self.app.edit_mask_mode_enabled and self.mask_layer is not None:
             # Redraw the blend without the brush preview
-            self.app.update_display_with_mask()
+            self.app.mask_processor.update_display_with_mask()
         elif self.app.original_processed_image is not None:
             # Restore the original image
             self.app.image_processor.display_image(self.app.original_processed_image)
@@ -95,10 +95,10 @@ class DrawingTools:
         """Start drawing on the mask at the given point."""
         # Check if the app has a mask_layer, if not create it
         if not hasattr(self.app, 'mask_layer') or self.mask_layer is None:
-            self.app.create_empty_mask()
+            self.app.mask_processor.create_empty_mask()
         
         # Save state before modifying
-        self.app.save_state()
+        self.app.mask_processor.save_state()
         
         # Convert display coordinates to image coordinates
         img_x, img_y = self.app.convert_to_image_coordinates(x, y)
@@ -211,7 +211,7 @@ class DrawingTools:
             self.app.drawing_update_counter = 0
             
             # Always update display at the end of drawing
-            self.app.update_display_with_mask()
+            self.app.mask_processor.update_display_with_mask()
         
         # For shape tools (except fill which completes immediately)
         elif self.current_tool != "fill" and self.drawing_start_pos is not None:
@@ -219,7 +219,7 @@ class DrawingTools:
             self.finalize_shape()
             
             # Update display
-            self.app.update_display_with_mask()
+            self.app.mask_processor.update_display_with_mask()
         
         # Restore brush preview after drawing ends
         if self.app.image_label:
@@ -296,7 +296,7 @@ class DrawingTools:
         self.mask_layer = preview_mask
         
         # Update display
-        self.app.update_display_with_mask()
+        self.app.mask_processor.update_display_with_mask()
 
     # drawing
     def finalize_shape(self):
@@ -350,7 +350,7 @@ class DrawingTools:
             self.mask_layer[:, :, 3] = alpha_channel
         
         # Update display
-        self.app.update_display_with_mask()
+        self.app.mask_processor.update_display_with_mask()
 
     def update_display_with_brush(self, img_x, img_y):
         """Update the display with both the mask and brush outline at current position."""

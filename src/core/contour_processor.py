@@ -56,7 +56,7 @@ class ContourProcessor:
             return
         
         # Save state before modifying
-        self.app.save_state()
+        self.app.mask_processor.save_state()
         
         # Delete selected contours
         for index in sorted(self.app.selected_contour_indices, reverse=True):
@@ -91,7 +91,7 @@ class ContourProcessor:
             return
         
         # Save state before modifying
-        self.app.save_state()
+        self.app.mask_processor.save_state()
         
         # Thin each selected contour
         for idx in sorted(self.app.selected_contour_indices):
