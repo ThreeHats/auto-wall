@@ -1,6 +1,6 @@
 import math
 
-def point_to_line_distance(self, x, y, x1, y1, x2, y2):
+def point_to_line_distance(app, x, y, x1, y1, x2, y2):
     """Calculate the distance from point (x,y) to line segment (x1,y1)-(x2,y2)."""
     # Line segment length squared
     l2 = (x2 - x1) ** 2 + (y2 - y1) ** 2
@@ -22,7 +22,7 @@ def point_to_line_distance(self, x, y, x1, y1, x2, y2):
     proj_y = y1 + t * (y2 - y1)
     return math.sqrt((x - proj_x) ** 2 + (y - proj_y) ** 2)
 
-def line_segments_intersect(self, x1, y1, x2, y2, x3, y3, x4, y4):
+def line_segments_intersect(app, x1, y1, x2, y2, x3, y3, x4, y4):
     """Check if two line segments (x1,y1)-(x2,y2) and (x3,y3)-(x4,y4) intersect."""
     # Calculate the direction vectors
     dx1 = x2 - x1
@@ -44,14 +44,25 @@ def line_segments_intersect(self, x1, y1, x2, y2, x3, y3, x4, y4):
     # Check if the intersection point lies on both line segments
     return 0 <= t1 <= 1 and 0 <= t2 <= 1
 
-def convert_to_image_coordinates(self, display_x, display_y):
-    """Convert display coordinates to image coordinates."""
-    if self.current_image is None:
+def convert_to_image_coordinates(app, display_x, display_y):
+    """Convert display coordinates to image coordinates, accounting for zoom and pan."""
+    if app.current_image is None:
         return None, None
-        
-    img_height, img_width = self.current_image.shape[:2]
-    display_width = self.image_label.width()
-    display_height = self.image_label.height()
+    
+    # Check if image_label has zoom and pan capabilities
+    if hasattr(app.image_label, 'zoom_factor') and hasattr(app.image_label, 'pan_offset'):
+        # Use the new zoom/pan aware conversion
+        from PyQt6.QtCore import QPointF
+        point = QPointF(display_x, display_y)
+        result = app.image_label.display_to_image_coords(point)
+        if result:
+            return result[0], result[1]
+        return None, None
+    
+    # Fallback to original method for backward compatibility
+    img_height, img_width = app.current_image.shape[:2]
+    display_width = app.image_label.width()
+    display_height = app.image_label.height()
     
     # Calculate scaling and offset (centered in the label)
     scale_x = display_width / img_width

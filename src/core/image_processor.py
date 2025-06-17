@@ -180,14 +180,13 @@ class ImageProcessor:
             
         # Clear any existing selection when re-detecting
         self.app.selection_manager.clear_selection()
-        
-        # Reset highlighted contour when re-detecting
+          # Reset highlighted contour when re-detecting
         self.app.highlighted_contour_index = -1
-
+        
         # Convert to QPixmap and display
         self.display_image(self.app.processed_image)
 
-    def display_image(self, image):
+    def display_image(self, image, preserve_view=False):
         """Display an image on the image label."""
         # Only proceed if the image label exists and has a valid size
         if not hasattr(self.app, 'image_label') or self.app.image_label.width() <= 0 or self.app.image_label.height() <= 0:
@@ -198,7 +197,13 @@ class ImageProcessor:
         bytes_per_line = channel * width
         q_image = QImage(rgb_image.data.tobytes(), width, height, bytes_per_line, QImage.Format.Format_RGB888)
         pixmap = QPixmap.fromImage(q_image)
-        self.app.image_label.setPixmap(pixmap.scaled(self.app.image_label.size(), Qt.AspectRatioMode.KeepAspectRatio))
+        
+        # If the image label supports zoom and pan, use the new method
+        if hasattr(self.app.image_label, 'set_base_pixmap'):
+            self.app.image_label.set_base_pixmap(pixmap, preserve_view=preserve_view)
+        else:
+            # Fallback to original method
+            self.app.image_label.setPixmap(pixmap.scaled(self.app.image_label.size(), Qt.AspectRatioMode.KeepAspectRatio))
 
     def open_image(self):
         """Open an image file and prepare scaled versions for processing."""

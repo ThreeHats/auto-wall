@@ -44,12 +44,25 @@ class WallDetectionApp(QMainWindow):
         self.contour_processor = ContourProcessor(self)
         self.detection_panel = DetectionPanel(self)
         self.export_panel = ExportPanel(self)
-        self.mask_processor = MaskProcessor(self)
-
-        # Keyboard shortcut for undo
+        self.mask_processor = MaskProcessor(self)        # Keyboard shortcut for undo
         self.mask_processor.undo_shortcut = QShortcut(QKeySequence.StandardKey.Undo, self)
         self.mask_processor.undo_shortcut.activated.connect(self.mask_processor.undo)
         
+        # Zoom shortcuts
+        self.zoom_in_shortcut = QShortcut(QKeySequence("Ctrl++"), self)
+        self.zoom_in_shortcut.activated.connect(self.zoom_in)
+        
+        self.zoom_out_shortcut = QShortcut(QKeySequence("Ctrl+-"), self)
+        self.zoom_out_shortcut.activated.connect(self.zoom_out)
+        
+        # Reset view shortcut
+        self.reset_view_shortcut = QShortcut(QKeySequence("Ctrl+0"), self)
+        self.reset_view_shortcut.activated.connect(self.reset_view)
+        
+        # Fit to window shortcut
+        self.fit_to_window_shortcut = QShortcut(QKeySequence("Ctrl+F"), self)
+        self.fit_to_window_shortcut.activated.connect(self.fit_to_window)
+
         # Screen setup
         self.setWindowTitle(f"Auto-Wall: Battle Map Wall Detection v{self.app_version}")
         screen = QGuiApplication.primaryScreen().geometry()
@@ -728,6 +741,33 @@ class WallDetectionApp(QMainWindow):
         
         # Connect the click event to open the download page
         self.update_notification.mousePressEvent = lambda event: open_update_url(self, event)
+
+        
+    def zoom_in(self):
+        """Zoom in on the image."""
+        if hasattr(self.image_label, 'zoom_factor'):
+            current_zoom = self.image_label.zoom_factor
+            new_zoom = min(self.image_label.max_zoom, current_zoom * 1.2)
+            self.image_label.zoom_factor = new_zoom
+            self.image_label.update_display()
+        
+    def zoom_out(self):
+        """Zoom out on the image."""
+        if hasattr(self.image_label, 'zoom_factor'):
+            current_zoom = self.image_label.zoom_factor
+            new_zoom = max(self.image_label.min_zoom, current_zoom * 0.8)
+            self.image_label.zoom_factor = new_zoom
+            self.image_label.update_display()
+        
+    def reset_view(self):
+        """Reset the zoom and pan to default values."""
+        if hasattr(self.image_label, 'reset_view'):
+            self.image_label.reset_view()
+        
+    def fit_to_window(self):
+        """Fit the image to the current window size."""
+        if hasattr(self.image_label, 'fit_to_window'):
+            self.image_label.fit_to_window()
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)

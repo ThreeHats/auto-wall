@@ -25,11 +25,10 @@ class SelectionManager:
         self.app.selecting_colors = False
         self.app.color_selection_start = None
         self.app.color_selection_current = None
-        
-        # Redraw without selection rectangle
+          # Redraw without selection rectangle
         if self.app.processed_image is not None and self.app.original_processed_image is not None:
             self.app.processed_image = self.app.original_processed_image.copy()
-            self.app.image_processor.display_image(self.app.processed_image)
+            self.app.image_processor.display_image(self.app.processed_image, preserve_view=True)
 
     def start_selection(self, x, y):
         """Start a selection rectangle at the given coordinates."""
@@ -177,13 +176,12 @@ class SelectionManager:
                         highlight_color = (0, 0, 255) if self.app.deletion_mode_enabled else (255, 0, 255)
                         cv2.drawContours(self.app.processed_image, [contour], 0, highlight_color, 2)
                         break
-                
-                # If we've already added this contour, no need to check more line segments
+                  # If we've already added this contour, no need to check more line segments
                 if i in self.app.selected_contour_indices:
                     break
                     
         # Display the updated image
-        self.app.image_processor.display_image(self.app.processed_image)
+        self.app.image_processor.display_image(self.app.processed_image, preserve_view=True)
 
     def update_color_selection_display(self):
         """Update the display with the color selection rectangle."""
@@ -206,7 +204,7 @@ class SelectionManager:
         cv2.addWeighted(overlay, 0.3, self.app.processed_image, 0.7, 0, self.app.processed_image)
                     
         # Display the updated image
-        self.app.image_processor.display_image(self.app.processed_image)
+        self.app.image_processor.display_image(self.app.processed_image, preserve_view=True)
 
     def end_selection(self, x, y):
         """Complete the selection and process it according to the current mode."""

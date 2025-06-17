@@ -44,11 +44,11 @@ class ContourProcessor:
         if self.app.current_image is not None and self.app.current_contours:
             self.app.processed_image = draw_walls(self.app.current_image, self.app.current_contours)
             self.app.original_processed_image = self.app.processed_image.copy()
-            self.app.image_processor.display_image(self.app.processed_image)
+            self.app.image_processor.display_image(self.app.processed_image, preserve_view=True)
         elif self.app.current_image is not None:
             self.app.processed_image = self.app.current_image.copy()
             self.app.original_processed_image = self.app.processed_image.copy()
-            self.app.image_processor.display_image(self.app.processed_image)
+            self.app.image_processor.display_image(self.app.processed_image, preserve_view=True)
 
     def delete_selected_contours(self):
         """Delete the selected contours from the current image."""

@@ -49,9 +49,8 @@ class MaskProcessor:
         
         # Blend the image with the mask
         display_image = blend_image_with_mask(self.app.current_image, self.app.mask_layer)
-        
-        # Display the blended image
-        self.app.image_processor.display_image(display_image)
+          # Display the blended image
+        self.app.image_processor.display_image(display_image, preserve_view=True)
         
         # Store this as the baseline image for brush preview
         self.app.last_preview_image = display_image.copy()

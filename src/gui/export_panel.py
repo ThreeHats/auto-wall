@@ -451,10 +451,9 @@ class ExportPanel:
         # Save a copy of the original processed image if not already saved
         if self.app.original_processed_image is None:
             self.app.original_processed_image = preview_image.copy()
-        
-        # Update the display with the preview
+          # Update the display with the preview
         self.app.processed_image = preview_image
-        self.app.image_processor.display_image(self.app.processed_image)
+        self.app.image_processor.display_image(self.app.processed_image, preserve_view=True)
 
     def save_foundry_preview(self):
         """Save the previewed Foundry VTT walls to a JSON file."""
