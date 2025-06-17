@@ -110,28 +110,24 @@ class InteractiveImageLabel(QLabel):
         
     def display_to_image_coords(self, display_point):
         """Convert display coordinates to image coordinates accounting for zoom and pan."""
-        if self.base_pixmap is None or self.parent_app.current_image is None:
+        if self.base_pixmap is None:
             return None
             
-        # Get the current pixmap dimensions and original image dimensions
+        # Get the current pixmap dimensions - this is the display image (full resolution)
         pixmap_size = self.base_pixmap.size()
-        img_height, img_width = self.parent_app.current_image.shape[:2]
-        
-        # Account for the actual scaling between pixmap and original image
-        pixmap_to_image_scale_x = img_width / pixmap_size.width()
-        pixmap_to_image_scale_y = img_height / pixmap_size.height()
         
         # Convert from display coordinates to pixmap coordinates
         # Account for pan offset and zoom factor
         pixmap_x = (display_point.x() - self.pan_offset.x()) / self.zoom_factor
         pixmap_y = (display_point.y() - self.pan_offset.y()) / self.zoom_factor
         
-        # Convert from pixmap coordinates to original image coordinates
-        image_x = int(pixmap_x * pixmap_to_image_scale_x)
-        image_y = int(pixmap_y * pixmap_to_image_scale_y)
-          # Check bounds
-        if (image_x < 0 or image_x >= img_width or 
-            image_y < 0 or image_y >= img_height):
+        # The pixmap coordinates are already in the display image coordinate space
+        image_x = int(pixmap_x)
+        image_y = int(pixmap_y)
+        
+        # Check bounds against the pixmap (display image) dimensions
+        if (image_x < 0 or image_x >= pixmap_size.width() or 
+            image_y < 0 or image_y >= pixmap_size.height()):
             return None
             
         return (image_x, image_y)
@@ -274,8 +270,14 @@ class InteractiveImageLabel(QLabel):
         # Check if coordinates are valid
         if img_x is None or img_y is None:
             self.clear_hover()
-            return
-            
+            return        # Convert to working coordinates for contour matching if needed
+        # img_x, img_y are in display image coordinates (full resolution)
+        # but contours are in working resolution, so scale down if necessary
+        working_x, working_y = img_x, img_y
+        if self.parent_app.scale_factor != 1.0 and self.parent_app.original_image is not None:
+            working_x = int(img_x * self.parent_app.scale_factor)
+            working_y = int(img_y * self.parent_app.scale_factor)
+        
         # Find the contour under the cursor - only check edges
         found_index = -1
         min_distance = float('inf')
@@ -287,14 +289,15 @@ class InteractiveImageLabel(QLabel):
             for j in range(len(contour_points)):
                 p1 = contour_points[j]
                 p2 = contour_points[(j + 1) % len(contour_points)]
-                distance = point_to_line_distance(self.parent_app, img_x, img_y, p1[0], p1[1], p2[0], p2[1])
+                
+                # Calculate distance
+                distance = self.calculate_point_to_line_distance(working_x, working_y, p1[0], p1[1], p2[0], p2[1])
                 
                 # If point is close enough to a line segment and closer than any previous match
                 if distance < 5 and distance < min_distance:  # Threshold for line detection (pixels)
                     min_distance = distance
                     found_index = i
-        
-        # Update highlight if needed
+          # Update highlight if needed
         if found_index != self.parent_app.highlighted_contour_index:
             self.parent_app.highlighted_contour_index = found_index
             self.update_highlight()
@@ -324,9 +327,21 @@ class InteractiveImageLabel(QLabel):
                 highlight_color = (0, 0, 255)  # Default: red
                 
             highlight_thickness = 3
+            
+            # Get the highlighted contour
+            highlighted_contour = self.parent_app.current_contours[self.parent_app.highlighted_contour_index]
+            
+            # Scale the contour to match the display image if needed
+            if self.parent_app.scale_factor != 1.0 and self.parent_app.original_image is not None:
+                # Scale contour to original resolution for display
+                scaled_contour = self.parent_app.contour_processor.scale_contours_to_original([highlighted_contour], self.parent_app.scale_factor)[0]
+            else:
+                # No scaling needed
+                scaled_contour = highlighted_contour
+                
             cv2.drawContours(
                 self.parent_app.processed_image, 
-                [self.parent_app.current_contours[self.parent_app.highlighted_contour_index]], 
+                [scaled_contour], 
                 0, highlight_color, highlight_thickness
             )
             
@@ -346,3 +361,27 @@ class InteractiveImageLabel(QLabel):
         center_y = (widget_size.height() - pixmap_size.height() * self.zoom_factor) / 2
         
         self.pan_offset = QPointF(center_x, center_y)
+        
+    def calculate_point_to_line_distance(self, x, y, x1, y1, x2, y2):
+        """Calculate the distance from point (x,y) to line segment (x1,y1)-(x2,y2)."""
+        import math
+        
+        # Line segment length squared
+        l2 = (x2 - x1) ** 2 + (y2 - y1) ** 2
+        
+        if l2 == 0:  # Line segment is a point
+            return math.sqrt((x - x1) ** 2 + (y - y1) ** 2)
+        
+        # Calculate projection of point onto line
+        t = ((x - x1) * (x2 - x1) + (y - y1) * (y2 - y1)) / l2
+        
+        # If projection is outside segment, calculate distance to endpoints
+        if t < 0:
+            return math.sqrt((x - x1) ** 2 + (y - y1) ** 2)
+        elif t > 1:
+            return math.sqrt((x - x2) ** 2 + (y - y2) ** 2)
+        
+        # Calculate distance to line
+        proj_x = x1 + t * (x2 - x1)
+        proj_y = y1 + t * (y2 - y1)
+        return math.sqrt((x - proj_x) ** 2 + (y - proj_y) ** 2)

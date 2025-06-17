@@ -42,11 +42,22 @@ class ContourProcessor:
     def update_display_from_contours(self):
         """Update the display with the current contours."""
         if self.app.current_image is not None and self.app.current_contours:
-            self.app.processed_image = draw_walls(self.app.current_image, self.app.current_contours)
+            # Handle scaling properly - display on full-resolution image if available
+            if self.app.scale_factor != 1.0 and self.app.original_image is not None:
+                # Scale contours to original resolution for display
+                display_contours = self.scale_contours_to_original(self.app.current_contours, self.app.scale_factor)
+                # Draw contours on the original full-resolution image
+                self.app.processed_image = draw_walls(self.app.original_image, display_contours)
+            else:
+                # No scaling needed or no original image available
+                self.app.processed_image = draw_walls(self.app.current_image, self.app.current_contours)
+            
             self.app.original_processed_image = self.app.processed_image.copy()
             self.app.image_processor.display_image(self.app.processed_image, preserve_view=True)
         elif self.app.current_image is not None:
-            self.app.processed_image = self.app.current_image.copy()
+            # Display the original full-resolution image if available, otherwise the working image
+            display_image = self.app.original_image.copy() if self.app.original_image is not None else self.app.current_image
+            self.app.processed_image = display_image
             self.app.original_processed_image = self.app.processed_image.copy()
             self.app.image_processor.display_image(self.app.processed_image, preserve_view=True)
 

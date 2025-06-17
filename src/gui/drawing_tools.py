@@ -42,18 +42,27 @@ class DrawingTools:
 
     def update_brush_preview(self, x, y):
         """Show a preview of the brush outline at the current mouse position."""
-        if not self.app.edit_mask_mode_enabled or self.app.current_image is None:
+        if not self.app.edit_mask_mode_enabled:
+            return
+            
+        # Check if we have an image to work with
+        if self.app.original_image is None and self.app.current_image is None:
             return
         
         # Convert display coordinates to image coordinates
         img_x, img_y = convert_to_image_coordinates(self.app, x, y)
         if img_x is None or img_y is None:
             return
-        
-        # Make a copy of the blended image with mask
+          # Make a copy of the blended image with mask
         if self.mask_layer is not None:
+            # Use original image for display if available, otherwise use current image
+            if self.app.original_image is not None:
+                base_image = self.app.original_image
+            else:
+                base_image = self.app.current_image
+                
             # Create the blended image (original + current mask)
-            blended_image = blend_image_with_mask(self.app.current_image, self.mask_layer)
+            blended_image = blend_image_with_mask(base_image, self.mask_layer)
             
             # Draw brush outline with different colors for draw/erase mode
             color = (0, 255, 0) if self.app.draw_radio.isChecked() else (0, 0, 255)  # Green for draw, Red for erase
@@ -354,11 +363,20 @@ class DrawingTools:
 
     def update_display_with_brush(self, img_x, img_y):
         """Update the display with both the mask and brush outline at current position."""
-        if self.app.current_image is None or self.mask_layer is None:
+        if self.mask_layer is None:
+            return
+        
+        # Use original image for display if available, otherwise use current image
+        if self.app.original_image is not None:
+            base_image = self.app.original_image
+        else:
+            base_image = self.app.current_image
+            
+        if base_image is None:
             return
         
         # Create the blended image (original + current mask)
-        blended_image = blend_image_with_mask(self.app.current_image, self.mask_layer)
+        blended_image = blend_image_with_mask(base_image, self.mask_layer)
         
         # Draw brush outline with different colors for draw/erase mode
         color = (0, 255, 0) if self.app.draw_radio.isChecked() else (0, 0, 255)  # Green for draw, Red for erase

@@ -6,8 +6,9 @@ import io
 import numpy as np
 
 from PyQt6.QtWidgets import QFileDialog, QMessageBox, QApplication
-from src.wall_detection.image_utils import load_image, convert_to_rgb
+from src.wall_detection.image_utils import load_image, convert_to_rgb, save_image
 from src.wall_detection.detector import detect_walls, draw_walls, merge_contours, split_edge_contours, remove_hatching_lines
+from src.wall_detection.mask_editor import blend_image_with_mask
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QPixmap, QImage, QColor
 
@@ -161,18 +162,27 @@ class ImageProcessor:
                     filtered_count += 1
             
             contours = filtered_contours
-            print(f"After edge splitting: kept {kept_count}, filtered {filtered_count} tiny fragments")
-
-        # Save the current contours for interactive editing
+            print(f"After edge splitting: kept {kept_count}, filtered {filtered_count} tiny fragments")        # Save the current contours for interactive editing (these are at working resolution)
         self.app.current_contours = contours
 
         # Ensure contours are not empty
         if not contours:
             print("No contours found after processing.")
-            self.app.processed_image = processed_image
+            # Display original full-resolution image without contours
+            display_image = self.app.original_image.copy() if self.app.original_image is not None else processed_image
+            self.app.processed_image = display_image
         else:
-            # Draw merged contours
-            self.app.processed_image = draw_walls(processed_image, contours)
+            # Scale contours up to original resolution for display
+            if self.app.scale_factor != 1.0 and self.app.original_image is not None:
+                # Scale contours to original resolution
+                display_contours = self.app.contour_processor.scale_contours_to_original(contours, self.app.scale_factor)
+                # Draw contours on the original full-resolution image
+                display_image = draw_walls(self.app.original_image, display_contours)
+            else:
+                # No scaling needed or no original image available
+                display_image = draw_walls(processed_image, contours)
+            
+            self.app.processed_image = display_image
 
         # Save the original image for highlighting
         if self.app.processed_image is not None:
@@ -180,7 +190,7 @@ class ImageProcessor:
             
         # Clear any existing selection when re-detecting
         self.app.selection_manager.clear_selection()
-          # Reset highlighted contour when re-detecting
+        # Reset highlighted contour when re-detecting
         self.app.highlighted_contour_index = -1
         
         # Convert to QPixmap and display
@@ -372,7 +382,7 @@ class ImageProcessor:
                     if self.app.original_image is not None and self.app.current_contours:
                         # Scale contours back to original image size if needed
                         if self.app.scale_factor != 1.0:
-                            full_res_contours = self.app.scale_contours_to_original(self.app.current_contours, self.app.scale_factor)
+                            full_res_contours = self.app.contour_processor.scale_contours_to_original(self.app.current_contours, self.app.scale_factor)
                         else:
                             full_res_contours = self.app.current_contours
                             

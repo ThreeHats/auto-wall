@@ -13,7 +13,11 @@ class MaskProcessor:
         if self.app.current_image is None:
             return
             
-        height, width = self.app.current_image.shape[:2]
+        # Use original image dimensions for mask if available
+        if self.app.original_image is not None:
+            height, width = self.app.original_image.shape[:2]
+        else:
+            height, width = self.app.current_image.shape[:2]
         # Create a transparent mask (4th channel is alpha, all 0 = fully transparent)
         self.app.mask_layer = np.zeros((height, width, 4), dtype=np.uint8)
 
@@ -24,11 +28,20 @@ class MaskProcessor:
         
         # Save state before modifying
         self.save_state()
+        
+        # Use original image dimensions and scale contours if needed
+        if self.app.original_image is not None and self.app.scale_factor != 1.0:
+            # Scale contours to original resolution
+            full_res_contours = self.app.contour_processor.scale_contours_to_original(self.app.current_contours, self.app.scale_factor)
+            image_shape = self.app.original_image.shape
+        else:
+            full_res_contours = self.app.current_contours
+            image_shape = self.app.current_image.shape
             
         # Create the mask from contours
         self.app.mask_layer = create_mask_from_contours(
-            self.app.current_image.shape, 
-            self.app.current_contours,
+            image_shape, 
+            full_res_contours,
             color=(0, 255, 0, 255)  # Green
         )
         
@@ -44,12 +57,21 @@ class MaskProcessor:
 
     def update_display_with_mask(self):
         """Update the display to show the image with the mask overlay."""
-        if self.app.current_image is None or self.app.mask_layer is None:
+        if self.app.mask_layer is None:
+            return
+        
+        # Use original image for display if available, otherwise use current image
+        if self.app.original_image is not None:
+            display_base_image = self.app.original_image
+        else:
+            display_base_image = self.app.current_image
+            
+        if display_base_image is None:
             return
         
         # Blend the image with the mask
-        display_image = blend_image_with_mask(self.app.current_image, self.app.mask_layer)
-          # Display the blended image
+        display_image = blend_image_with_mask(display_base_image, self.app.mask_layer)
+        # Display the blended image
         self.app.image_processor.display_image(display_image, preserve_view=True)
         
         # Store this as the baseline image for brush preview

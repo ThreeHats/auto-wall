@@ -138,12 +138,17 @@ class SelectionManager:
         overlay = self.app.processed_image.copy()
         cv2.rectangle(overlay, (x1, y1), (x2, y2), (0, 100, 200), 2)
         cv2.rectangle(overlay, (x1, y1), (x2, y2), (0, 100, 200), -1)
-        cv2.addWeighted(overlay, 0.3, self.app.processed_image, 0.7, 0, self.app.processed_image)
-        
-        # Find and highlight contours within the selection - only using edge detection
+        cv2.addWeighted(overlay, 0.3, self.app.processed_image, 0.7, 0, self.app.processed_image)        # Find and highlight contours within the selection - only using edge detection
         self.app.selected_contour_indices = []
         
-        for i, contour in enumerate(self.app.current_contours):
+        # Get contours at display resolution for accurate selection highlighting
+        if self.app.scale_factor != 1.0 and self.app.original_image is not None:
+            # Scale contours to display resolution for accurate selection highlighting
+            display_contours = self.app.contour_processor.scale_contours_to_original(self.app.current_contours, self.app.scale_factor)
+        else:
+            display_contours = self.app.current_contours
+        
+        for i, contour in enumerate(display_contours):
             contour_points = contour.reshape(-1, 2)
             for j in range(len(contour_points)):
                 p1 = contour_points[j]
@@ -176,7 +181,7 @@ class SelectionManager:
                         highlight_color = (0, 0, 255) if self.app.deletion_mode_enabled else (255, 0, 255)
                         cv2.drawContours(self.app.processed_image, [contour], 0, highlight_color, 2)
                         break
-                  # If we've already added this contour, no need to check more line segments
+                # If we've already added this contour, no need to check more line segments
                 if i in self.app.selected_contour_indices:
                     break
                     
@@ -207,14 +212,13 @@ class SelectionManager:
         self.app.image_processor.display_image(self.app.processed_image, preserve_view=True)
 
     def end_selection(self, x, y):
-        """Complete the selection and process it according to the current mode."""
-        # Convert to image coordinates
+        """Complete the selection and process it according to the current mode."""        # Convert to image coordinates
         img_x, img_y = convert_to_image_coordinates(self.app, x, y)
         
         if img_x is None or img_y is None:
             self.clear_selection()
             return
-            
+        
         if self.app.deletion_mode_enabled and self.app.selecting:
             self.app.selection_current_img = (img_x, img_y)
             
@@ -224,6 +228,16 @@ class SelectionManager:
             x2 = max(self.app.selection_start_img[0], self.app.selection_current_img[0])
             y2 = max(self.app.selection_start_img[1], self.app.selection_current_img[1])
             
+            # Convert rectangle to working coordinates for contour matching if needed
+            # The rectangle coordinates are in display image coordinates (full resolution)
+            # but contours are in working resolution, so scale down if necessary
+            working_x1, working_y1, working_x2, working_y2 = x1, y1, x2, y2
+            if self.app.scale_factor != 1.0 and self.app.original_image is not None:
+                working_x1 = int(x1 * self.app.scale_factor)
+                working_y1 = int(y1 * self.app.scale_factor)
+                working_x2 = int(x2 * self.app.scale_factor)
+                working_y2 = int(y2 * self.app.scale_factor)
+            
             # Find contours within the selection
             self.app.selected_contour_indices = []
             
@@ -231,7 +245,7 @@ class SelectionManager:
                 # Check if contour is at least partially within selection rectangle
                 for point in contour:
                     px, py = point[0]
-                    if x1 <= px <= x2 and y1 <= py <= y2:
+                    if working_x1 <= px <= working_x2 and working_y1 <= py <= working_y2:
                         self.app.selected_contour_indices.append(i)
                         break
             
@@ -256,10 +270,9 @@ class SelectionManager:
                 # Extract colors from the selected area
                 self.extract_colors_from_selection(x1, y1, x2, y2)
             else:
-                print("Selection area too small")
-            
-            # Clear the selection
+                print("Selection area too small")            # Clear the selection
             self.clear_selection()
+                
         elif self.app.thin_mode_enabled and self.app.selecting:
             self.app.selection_current_img = (img_x, img_y)
             
@@ -269,6 +282,16 @@ class SelectionManager:
             x2 = max(self.app.selection_start_img[0], self.app.selection_current_img[0])
             y2 = max(self.app.selection_start_img[1], self.app.selection_current_img[1])
             
+            # Convert rectangle to working coordinates for contour matching if needed
+            # The rectangle coordinates are in display image coordinates (full resolution)
+            # but contours are in working resolution, so scale down if necessary
+            working_x1, working_y1, working_x2, working_y2 = x1, y1, x2, y2
+            if self.app.scale_factor != 1.0 and self.app.original_image is not None:
+                working_x1 = int(x1 * self.app.scale_factor)
+                working_y1 = int(y1 * self.app.scale_factor)
+                working_x2 = int(x2 * self.app.scale_factor)
+                working_y2 = int(y2 * self.app.scale_factor)
+            
             # Find contours within the selection
             self.app.selected_contour_indices = []
             
@@ -276,7 +299,7 @@ class SelectionManager:
                 # Check if contour is at least partially within selection rectangle
                 for point in contour:
                     px, py = point[0]
-                    if x1 <= px <= x2 and y1 <= py <= y2:
+                    if working_x1 <= px <= working_x2 and working_y1 <= py <= working_y2:
                         self.app.selected_contour_indices.append(i)
                         break
             
@@ -339,9 +362,7 @@ class SelectionManager:
         
         # Check if coordinates are valid
         if img_x is None or img_y is None:
-            return
-            
-        # Clear any existing selection when handling a single click
+            return        # Clear any existing selection when handling a single click
         self.app.selection_manager.clear_selection()
         
         # Save state before deleting
@@ -355,6 +376,14 @@ class SelectionManager:
             self.app.contour_processor.update_display_from_contours()
             return
         
+        # Convert to working coordinates for contour matching if needed
+        # img_x, img_y are in display image coordinates (full resolution)
+        # but contours are in working resolution, so scale down if necessary
+        working_x, working_y = img_x, img_y
+        if self.app.scale_factor != 1.0 and self.app.original_image is not None:
+            working_x = int(img_x * self.app.scale_factor)
+            working_y = int(img_y * self.app.scale_factor)
+        
         # Find contours where the click is on or near an edge
         min_distance = float('inf')
         closest_contour_index = -1
@@ -366,7 +395,7 @@ class SelectionManager:
             for j in range(len(contour_points)):
                 p1 = contour_points[j]
                 p2 = contour_points[(j + 1) % len(contour_points)]
-                distance = point_to_line_distance(self.app, img_x, img_y, p1[0], p1[1], p2[0], p2[1])
+                distance = point_to_line_distance(self.app, working_x, working_y, p1[0], p1[1], p2[0], p2[1])
                 
                 # If point is close enough to a line segment
                 if distance < 5 and distance < min_distance:  # Threshold for line detection (pixels)
@@ -390,9 +419,7 @@ class SelectionManager:
         
         # Check if coordinates are valid
         if img_x is None or img_y is None:
-            return
-            
-        # Clear any existing selection when handling a single click
+            return        # Clear any existing selection when handling a single click
         self.app.selection_manager.clear_selection()
         
         # Save state before modifying
@@ -408,6 +435,14 @@ class SelectionManager:
             self.app.contour_processor.update_display_from_contours()
             return
             
+        # Convert to working coordinates for contour matching if needed
+        # img_x, img_y are in display image coordinates (full resolution)
+        # but contours are in working resolution, so scale down if necessary
+        working_x, working_y = img_x, img_y
+        if self.app.scale_factor != 1.0 and self.app.original_image is not None:
+            working_x = int(img_x * self.app.scale_factor)
+            working_y = int(img_y * self.app.scale_factor)
+            
         # Find contours where the click is on or near an edge
         min_distance = float('inf')
         closest_contour_index = -1
@@ -419,7 +454,7 @@ class SelectionManager:
             for j in range(len(contour_points)):
                 p1 = contour_points[j]
                 p2 = contour_points[(j + 1) % len(contour_points)]
-                distance = point_to_line_distance(self.app, img_x, img_y, p1[0], p1[1], p2[0], p2[1])
+                distance = point_to_line_distance(self.app, working_x, working_y, p1[0], p1[1], p2[0], p2[1])
                 
                 # If point is close enough to a line segment
                 if distance < 5 and distance < min_distance:  # Threshold for line detection (pixels)

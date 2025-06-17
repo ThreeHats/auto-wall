@@ -37,12 +37,8 @@ class ExportPanel:
                 
             walls_to_export = alpha_mask
         elif self.app.current_contours:
-            # Use detected contours directly
+            # Use detected contours directly (keep them at working resolution)
             walls_to_export = self.app.current_contours
-            
-            # If using working image, scale contours back to original size
-            if (self.app.scale_factor != 1.0):
-                walls_to_export = self.app.contour_processor.scale_contours_to_original(walls_to_export, self.app.scale_factor)
         else:
             print("No walls to export.")
             return
@@ -316,13 +312,19 @@ class ExportPanel:
         if not self.app.foundry_export_params:
             return
             
-        params = self.app.foundry_export_params
-        
+        params = self.app.foundry_export_params        
         # Generate walls without saving to file
         from src.wall_detection.mask_editor import contours_to_foundry_walls
         
         if isinstance(params['walls_to_export'], list):  # It's contours
             contours = params['walls_to_export']
+            
+            # Scale contours to match the image_shape if needed
+            if self.app.scale_factor != 1.0 and self.app.original_image is not None:
+                # Contours are at working resolution, but image_shape is full resolution
+                # Scale contours up to match the full-resolution image_shape
+                contours = self.app.contour_processor.scale_contours_to_original(contours, self.app.scale_factor)
+            
             foundry_walls = contours_to_foundry_walls(
                 contours,
                 params['image_shape'],
@@ -383,24 +385,22 @@ class ExportPanel:
         if not self.app.foundry_walls_preview or self.app.current_image is None:
             return
             
-        # Make a copy of the current image for the preview
-        preview_image = self.app.current_image.copy()
+        # Use original image for display if available, otherwise use current image
+        if self.app.original_image is not None:
+            preview_image = self.app.original_image.copy()
+        else:
+            preview_image = self.app.current_image.copy()
         
         # Convert back to RGB for better visibility
         if len(preview_image.shape) == 2:  # Grayscale
             preview_image = cv2.cvtColor(preview_image, cv2.COLOR_GRAY2BGR)
-            
-        # Draw the walls on the preview image
+              # Draw the walls on the preview image
         for wall in self.app.foundry_walls_preview:
             # Get wall coordinates
             start_x, start_y, end_x, end_y = wall["c"]
             
-            # Scale coordinates to match current image if needed
-            if self.app.scale_factor != 1.0:
-                start_x *= self.app.scale_factor
-                start_y *= self.app.scale_factor
-                end_x *= self.app.scale_factor
-                end_y *= self.app.scale_factor
+            # Wall coordinates are now already at the correct resolution (full-res)
+            # No scaling needed since we scaled the contours before generating walls
             
             # Draw line for this wall segment
             cv2.line(
