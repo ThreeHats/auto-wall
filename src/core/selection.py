@@ -59,7 +59,7 @@ class SelectionManager:
             
             # If click is on a contour edge, handle as single click
             if found_contour_index != -1:
-                self.app.handle_deletion_click(x, y)
+                self.handle_deletion_click(x, y)
                 return
                 
             # Otherwise, start a selection
@@ -93,7 +93,7 @@ class SelectionManager:
             
             # If click is on a contour edge, handle as single click
             if found_contour_index != -1:
-                self.app.handle_thinning_click(x, y)
+                self.handle_thinning_click(x, y)
                 return
                 
             # Otherwise, start a selection for thinning multiple contours
@@ -330,3 +330,109 @@ class SelectionManager:
         
         # Update the image with the new colors
         self.app.image_processor.update_image()
+
+    def handle_deletion_click(self, x, y):
+        """Handle clicks for deletion mode."""
+        if not self.app.current_contours or self.app.current_image is None:
+            return
+            
+        # Convert display coordinates to image coordinates
+        img_x, img_y = convert_to_image_coordinates(self.app, x, y)
+        
+        # Check if coordinates are valid
+        if img_x is None or img_y is None:
+            return
+            
+        # Clear any existing selection when handling a single click
+        self.app.selection_manager.clear_selection()
+        
+        # Save state before deleting
+        self.app.mask_processor.save_state()
+        
+        # Use the highlighted contour if available
+        if self.app.highlighted_contour_index != -1:
+            print(f"Deleting highlighted contour {self.app.highlighted_contour_index}")
+            self.app.current_contours.pop(self.app.highlighted_contour_index)
+            self.app.highlighted_contour_index = -1  # Reset highlight
+            self.app.contour_processor.update_display_from_contours()
+            return
+        
+        # Find contours where the click is on or near an edge
+        min_distance = float('inf')
+        closest_contour_index = -1
+        
+        # Check if click is on or near a contour edge
+        for i, contour in enumerate(self.app.current_contours):
+            contour_points = contour.reshape(-1, 2)
+            
+            for j in range(len(contour_points)):
+                p1 = contour_points[j]
+                p2 = contour_points[(j + 1) % len(contour_points)]
+                distance = point_to_line_distance(self.app, img_x, img_y, p1[0], p1[1], p2[0], p2[1])
+                
+                # If point is close enough to a line segment
+                if distance < 5 and distance < min_distance:  # Threshold for line detection (pixels)
+                    min_distance = distance
+                    closest_contour_index = i
+        
+        # If click is on or near an edge, delete that contour
+        if closest_contour_index != -1:
+            print(f"Deleting contour {closest_contour_index} (edge clicked)")
+            self.app.current_contours.pop(closest_contour_index)
+            self.app.contour_processor.update_display_from_contours()
+            return
+
+    def handle_thinning_click(self, x, y):
+        """Handle clicks for thinning mode."""
+        if not self.app.current_contours or self.app.current_image is None:
+            return
+            
+        # Convert display coordinates to image coordinates
+        img_x, img_y = convert_to_image_coordinates(self.app, x, y)
+        
+        # Check if coordinates are valid
+        if img_x is None or img_y is None:
+            return
+            
+        # Clear any existing selection when handling a single click
+        self.app.selection_manager.clear_selection()
+        
+        # Save state before modifying
+        self.app.mask_processor.save_state()
+        
+        # Use the highlighted contour if available
+        if self.app.highlighted_contour_index != -1:
+            print(f"Thinning highlighted contour {self.app.highlighted_contour_index}")
+            contour = self.app.current_contours[self.app.highlighted_contour_index]
+            thinned_contour = self.app.contour_processor.thin_selected_contour(contour)
+            self.app.current_contours[self.app.highlighted_contour_index] = thinned_contour
+            self.app.highlighted_contour_index = -1  # Reset highlight
+            self.app.contour_processor.update_display_from_contours()
+            return
+            
+        # Find contours where the click is on or near an edge
+        min_distance = float('inf')
+        closest_contour_index = -1
+        
+        # Check if click is on or near a contour edge
+        for i, contour in enumerate(self.app.current_contours):
+            contour_points = contour.reshape(-1, 2)
+            
+            for j in range(len(contour_points)):
+                p1 = contour_points[j]
+                p2 = contour_points[(j + 1) % len(contour_points)]
+                distance = point_to_line_distance(self.app, img_x, img_y, p1[0], p1[1], p2[0], p2[1])
+                
+                # If point is close enough to a line segment
+                if distance < 5 and distance < min_distance:  # Threshold for line detection (pixels)
+                    min_distance = distance
+                    closest_contour_index = i
+        
+        # If click is on or near an edge, thin that contour
+        if closest_contour_index != -1:
+            print(f"Thinning contour {closest_contour_index} (edge clicked)")
+            contour = self.app.current_contours[closest_contour_index]
+            thinned_contour = self.app.contour_processor.thin_selected_contour(contour)
+            self.app.current_contours[closest_contour_index] = thinned_contour
+            self.app.contour_processor.update_display_from_contours()
+            return

@@ -5,6 +5,8 @@ import time
 import datetime
 import atexit
 
+from src.utils.update_checker import check_for_updates, fetch_version
+
 # Version information - will be updated by GitHub workflow
 APP_VERSION = "0.9.9"
 GITHUB_REPO = "ThreeHats/auto-wall"
@@ -153,7 +155,7 @@ def main():
                 print("Window displayed successfully")
                 
                 # Start update check after window is shown
-                QTimer.singleShot(2000, window.check_for_updates)
+                QTimer.singleShot(2000, lambda: check_for_updates(window))
             except Exception as e:
                 print(f"Error creating or showing window: {e}")
                 traceback.print_exc()

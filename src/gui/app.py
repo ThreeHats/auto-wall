@@ -6,27 +6,15 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../.
 
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QVBoxLayout, QHBoxLayout, QLabel, QSlider, QPushButton, QWidget, 
-    QFileDialog, QCheckBox, QRadioButton, QButtonGroup, QColorDialog, QListWidget, QListWidgetItem,
-    QScrollArea, QSizePolicy, QDialog, QDialogButtonBox, QFrame, QSpinBox, QInputDialog, QDoubleSpinBox,
-    QMessageBox, QGridLayout, QComboBox, QMenu, QLineEdit
+    QCheckBox, QRadioButton, QButtonGroup, QListWidget,
+    QScrollArea, QSizePolicy, QDialog, QFrame, QSpinBox,
+    QGridLayout, QComboBox
 )
-from PyQt6.QtCore import Qt, QPoint, QRect, QBuffer, QUrl
-from PyQt6.QtGui import QPixmap, QImage, QPainter, QPen, QColor, QMouseEvent, QCursor, QClipboard, QGuiApplication, QKeySequence, QShortcut, QDesktopServices, QAction
-import cv2
-import numpy as np
-import math
-import json
-import requests
-import io
-import urllib.parse
-from sklearn.cluster import KMeans
+from PyQt6.QtCore import Qt, QPoint
+from PyQt6.QtGui import QPixmap, QPainter, QColor, QGuiApplication, QKeySequence, QShortcut
 from collections import deque
-import copy
 
-from src.wall_detection.detector import detect_walls, draw_walls, merge_contours, split_edge_contours, remove_hatching_lines
-from src.wall_detection.image_utils import load_image, convert_to_rgb
-from src.wall_detection.mask_editor import create_mask_from_contours, blend_image_with_mask, draw_on_mask, export_mask_to_foundry_json, contours_to_foundry_walls, thin_contour
-from src.utils.update_checker import check_for_updates
+from src.utils.update_checker import check_for_updates, open_update_url
 from src.gui.drawing_tools import DrawingTools
 from src.gui.preset_manager import PresetManager
 from src.core.image_processor import ImageProcessor
@@ -37,7 +25,7 @@ from src.gui.detection_panel import DetectionPanel
 from src.gui.export_panel import ExportPanel
 from src.core.mask_processor import MaskProcessor
 
-from src.utils.geometry import point_to_line_distance, line_segments_intersect, convert_to_image_coordinates
+from src.utils.ui_helpers import apply_stylesheet
 
 
 
@@ -57,19 +45,81 @@ class WallDetectionApp(QMainWindow):
         self.detection_panel = DetectionPanel(self)
         self.export_panel = ExportPanel(self)
         self.mask_processor = MaskProcessor(self)
+
+        # Keyboard shortcut for undo
+        self.mask_processor.undo_shortcut = QShortcut(QKeySequence.StandardKey.Undo, self)
+        self.mask_processor.undo_shortcut.activated.connect(self.mask_processor.undo)
         
+        # Screen setup
         self.setWindowTitle(f"Auto-Wall: Battle Map Wall Detection v{self.app_version}")
-        
-        # Get the screen size and set the window to maximize
         screen = QGuiApplication.primaryScreen().geometry()
         self.setGeometry(0, 0, screen.width(), screen.height())
-        
-        # Apply dark theme stylesheet
-        self.apply_stylesheet()
-        
         self.showMaximized()
+        
+        # Set up the main layout and widgets
+        self.initialize_state()
+        self.setup_ui()
 
-        # Main layout - use central widget
+        # Load presets on startup
+        self.preset_manager.load_presets_from_file()
+        # Populate preset combo box after loading presets
+        self.preset_manager.update_detection_preset_combo()
+
+        apply_stylesheet(self)
+        check_for_updates(self)
+        
+    def initialize_state(self):
+        self.original_image = None  # Original full-size image
+        self.current_image = None   # Working image
+        self.max_working_dimension = 1500  # Maximum dimension for processing
+        self.scale_factor = 1.0     # Scale factor between original and working image
+        self.processed_image = None
+        self.current_contours = []
+        self.display_scale_factor = 1.0
+        self.display_offset = (0, 0)
+        self.sliders = {}
+
+        # Modes
+        self.deletion_mode_enabled = True
+        self.color_selection_mode_enabled = False
+        self.edit_mask_mode_enabled = False
+        self.thin_mode_enabled = False
+        
+        # Hover highlighting
+        self.highlighted_contour_index = -1  # -1 means no contour is highlighted
+        self.original_processed_image = None  # Store original image without highlight
+
+        # Thinning
+        self.target_width = 5
+        self.max_iterations = 3
+        
+        # Hatching removal settings
+        self.hatching_threshold = 10.0
+        self.hatching_width = 3
+        self.hatching_color = QColor(0, 0, 0)
+        # Drag selection
+        self.selecting = False
+        self.selection_start_img = None
+        self.selection_current_img = None
+        self.selected_contour_indices = []
+
+        # Color selection
+        self.wall_colors = []  # List to store QColor objects
+        self.selecting_colors = False
+        self.color_selection_start = None
+        self.color_selection_current = None
+        self.selected_color_item = None
+
+        # Preview state
+        self.brush_preview_active = False
+        self.last_preview_image = None
+        self.foundry_preview_active = False 
+        
+        # History tracking for undo feature
+        self.history = deque(maxlen=5)  # Store up to 5 previous states
+
+    def setup_ui(self):
+         # Main layout - use central widget
         self.central_widget = QWidget()
         self.setCentralWidget(self.central_widget)
         
@@ -268,12 +318,8 @@ class WallDetectionApp(QMainWindow):
         # Add thinning options to main controls
         self.controls_layout.addWidget(self.thin_options)
         self.thin_options.setVisible(False)
-        
-        # Store thinning parameters
-        self.target_width = 5
-        self.max_iterations = 3
 
-        # Add color selection options
+                # Add color selection options
         self.color_selection_options = QWidget()
         self.color_selection_layout = QVBoxLayout(self.color_selection_options)
         self.color_selection_layout.setContentsMargins(0, 0, 0, 0)
@@ -320,9 +366,6 @@ class WallDetectionApp(QMainWindow):
         self.image_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.image_layout.addWidget(self.image_label)
 
-        # Sliders
-        self.sliders = {}
-        
         # Add Min Area slider with mode selection
         self.min_area_mode_layout = QHBoxLayout()
         self.min_area_mode_label = QLabel("Min Area Mode:")
@@ -360,13 +403,7 @@ class WallDetectionApp(QMainWindow):
 
         # Use a scaling factor of 10 for float values (0 to 10.0 with 0.1 precision)
         self.detection_panel.add_slider("Min Merge Distance", 0, 100, 5, scale_factor=0.1)  # Default 0.5
-        
-        # Deletion mode is initially disabled
-        self.deletion_mode_enabled = True
-        self.color_selection_mode_enabled = False
-        self.edit_mask_mode_enabled = False
-        self.thin_mode_enabled = False  # Add new state variable for thin mode
-        
+
         # Create layout for hatching controls
         self.hatching_layout = QVBoxLayout()
         self.controls_layout.addLayout(self.hatching_layout)
@@ -395,7 +432,6 @@ class WallDetectionApp(QMainWindow):
         self.hatching_color_button.setStyleSheet("background-color: rgb(0, 0, 0);")
         self.hatching_color_button.clicked.connect(self.detection_panel.select_hatching_color)
         self.hatching_color_layout.addWidget(self.hatching_color_button)
-        self.hatching_color = QColor(0, 0, 0)  # Default to black
         
         # Hatching color threshold slider
         self.hatching_threshold_layout = QHBoxLayout()
@@ -413,7 +449,6 @@ class WallDetectionApp(QMainWindow):
         
         self.hatching_threshold_value = QLabel("10.0")
         self.hatching_threshold_layout.addWidget(self.hatching_threshold_value)
-        self.hatching_threshold = 10.0  # Store the actual value
         
         # Maximum hatching width slider
         self.hatching_width_layout = QHBoxLayout()
@@ -431,8 +466,7 @@ class WallDetectionApp(QMainWindow):
         
         self.hatching_width_value = QLabel("3")
         self.hatching_width_layout.addWidget(self.hatching_width_value)
-        self.hatching_width = 3  # Store the actual value
-        
+
         # Initially hide the hatching options until enabled
         self.hatching_options.setVisible(False)
         
@@ -510,9 +544,6 @@ class WallDetectionApp(QMainWindow):
         
         # Initially hide the entire color section
         self.color_section.setVisible(False)
-        
-        # Store the currently selected color item
-        self.selected_color_item = None
 
         # Add a checkbox for high-resolution processing
         self.high_res_checkbox = QCheckBox("Process at Full Resolution")
@@ -520,50 +551,14 @@ class WallDetectionApp(QMainWindow):
         self.high_res_checkbox.setToolTip("Process at full resolution (slower but more accurate)")
         self.high_res_checkbox.stateChanged.connect(self.image_processor.reload_working_image)
         self.controls_layout.addWidget(self.high_res_checkbox)
-        
+
         # Group edge detection settings
         self.edge_detection_widgets = []
         self.edge_detection_widgets.append(self.sliders["Edge Sensitivity"])
         self.edge_detection_widgets.append(self.sliders["Edge Threshold"])
-        
-        # State for color detection - now a list of colors
-        self.wall_colors = []  # List to store QColor objects
-        
+
         # Add a default black color with default threshold
         self.detection_panel.add_wall_color_to_list(QColor(0, 0, 0), 10.0)
-        
-        # State
-        self.original_image = None  # Original full-size image
-        self.current_image = None   # Working image (possibly scaled down)
-        self.max_working_dimension = 1500  # Maximum dimension for processing
-        self.scale_factor = 1.0     # Scale factor between original and working image
-        self.processed_image = None
-        self.current_contours = []
-        self.display_scale_factor = 1.0
-        self.display_offset = (0, 0)
-        
-        # Additional state for hover highlighting
-        self.highlighted_contour_index = -1  # -1 means no contour is highlighted
-        self.original_processed_image = None  # Store original image without highlight
-
-        # Additional state for drag selection
-        self.selecting = False
-        self.selection_start_img = None
-        self.selection_current_img = None
-        self.selected_contour_indices = []
-
-        # Additional state for color selection
-        self.selecting_colors = False
-        self.color_selection_start = None
-        self.color_selection_current = None
-
-        # Additional state for mask editing
-
-
-        # Add these new variables to track the brush preview state
-        self.brush_preview_active = False
-        self.last_preview_image = None
-        self.foundry_preview_active = False 
 
         # --- Presets UI ---
         # Main vertical layout for presets
@@ -601,8 +596,6 @@ class WallDetectionApp(QMainWindow):
 
         # Add the main presets layout to the controls layout
         self.controls_layout.addLayout(presets_main_layout)
-        # --- Presets UI End ---
-
 
         # Add a divider with auto margin on top
         separator = QFrame()
@@ -682,13 +675,6 @@ class WallDetectionApp(QMainWindow):
         self.ellipse_tool_radio.toggled.connect(self.drawing_tools.update_drawing_tool)
         self.fill_tool_radio.toggled.connect(self.drawing_tools.update_drawing_tool)
 
-        # Add history tracking for undo feature
-        self.history = deque(maxlen=5)  # Store up to 5 previous states
-        
-        # Add keyboard shortcut for undo
-        self.mask_processor.undo_shortcut = QShortcut(QKeySequence.StandardKey.Undo, self)
-        self.mask_processor.undo_shortcut.activated.connect(self.mask_processor.undo)
-
         # Create the update notification widget (initially hidden)
         self.update_notification = QWidget(self)
         self.update_notification.setObjectName("updateNotification")
@@ -714,8 +700,17 @@ class WallDetectionApp(QMainWindow):
         painter = QPainter(update_icon)
         painter.setPen(Qt.GlobalColor.white)
         painter.setBrush(Qt.GlobalColor.white)
-        painter.drawRect(8, 4, 8, 16)
-        painter.drawPolygon([QPoint(5, 10), QPoint(12, 2), QPoint(19, 10)])
+        # Draw an upward arrow
+        arrow_points = [
+            QPoint(12, 6),   # Top point
+            QPoint(8, 10),   # Left point
+            QPoint(10, 10),  # Left inner
+            QPoint(10, 18),  # Left bottom
+            QPoint(14, 18),  # Right bottom
+            QPoint(14, 10),  # Right inner
+            QPoint(16, 10)   # Right point
+        ]
+        painter.drawPolygon(arrow_points)
         painter.end()
         update_icon_label.setPixmap(update_icon)
         update_layout.addWidget(update_icon_label)
@@ -727,281 +722,12 @@ class WallDetectionApp(QMainWindow):
         
         # Position the notification in the top right corner
         self.update_notification.setGeometry(
-            self.width() - 250, 10, 240, 40
+            self.width() - 210, 10, 200, 40
         )
         self.update_notification.hide()  # Initially hidden
         
         # Connect the click event to open the download page
-        self.update_notification.mousePressEvent = self.open_update_url
-
-        # Preset management
-        self.preset_manager.load_presets_from_file() # Load presets on startup
-
-        # Populate preset combo box AFTER loading presets
-        self.preset_manager.update_detection_preset_combo()
-
-        # Apply stylesheet at the end
-        self.apply_stylesheet()
-
-        # Check for updates
-        self.check_for_updates()
-
-    # app
-    def handle_hover(self, x, y):
-        """Handle mouse hover events for highlighting contours."""
-        if not self.current_contours or self.current_image is None:
-            return
-            
-        # Convert display coordinates to image coordinates
-        img_x, img_y = convert_to_image_coordinates(self, x, y)
-        
-        # Check if coordinates are valid
-        if img_x is None or img_y is None:
-            self.clear_hover()
-            return
-            
-        # Find the contour under the cursor - only check edges
-        found_index = -1
-        min_distance = float('inf')
-        
-        # Check if cursor is on a contour edge
-        for i, contour in enumerate(self.current_contours):
-            contour_points = contour.reshape(-1, 2)
-            
-            for j in range(len(contour_points)):
-                p1 = contour_points[j]
-                p2 = contour_points[(j + 1) % len(contour_points)]
-                distance = point_to_line_distance(self, img_x, img_y, p1[0], p1[1], p2[0], p2[1])
-                
-                # If point is close enough to a line segment and closer than any previous match
-                if distance < 5 and distance < min_distance:  # Threshold for line detection (pixels)
-                    min_distance = distance
-                    found_index = i
-        
-        # Update highlight if needed
-        if found_index != self.highlighted_contour_index:
-            self.highlighted_contour_index = found_index
-            self.update_highlight()
-
-    # app
-    def clear_hover(self):
-        """Clear any contour highlighting."""
-        if self.highlighted_contour_index != -1:
-            self.highlighted_contour_index = -1
-            self.update_highlight()
-
-    # app
-    def update_highlight(self):
-        """Update the display with highlighted contour."""
-        if self.original_processed_image is None:
-            return
-            
-        # Start with the original image (without highlights)
-        self.processed_image = self.original_processed_image.copy()
-        
-        # If a contour is highlighted, draw it with a different color/thickness
-        if self.highlighted_contour_index != -1 and self.highlighted_contour_index < len(self.current_contours):
-            # Use different colors based on the current mode
-            if self.deletion_mode_enabled:
-                highlight_color = (0, 0, 255)  # Red for delete
-            elif self.thin_mode_enabled:
-                highlight_color = (255, 0, 255)  # Magenta for thin
-            else:
-                highlight_color = (0, 0, 255)  # Default: red
-                
-            highlight_thickness = 3
-            cv2.drawContours(
-                self.processed_image, 
-                [self.current_contours[self.highlighted_contour_index]], 
-                0, highlight_color, highlight_thickness
-            )
-            
-        # Update the display
-        self.image_processor.display_image(self.processed_image)
-
-    # delete
-    def handle_deletion_click(self, x, y):
-        """Handle clicks for deletion mode."""
-        if not self.current_contours or self.current_image is None:
-            return
-            
-        # Convert display coordinates to image coordinates
-        img_x, img_y = convert_to_image_coordinates(self, x, y)
-        
-        # Check if coordinates are valid
-        if img_x is None or img_y is None:
-            return
-            
-        # Clear any existing selection when handling a single click
-        self.selection_manager.clear_selection()
-        
-        # Save state before deleting
-        self.mask_processor.save_state()
-        
-        # Use the highlighted contour if available
-        if self.highlighted_contour_index != -1:
-            print(f"Deleting highlighted contour {self.highlighted_contour_index}")
-            self.current_contours.pop(self.highlighted_contour_index)
-            self.highlighted_contour_index = -1  # Reset highlight
-            self.contour_processor.update_display_from_contours()
-            return
-        
-        # Find contours where the click is on or near an edge
-        min_distance = float('inf')
-        closest_contour_index = -1
-        
-        # Check if click is on or near a contour edge
-        for i, contour in enumerate(self.current_contours):
-            contour_points = contour.reshape(-1, 2)
-            
-            for j in range(len(contour_points)):
-                p1 = contour_points[j]
-                p2 = contour_points[(j + 1) % len(contour_points)]
-                distance = point_to_line_distance(self, img_x, img_y, p1[0], p1[1], p2[0], p2[1])
-                
-                # If point is close enough to a line segment
-                if distance < 5 and distance < min_distance:  # Threshold for line detection (pixels)
-                    min_distance = distance
-                    closest_contour_index = i
-        
-        # If click is on or near an edge, delete that contour
-        if closest_contour_index != -1:
-            print(f"Deleting contour {closest_contour_index} (edge clicked)")
-            self.current_contours.pop(closest_contour_index)
-            self.contour_processor.update_display_from_contours()
-            return
-
-
-    # thinning
-
-
-    # thinning
-    def handle_thinning_click(self, x, y):
-        """Handle clicks for thinning mode."""
-        if not self.current_contours or self.current_image is None:
-            return
-            
-        # Convert display coordinates to image coordinates
-        img_x, img_y = convert_to_image_coordinates(self, x, y)
-        
-        # Check if coordinates are valid
-        if img_x is None or img_y is None:
-            return
-            
-        # Clear any existing selection when handling a single click
-        self.selection_manager.clear_selection()
-        
-        # Save state before modifying
-        self.mask_processor.save_state()
-        
-        # Use the highlighted contour if available
-        if self.highlighted_contour_index != -1:
-            print(f"Thinning highlighted contour {self.highlighted_contour_index}")
-            contour = self.current_contours[self.highlighted_contour_index]
-            thinned_contour = self.contour_processor.thin_selected_contour(contour)
-            self.current_contours[self.highlighted_contour_index] = thinned_contour
-            self.highlighted_contour_index = -1  # Reset highlight
-            self.contour_processor.update_display_from_contours()
-            return
-            
-        # Find contours where the click is on or near an edge
-        min_distance = float('inf')
-        closest_contour_index = -1
-        
-        # Check if click is on or near a contour edge
-        for i, contour in enumerate(self.current_contours):
-            contour_points = contour.reshape(-1, 2)
-            
-            for j in range(len(contour_points)):
-                p1 = contour_points[j]
-                p2 = contour_points[(j + 1) % len(contour_points)]
-                distance = point_to_line_distance(self, img_x, img_y, p1[0], p1[1], p2[0], p2[1])
-                
-                # If point is close enough to a line segment
-                if distance < 5 and distance < min_distance:  # Threshold for line detection (pixels)
-                    min_distance = distance
-                    closest_contour_index = i
-        
-        # If click is on or near an edge, thin that contour
-        if closest_contour_index != -1:
-            print(f"Thinning contour {closest_contour_index} (edge clicked)")
-            contour = self.current_contours[closest_contour_index]
-            thinned_contour = self.contour_processor.thin_selected_contour(contour)
-            self.current_contours[closest_contour_index] = thinned_contour
-            self.contour_processor.update_display_from_contours()
-            return
-
-    # app
-    def resizeEvent(self, event):
-        """Handle window resize events to update the image display."""
-        super().resizeEvent(event)
-        
-        # If we have a current image displayed, update it to fit the new window size
-        if hasattr(self, 'processed_image') and self.processed_image is not None:
-            self.image_processor.display_image(self.processed_image)
-            
-        # If we're in foundry preview mode, redraw the preview
-        if hasattr(self, 'foundry_preview_active') and self.foundry_preview_active and self.foundry_walls_preview:
-            self.export_panel.display_foundry_preview()
-        
-        # Update the position of the update notification
-        if hasattr(self, 'update_notification'):
-            self.update_notification.setGeometry(
-                self.width() - 250, 10, 240, 40
-            )
-
-    # app
-    def keyPressEvent(self, event):
-        """Handle key press events."""
-        # Add debugging for Ctrl+Z
-        if event.key() == Qt.Key.Key_Z and event.modifiers() & Qt.KeyboardModifier.ControlModifier:
-            print("Ctrl+Z detected via keyPressEvent")
-            self.mask_processor.undo()
-        else:
-            super().keyPressEvent(event)
-
-    # app
-    def apply_stylesheet(self):
-        """Apply the application stylesheet from the CSS file."""
-        try:
-            # Get the path to the stylesheet
-            style_path = os.path.join(os.path.dirname(__file__), 'style.qss')
-            
-            # Check if the file exists
-            if not os.path.exists(style_path):
-                print(f"Warning: Stylesheet not found at {style_path}")
-                return
-                
-            # Read and apply the stylesheet
-            with open(style_path, 'r') as f:
-                stylesheet = f.read()
-                self.setStyleSheet(stylesheet)
-                print(f"Applied stylesheet from {style_path}")
-        except Exception as e:
-            print(f"Error applying stylesheet: {e}")
-
-    # update
-    def check_for_updates(self):
-        """Check for updates and show notification if available."""
-        try:
-            is_update_available, latest_version, download_url = check_for_updates(
-                self.app_version, self.github_repo
-            )
-            
-            if is_update_available:
-                self.update_available = True
-                self.update_url = download_url
-                self.update_text.setText(f"Update {latest_version} Available!")
-                self.update_notification.show()
-                print(f"Update available: version {latest_version}")
-        except Exception as e:
-            print(f"Error checking for updates: {e}")
-    
-    # update
-    def open_update_url(self, event):
-        """Open the update URL when the notification is clicked."""
-        if self.update_url:
-            QDesktopServices.openUrl(QUrl(self.update_url))
+        self.update_notification.mousePressEvent = lambda event: open_update_url(self, event)
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)

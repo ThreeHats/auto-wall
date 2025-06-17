@@ -3,6 +3,9 @@ import re
 from urllib.request import Request, urlopen
 from urllib.error import URLError
 
+from PyQt6.QtGui import QDesktopServices
+from PyQt6.QtCore import QUrl
+
 def parse_version(version_str):
     """Parse a version string into a tuple for comparison."""
     # Extract version numbers from the string
@@ -11,7 +14,7 @@ def parse_version(version_str):
         return tuple(map(int, match.groups()))
     return (0, 0, 0)  # Default if parsing fails
 
-def check_for_updates(current_version, github_repo):
+def fetch_version(current_version, github_repo):
     """
     Check if updates are available from GitHub releases.
     
@@ -55,3 +58,24 @@ def check_for_updates(current_version, github_repo):
         print(f"Unexpected error checking for updates: {e}")
         
     return False, current_version, ""
+
+def check_for_updates(self):
+    """Check for updates and show notification if available."""
+    try:
+        is_update_available, latest_version, download_url = fetch_version(
+            self.app_version, self.github_repo
+        )
+        
+        if is_update_available:
+            self.update_available = True
+            self.update_url = download_url
+            self.update_text.setText(f"Update {latest_version} Available!")
+            self.update_notification.show()
+            print(f"Update available: version {latest_version}")
+    except Exception as e:
+        print(f"Error checking for updates: {e}")
+
+def open_update_url(self, event):
+    """Open the update URL when the notification is clicked."""
+    if self.update_url:
+        QDesktopServices.openUrl(QUrl(self.update_url))
