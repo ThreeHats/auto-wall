@@ -1,9 +1,9 @@
 name: Build Auto-Wall
 
 on:
-  # push:
-  #   tags:
-  #     - '*.*.*'  # Run when a version tag is pushed
+  push:
+    tags:
+      - '*.*.*'  # Run when a version tag is pushed
   workflow_dispatch:  # Allow manual triggering
 
 permissions:
