@@ -5,7 +5,7 @@ a = Analysis(
     ['auto_wall.py'],
     pathex=['src'],
     binaries=[],
-    datas=[('src/gui/style.qss', 'src/gui/'), ('resources', 'resources/')],
+    datas=[('src\\styles\\style.qss', 'src\\styles'), ('resources', 'resources')],
     hiddenimports=['sklearn.neighbors._partition_nodes', 'sklearn.utils._typedefs', 'sklearn.utils._heap', 'sklearn.utils._sorting', 'sklearn.neighbors._dist_metrics', 'sklearn.tree._partitioner', 'sklearn.tree._criterion', 'sklearn.tree._splitter', 'sklearn.tree._utils', 'sklearn.manifold._barnes_hut_tsne', 'sklearn.neighbors._quad_tree', 'sklearn.ensemble._base', 'sklearn.ensemble._forest', 'sklearn.tree', 'scipy.stats', 'scipy.sparse.csgraph._validation', 'scipy.special.cython_special'],
     hookspath=[],
     hooksconfig={},

@@ -45,6 +45,24 @@ if os.path.exists(spec_file):
 # Create directory for additional files
 os.makedirs(output_dir, exist_ok=True)
 
+# Use OS-agnostic path separators with correct paths
+style_path = os.path.join('src', 'styles', 'style.qss')
+resources_path = 'resources'
+
+# Verify files exist
+if not os.path.exists(style_path):
+    print(f"WARNING: Style file not found at {style_path}!")
+    # Try to locate it
+    possible_style_paths = glob.glob(os.path.join('src', '**', 'style.qss'), recursive=True)
+    if possible_style_paths:
+        style_path = possible_style_paths[0]
+        print(f"Found style file at {style_path} instead")
+    else:
+        print("WARNING: No style.qss file found in src directory!")
+
+if not os.path.exists(resources_path):
+    print(f"WARNING: Resources directory not found at {resources_path}!")
+
 # Define PyInstaller arguments
 pyinstaller_args = [
     'auto_wall.py',                # Script to package
@@ -54,13 +72,23 @@ pyinstaller_args = [
     '--clean',                     # Clean PyInstaller cache
     f'--distpath={os.path.join(root_dir, "dist")}',  # Output directory
     f'--workpath={os.path.join(root_dir, "build")}', # Work directory
-    f'--add-data=src/gui/style.qss{os.pathsep}src/gui/',  # Add style sheet resource
-    f'--add-data=resources{os.pathsep}resources/',  # Add resources directory (splash screen, icons, etc.)
+]
+
+# Add style sheet if it exists
+if os.path.exists(style_path):
+    style_target_dir = os.path.join('src', os.path.dirname(style_path).split(os.sep, 1)[-1] if os.sep in style_path else '')
+    pyinstaller_args.append(f'--add-data={style_path}{os.pathsep}{style_target_dir}')
+
+# Add resources if they exist
+if os.path.exists(resources_path):
+    pyinstaller_args.append(f'--add-data={resources_path}{os.pathsep}{resources_path}')
+    
+pyinstaller_args.extend([
     '--paths=src',                 # Add source paths
     '--noconfirm',                 # Replace output directory without confirmation
     '--noupx',                     # Disable UPX compression to speed up build
     '--log-level=INFO',            # Reduce log verbosity
-]
+])
 
 # Add specific imports that PyInstaller might miss
 hidden_imports = [
