@@ -66,44 +66,76 @@ def create_mask_from_contours(image_shape, contours, color=(0, 255, 0, 255)):
     return mask
 
 # color or app?
-def blend_image_with_mask(image, mask):
+def blend_image_with_mask(image, mask, region=None):
     """
     Blend an image with a transparent mask (optimized version).
     
     Parameters:
     - image: Original BGR image
     - mask: BGRA mask
+    - region: Optional tuple (x, y, width, height) specifying region to blend
+             If provided, only this region will be processed
     
     Returns:
-    - BGRA image with mask blended
+    - BGRA image with mask blended if region is None
+    - BGRA image of just the blended region if region is provided
     """
-    # Check if dimensions match
-    if image.shape[:2] != mask.shape[:2]:
-        print(f"Warning: Image dimensions {image.shape[:2]} don't match mask dimensions {mask.shape[:2]}")
-        # Create a properly sized mask instead of failing
-        height, width = image.shape[:2]
-        new_mask = np.zeros((height, width, 4), dtype=np.uint8)
-        # Use the original mask data where possible (for the smaller dimension)
-        h_limit = min(height, mask.shape[0])
-        w_limit = min(width, mask.shape[1])
-        new_mask[:h_limit, :w_limit] = mask[:h_limit, :w_limit]
-        mask = new_mask
-    
-    # Convert the image to BGRA if it's BGR
-    if image.shape[2] == 3:
-        bgra_image = cv2.cvtColor(image, cv2.COLOR_BGR2BGRA)
+    if region is None:
+        # Process the entire image (original behavior)
+        # Check if dimensions match
+        if image.shape[:2] != mask.shape[:2]:
+            print(f"Warning: Image dimensions {image.shape[:2]} don't match mask dimensions {mask.shape[:2]}")
+            # Create a properly sized mask instead of failing
+            height, width = image.shape[:2]
+            new_mask = np.zeros((height, width, 4), dtype=np.uint8)
+            # Use the original mask data where possible (for the smaller dimension)
+            h_limit = min(height, mask.shape[0])
+            w_limit = min(width, mask.shape[1])
+            new_mask[:h_limit, :w_limit] = mask[:h_limit, :w_limit]
+            mask = new_mask
+        
+        # Convert the image to BGRA if it's BGR
+        if image.shape[2] == 3:
+            bgra_image = cv2.cvtColor(image, cv2.COLOR_BGR2BGRA)
+        else:
+            bgra_image = image.copy()
+        
+        # Only process pixels where mask has non-zero alpha
+        alpha_mask = mask[:, :, 3] > 0
+        
+        # Direct copy of mask pixels to result where alpha > 0
+        # This is much faster than per-pixel alpha blending
+        if np.any(alpha_mask):
+            bgra_image[alpha_mask] = mask[alpha_mask]
+        
+        return bgra_image
     else:
-        bgra_image = image.copy()
-    
-    # Only process pixels where mask has non-zero alpha
-    alpha_mask = mask[:, :, 3] > 0
-    
-    # Direct copy of mask pixels to result where alpha > 0
-    # This is much faster than per-pixel alpha blending
-    if np.any(alpha_mask):
-        bgra_image[alpha_mask] = mask[alpha_mask]
-    
-    return bgra_image
+        # Process only a specific region
+        x, y, w, h = region
+        # Extract the region from both image and mask
+        x_max = min(x + w, image.shape[1])
+        y_max = min(y + h, image.shape[0])
+        w = x_max - x
+        h = y_max - y
+        
+        if w <= 0 or h <= 0:
+            return None  # Invalid region
+        
+        image_region = image[y:y_max, x:x_max].copy()
+        mask_region = mask[y:y_max, x:x_max]
+        
+        # Ensure image_region is BGRA
+        if image_region.shape[2] == 3:
+            image_region = cv2.cvtColor(image_region, cv2.COLOR_BGR2BGRA)
+        
+        # Only process pixels where mask has non-zero alpha in this region
+        alpha_mask = mask_region[:, :, 3] > 0
+        
+        # Direct copy of mask pixels to result where alpha > 0
+        if np.any(alpha_mask):
+            image_region[alpha_mask] = mask_region[alpha_mask]
+        
+        return image_region
 
 # color
 def draw_on_mask(mask, x, y, brush_size, color=(0, 255, 0, 255), erase=False):
@@ -118,7 +150,7 @@ def draw_on_mask(mask, x, y, brush_size, color=(0, 255, 0, 255), erase=False):
     - erase: Whether to erase (True) or draw (False)
     
     Returns:
-    - Updated mask
+    - Tuple containing (updated mask, affected region tuple (x_min, y_min, width, height))
     """
     # Calculate bounds for the affected region (with bounds checking)
     height, width = mask.shape[:2]
@@ -129,7 +161,7 @@ def draw_on_mask(mask, x, y, brush_size, color=(0, 255, 0, 255), erase=False):
     
     # If the brush is completely outside the image, return early
     if x_min >= width or y_min >= height or x_max <= 0 or y_max <= 0:
-        return mask
+        return mask, None
     
     # For small and medium brush sizes, use a cached brush pattern
     if brush_size <= 100:  # Expanded range for cached patterns
@@ -179,11 +211,13 @@ def draw_on_mask(mask, x, y, brush_size, color=(0, 255, 0, 255), erase=False):
             # Use direct indexing for alpha channel
             mask_view[circle_mask, 3] = 0
         else:
-            # Create a color view for each channel
+        # Create a color view for each channel
             for i in range(4):
                 mask_view[circle_mask, i] = color[i]
     
-    return mask
+    # Return the updated mask and the affected region bounds
+    affected_region = (x_min, y_min, x_max - x_min, y_max - y_min)
+    return mask, affected_region
 
 # export
 def contours_to_foundry_walls(contours, image_shape, simplify_tolerance=0.0, max_wall_length=50, max_walls=5000, merge_distance=1.0, angle_tolerance=0.5, max_gap=5.0, grid_size=0, allow_half_grid=True):

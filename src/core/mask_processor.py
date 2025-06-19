@@ -51,12 +51,15 @@ class MaskProcessor:
         
         # Enable the Export to Foundry VTT button
         self.app.export_foundry_button.setEnabled(True)
-        
-        # Update display
+          # Update display
         self.update_display_with_mask()
-
-    def update_display_with_mask(self):
-        """Update the display to show the image with the mask overlay."""
+        
+    def update_display_with_mask(self, region=None):
+        """Update the display to show the image with the mask overlay.
+        
+        Args:
+            region: Optional tuple (x, y, width, height) for updating just a specific region
+        """
         if self.app.mask_layer is None:
             return
         
@@ -69,7 +72,25 @@ class MaskProcessor:
         if display_base_image is None:
             return
         
-        # Blend the image with the mask
+        # Check if we should update just a region
+        if region is not None and hasattr(self.app.image_label, 'update_region'):
+            # Extract region coordinates
+            x, y, width, height = region
+            
+            # Blend just the region
+            region_image = blend_image_with_mask(display_base_image, self.app.mask_layer, region)
+            if region_image is not None:
+                # Update just the affected region
+                self.app.image_label.update_region(region_image, x, y, width, height)
+                
+                # We still need to update the full image in the background to maintain proper state
+                # But we don't need to redisplay it since we already updated the region
+                full_display_image = blend_image_with_mask(display_base_image, self.app.mask_layer)
+                self.app.last_preview_image = full_display_image.copy()
+                self.app.processed_image = full_display_image.copy()
+                return
+        
+        # If no region specified or region update not supported, update the full image
         display_image = blend_image_with_mask(display_base_image, self.app.mask_layer)
         # Display the blended image
         self.app.image_processor.display_image(display_image, preserve_view=True)

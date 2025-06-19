@@ -1,6 +1,6 @@
 from PyQt6.QtWidgets import (QLabel)
 from PyQt6.QtCore import Qt, QPoint, QPointF
-from PyQt6.QtGui import QWheelEvent, QTransform, QPainter, QPixmap
+from PyQt6.QtGui import QWheelEvent, QTransform, QPainter, QPixmap, QImage, QCursor
 import cv2
 
 from src.utils.geometry import point_to_line_distance, convert_to_image_coordinates
@@ -30,6 +30,10 @@ class InteractiveImageLabel(QLabel):
         self.panning = False
         self.pan_start_pos = None
         self.pan_start_offset = None
+        
+        # For region-based updates
+        self.last_updated_region = None
+    
     def set_base_pixmap(self, pixmap, preserve_view=False):
         """Set the base pixmap for zoom and pan operations."""
         self.base_pixmap = pixmap
@@ -38,7 +42,6 @@ class InteractiveImageLabel(QLabel):
             self.fit_to_window()
         else:
             self.update_display()
-        
     def update_display(self):
         """Update the display with current zoom and pan."""
         if self.base_pixmap is None:
@@ -48,7 +51,8 @@ class InteractiveImageLabel(QLabel):
         widget_size = self.size()
         if widget_size.width() <= 0 or widget_size.height() <= 0:
             return
-              # Create a pixmap that fits the widget size
+            
+        # Create a pixmap that fits the widget size
         display_pixmap = QPixmap(widget_size)
         # Fill with the application's background color instead of black
         from PyQt6.QtGui import QColor
@@ -74,6 +78,9 @@ class InteractiveImageLabel(QLabel):
         painter.drawPixmap(draw_x, draw_y, scaled_pixmap)
         painter.end()
         
+        # Store this clean pixmap as our original for overlays
+        # This ensures we have a clean base to draw overlays on top of
+        self.original_display_pixmap = display_pixmap.copy()
         # Set the clipped pixmap (this won't change the widget size)
         self.setPixmap(display_pixmap)
         
@@ -249,6 +256,20 @@ class InteractiveImageLabel(QLabel):
                 
         super().mouseReleaseEvent(event)
     
+    def enterEvent(self, event):
+        """Handle mouse entering the widget."""
+        if self.parent_app and self.parent_app.edit_mask_mode_enabled:
+            # Show brush preview when mouse enters the widget
+            cursor_pos = self.mapFromGlobal(QCursor.pos())
+            if self.rect().contains(cursor_pos):
+                self.parent_app.drawing_tools.update_brush_preview(cursor_pos.x(), cursor_pos.y(), force=True)
+                # Start the idle timer to ensure the preview stays visible
+                if hasattr(self.parent_app.drawing_tools, 'mouse_idle_timer'):
+                    self.parent_app.drawing_tools.mouse_idle_timer.start(
+                        self.parent_app.drawing_tools.idle_detection_interval
+                    )
+        super().enterEvent(event)
+
     def leaveEvent(self, event):
         """Handle mouse leaving the widget."""
         if self.parent_app:
@@ -385,3 +406,362 @@ class InteractiveImageLabel(QLabel):
         proj_x = x1 + t * (x2 - x1)
         proj_y = y1 + t * (y2 - y1)
         return math.sqrt((x - proj_x) ** 2 + (y - proj_y) ** 2)
+    
+    def update_region(self, region_image, x, y, width, height):
+        """Update only a specific region of the display for improved performance.
+        
+        Args:
+            region_image: The numpy image data for the region to update
+            x, y: The top-left coordinates of the region in image space
+            width, height: The dimensions of the region
+        """
+        if self.base_pixmap is None:
+            return
+            
+        # Convert region image to QImage
+        if len(region_image.shape) == 3:
+            if region_image.shape[2] == 3:  # RGB
+                bytes_per_line = 3 * width
+                qimg_format = QImage.Format.Format_RGB888
+            elif region_image.shape[2] == 4:  # RGBA
+                bytes_per_line = 4 * width
+                qimg_format = QImage.Format.Format_RGBA8888
+        else:  # Grayscale
+            bytes_per_line = width
+            qimg_format = QImage.Format.Format_Grayscale8
+            
+        region_qimg = QImage(region_image.data.tobytes(), width, height, bytes_per_line, qimg_format)
+        region_pixmap = QPixmap.fromImage(region_qimg)
+        
+        # Get the display position accounting for zoom and pan
+        display_x = int(x * self.zoom_factor + self.pan_offset.x())
+        display_y = int(y * self.zoom_factor + self.pan_offset.y())
+        display_width = int(width * self.zoom_factor)
+        display_height = int(height * self.zoom_factor)
+        
+        # Create a scaled version of the region pixmap if zoomed
+        if self.zoom_factor != 1.0:
+            region_pixmap = region_pixmap.scaled(
+                display_width, 
+                display_height,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation
+            )
+        # Create a painter to update just this region of the displayed pixmap
+        current_pixmap = self.pixmap()
+        if current_pixmap is None:
+            self.update_display()  # Fall back to full update if no pixmap exists
+            return
+            
+        painter = QPainter(current_pixmap)
+        painter.drawPixmap(display_x, display_y, region_pixmap)
+        painter.end()
+          # Set the updated pixmap
+        self.setPixmap(current_pixmap)
+        
+        # Store the last updated region for potential future optimizations
+        self.last_updated_region = (display_x, display_y, display_width, display_height)
+        
+        # Request a repaint of just this region for efficiency
+        self.update(display_x, display_y, display_width, display_height)
+    def draw_brush_overlay_on_region(self, img_x, img_y, brush_size, is_erase_mode=False):
+        """Draw brush overlay directly on the display pixmap for ultra-fast preview.
+        
+        Args:
+            img_x, img_y: Brush position in image coordinates
+            brush_size: Size of brush in pixels
+            is_erase_mode: Whether in erase mode (affects brush outline color)
+        """
+        if self.base_pixmap is None:
+            return
+            
+        # Store last brush position for optimization
+        if not hasattr(self, 'last_brush_position'):
+            self.last_brush_position = None
+            self.last_brush_size = None
+            self.last_brush_is_erase = None
+        
+        # Create a backup of the current pixmap if it doesn't already exist
+        if not hasattr(self, 'original_display_pixmap') or self.original_display_pixmap is None:
+            # Store a clean copy of the current display pixmap 
+            # that we can use as our base for drawing overlays
+            # This ensures we're always starting with an unmodified view
+            self.reset_brush_overlay()
+            self.original_display_pixmap = self.pixmap().copy()
+        
+        # Calculate region that will be affected by the brush
+        # Add padding for the brush outline
+        region_x = max(0, img_x - brush_size - 2)
+        region_y = max(0, img_y - brush_size - 2)
+        region_width = min(brush_size * 2 + 4, self.base_pixmap.width() - region_x)
+        region_height = min(brush_size * 2 + 4, self.base_pixmap.height() - region_y)
+        
+        # Convert to display coordinates
+        display_x = int(region_x * self.zoom_factor + self.pan_offset.x())
+        display_y = int(region_y * self.zoom_factor + self.pan_offset.y())
+        display_brush_x = int(img_x * self.zoom_factor + self.pan_offset.x())
+        display_brush_y = int(img_y * self.zoom_factor + self.pan_offset.y())
+        scaled_brush_size = int(brush_size * self.zoom_factor)
+        
+        # We'll always start with our clean original pixmap
+        # This ensures we don't build up tinting or artifacts from multiple overlays
+        temp_display_pixmap = self.original_display_pixmap.copy()
+        
+        # Set up for pure overlay drawing using a high-contrast outline
+        from PyQt6.QtGui import QPen
+        if is_erase_mode:
+            # Use a red pen for erase mode
+            pen = QPen(Qt.GlobalColor.red)
+        else:
+            # Use a green pen for draw mode 
+            pen = QPen(Qt.GlobalColor.green)
+            
+        pen.setWidth(2)  # Make it slightly thicker for better visibility
+        painter = QPainter(temp_display_pixmap)
+        painter.setPen(pen)
+        painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Source)
+        
+        # Draw only the outline (not filled)
+        painter.drawEllipse(display_brush_x - scaled_brush_size, 
+                           display_brush_y - scaled_brush_size,
+                           scaled_brush_size * 2, scaled_brush_size * 2)
+        painter.end()
+        
+        # Set the updated pixmap
+        self.setPixmap(temp_display_pixmap)
+        
+        # Store position for optimization
+        self.last_brush_position = (display_brush_x, display_brush_y)
+        self.last_brush_size = scaled_brush_size
+        self.last_brush_is_erase = is_erase_mode
+        
+        # Update last position
+        self.last_brush_position = (display_brush_x, display_brush_y)
+        self.last_brush_size = brush_size
+        self.last_brush_is_erase = is_erase_mode
+          # Request a repaint of just this region for efficiency
+        update_width = int(region_width * self.zoom_factor)
+        update_height = int(region_height * self.zoom_factor)
+        self.update(display_x, display_y, update_width, update_height)
+    def reset_brush_overlay(self):
+        """Reset the brush overlay, restoring the original display without the brush preview."""
+        # Reset tracking variables
+        self.last_brush_position = None
+        self.last_brush_size = None
+        self.last_brush_is_erase = None
+        
+        # Reset the stored original display pixmap to force a clean recreation
+        self.original_display_pixmap = None
+            
+        # Force a clean update of the display to remove any overlays
+        if self.base_pixmap is not None:
+            self.update_display()
+    
+    def draw_shape_overlay_circle(self, center_x, center_y, radius, thickness, is_erase_mode=False):
+        """Draw circle overlay directly on the display pixmap without any color tinting.
+        
+        Args:
+            center_x, center_y: Center position of circle in image coordinates
+            radius: Radius of circle in pixels
+            thickness: Outline thickness in pixels
+            is_erase_mode: Whether in erase mode (affects outline color)
+        """
+        if self.base_pixmap is None:
+            return
+            
+        # Create a backup of the current pixmap if it doesn't already exist
+        if not hasattr(self, 'original_display_pixmap') or self.original_display_pixmap is None:
+            self.original_display_pixmap = self.pixmap().copy()
+            
+        # Calculate the region that will be affected
+        region_x = max(0, center_x - radius - thickness - 2)
+        region_y = max(0, center_y - radius - thickness - 2)
+        region_width = min((radius + thickness + 2) * 2, self.base_pixmap.width() - region_x)
+        region_height = min((radius + thickness + 2) * 2, self.base_pixmap.height() - region_y)
+        
+        # Convert to display coordinates
+        display_center_x = int(center_x * self.zoom_factor + self.pan_offset.x())
+        display_center_y = int(center_y * self.zoom_factor + self.pan_offset.y())
+        scaled_radius = int(radius * self.zoom_factor)
+        scaled_thickness = max(2, int(thickness * self.zoom_factor))
+            
+        # Always start with our clean original pixmap
+        temp_display_pixmap = self.original_display_pixmap.copy()
+        
+        # Set up for pure overlay drawing using a high-contrast outline
+        from PyQt6.QtGui import QPen
+        if is_erase_mode:
+            # Use a red pen for erase mode
+            pen = QPen(Qt.GlobalColor.red)
+        else:
+            # Use a green pen for draw mode 
+            pen = QPen(Qt.GlobalColor.green)
+            
+        pen.setWidth(scaled_thickness)
+        
+        painter = QPainter(temp_display_pixmap)
+        painter.setPen(pen)
+        # Draw only the outline (not filled)
+        painter.drawEllipse(
+            display_center_x - scaled_radius, 
+            display_center_y - scaled_radius,
+            scaled_radius * 2, 
+            scaled_radius * 2
+        )
+        painter.end()
+        
+        # Set the updated pixmap
+        self.setPixmap(temp_display_pixmap)
+            
+    def draw_shape_overlay_ellipse(self, center_x, center_y, width_radius, height_radius, thickness, is_erase_mode=False):
+        """Draw ellipse overlay directly on the display pixmap without any color tinting.
+        
+        Args:
+            center_x, center_y: Center position of ellipse in image coordinates
+            width_radius, height_radius: Half-width and half-height of ellipse in pixels
+            thickness: Outline thickness in pixels
+            is_erase_mode: Whether in erase mode (affects outline color)
+        """
+        if self.base_pixmap is None:
+            return
+            
+        # Create a backup of the current pixmap if it doesn't already exist
+        if not hasattr(self, 'original_display_pixmap') or self.original_display_pixmap is None:
+            self.original_display_pixmap = self.pixmap().copy()
+            
+        # Convert to display coordinates
+        display_center_x = int(center_x * self.zoom_factor + self.pan_offset.x())
+        display_center_y = int(center_y * self.zoom_factor + self.pan_offset.y())
+        scaled_width_radius = int(width_radius * self.zoom_factor)
+        scaled_height_radius = int(height_radius * self.zoom_factor)
+        scaled_thickness = max(2, int(thickness * self.zoom_factor))
+            
+        # Always start with our clean original pixmap
+        temp_display_pixmap = self.original_display_pixmap.copy()
+        
+        # Set up for pure overlay drawing using a high-contrast outline
+        from PyQt6.QtGui import QPen
+        if is_erase_mode:
+            # Use a red pen for erase mode
+            pen = QPen(Qt.GlobalColor.red)
+        else:
+            # Use a green pen for draw mode 
+            pen = QPen(Qt.GlobalColor.green)
+            
+        pen.setWidth(scaled_thickness)
+        
+        painter = QPainter(temp_display_pixmap)
+        painter.setPen(pen)
+        # Draw only the outline (not filled)
+        painter.drawEllipse(
+            display_center_x - scaled_width_radius, 
+            display_center_y - scaled_height_radius,
+            scaled_width_radius * 2, 
+            scaled_height_radius * 2
+        )
+        painter.end()
+        
+        # Set the updated pixmap
+        self.setPixmap(temp_display_pixmap)
+            
+    def draw_shape_overlay_rectangle(self, x1, y1, x2, y2, thickness, is_erase_mode=False):
+        """Draw rectangle overlay directly on the display pixmap without any color tinting.
+        
+        Args:
+            x1, y1: Top-left corner in image coordinates
+            x2, y2: Bottom-right corner in image coordinates
+            thickness: Outline thickness in pixels
+            is_erase_mode: Whether in erase mode (affects outline color)
+        """
+        if self.base_pixmap is None:
+            return
+            
+        # Create a backup of the current pixmap if it doesn't already exist
+        if not hasattr(self, 'original_display_pixmap') or self.original_display_pixmap is None:
+            self.original_display_pixmap = self.pixmap().copy()
+            
+        # Convert to display coordinates
+        display_x1 = int(x1 * self.zoom_factor + self.pan_offset.x())
+        display_y1 = int(y1 * self.zoom_factor + self.pan_offset.y())
+        display_x2 = int(x2 * self.zoom_factor + self.pan_offset.x())
+        display_y2 = int(y2 * self.zoom_factor + self.pan_offset.y())
+        scaled_thickness = max(2, int(thickness * self.zoom_factor))
+            
+        # Always start with our clean original pixmap
+        temp_display_pixmap = self.original_display_pixmap.copy()
+        
+        # Set up for pure overlay drawing using a high-contrast outline
+        from PyQt6.QtGui import QPen
+        if is_erase_mode:
+            # Use a red pen for erase mode
+            pen = QPen(Qt.GlobalColor.red)
+        else:
+            # Use a green pen for draw mode 
+            pen = QPen(Qt.GlobalColor.green)
+            
+        pen.setWidth(scaled_thickness)
+        
+        painter = QPainter(temp_display_pixmap)
+        painter.setPen(pen)
+        # Draw only the outline (not filled)
+        painter.drawRect(
+            min(display_x1, display_x2), 
+            min(display_y1, display_y2),
+            abs(display_x2 - display_x1), 
+            abs(display_y2 - display_y1)
+        )
+        painter.end()
+        
+        # Set the updated pixmap
+        self.setPixmap(temp_display_pixmap)
+            
+    def draw_shape_overlay_line(self, x1, y1, x2, y2, thickness, is_erase_mode=False):
+        """Draw line overlay directly on the display pixmap without any color tinting.
+        
+        Args:
+            x1, y1: Start point in image coordinates
+            x2, y2: End point in image coordinates
+            thickness: Line thickness in pixels
+            is_erase_mode: Whether in erase mode (affects outline color)
+        """
+        if self.base_pixmap is None:
+            return
+            
+        # Create a backup of the current pixmap if it doesn't already exist
+        if not hasattr(self, 'original_display_pixmap') or self.original_display_pixmap is None:
+            self.original_display_pixmap = self.pixmap().copy()
+            
+        # Convert to display coordinates
+        display_x1 = int(x1 * self.zoom_factor + self.pan_offset.x())
+        display_y1 = int(y1 * self.zoom_factor + self.pan_offset.y())
+        display_x2 = int(x2 * self.zoom_factor + self.pan_offset.x())
+        display_y2 = int(y2 * self.zoom_factor + self.pan_offset.y())
+        scaled_thickness = max(2, int(thickness * self.zoom_factor))
+            
+        # Always start with our clean original pixmap
+        temp_display_pixmap = self.original_display_pixmap.copy()
+        
+        # Set up for pure overlay drawing using a high-contrast outline
+        from PyQt6.QtGui import QPen
+        if is_erase_mode:
+            # Use a red pen for erase mode
+            pen = QPen(Qt.GlobalColor.red)
+        else:
+            # Use a green pen for draw mode 
+            pen = QPen(Qt.GlobalColor.green)
+            
+        pen.setWidth(scaled_thickness)
+        
+        painter = QPainter(temp_display_pixmap)
+        painter.setPen(pen)
+        # Draw the line
+        painter.drawLine(
+            display_x1, 
+            display_y1,
+            display_x2, 
+            display_y2
+        )
+        painter.end()
+        
+        # Set the updated pixmap
+        self.setPixmap(temp_display_pixmap)

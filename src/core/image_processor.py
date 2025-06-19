@@ -233,14 +233,30 @@ class ImageProcessor:
         self.app.selection_manager.clear_selection()
         # Reset highlighted contour when re-detecting
         self.app.highlighted_contour_index = -1
-        
-        # Convert to QPixmap and display
+          # Convert to QPixmap and display
         self.display_image(self.app.processed_image)
-
-    def display_image(self, image, preserve_view=False):
-        """Display an image on the image label."""
+        
+    def display_image(self, image, preserve_view=False, region=None):
+        """Display an image on the image label.
+        
+        Args:
+            image: The image to display (numpy array)
+            preserve_view: Whether to preserve the current zoom/pan state
+            region: Optional tuple (x, y, width, height) for updating just a specific region
+        """
         # Only proceed if the image label exists and has a valid size
         if not hasattr(self.app, 'image_label') or self.app.image_label.width() <= 0 or self.app.image_label.height() <= 0:
+            return
+        
+        # If region is specified and the image label supports region updates, use that method
+        if region is not None and hasattr(self.app.image_label, 'update_region'):
+            x, y, width, height = region
+            # Extract the region from the image
+            region_image = image[y:y+height, x:x+width].copy()
+            # Convert to RGB for consistent processing
+            region_rgb = convert_to_rgb(region_image)
+            # Update just that region
+            self.app.image_label.update_region(region_rgb, x, y, width, height)
             return
             
         rgb_image = convert_to_rgb(image)
