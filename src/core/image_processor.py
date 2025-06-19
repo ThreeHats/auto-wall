@@ -11,22 +11,35 @@ from src.wall_detection.detector import detect_walls, draw_walls, merge_contours
 from src.wall_detection.mask_editor import blend_image_with_mask
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QPixmap, QImage, QColor
+from src.utils.performance import PerformanceTimer, debounce, ImageCache, fast_hash
 
 class ImageProcessor:
     def __init__(self, app):
         self.app = app
+        # Initialize performance optimizations
+        self.detection_cache = ImageCache(max_size=8)
+        self.last_detection_params = None
+        
+        # Create debounced version of update_image
+        self.debounced_update = debounce(delay_ms=250)(self._update_image_internal)
 
     def update_image(self):
-        """Update the displayed image based on the current settings."""
+        """Update the displayed image based on the current settings (debounced)."""
+        # Use debounced version to prevent rapid successive calls
+        self.debounced_update()
+
+    def _update_image_internal(self):
+        """Internal update method with performance optimizations."""
         if self.app.current_image is None:
             return
 
-        # Get slider values
-        blur = self.app.sliders["Smoothing"]['slider'].value()
-        
-        # Handle special case for blur=1 (no blur) and ensure odd values
-        if blur > 1 and blur % 2 == 0:
-            blur += 1
+        with PerformanceTimer("Full image update"):
+            # Get slider values
+            blur = self.app.sliders["Smoothing"]['slider'].value()
+            
+            # Handle special case for blur=1 (no blur) and ensure odd values
+            if blur > 1 and blur % 2 == 0:
+                blur += 1
         
         canny1 = self.app.sliders["Edge Sensitivity"]['slider'].value()
         canny2 = self.app.sliders["Edge Threshold"]['slider'].value()
@@ -103,8 +116,7 @@ class ImageProcessor:
                 wall_colors_with_thresholds.append((bgr_color, threshold))
             
             print(f"Using {len(wall_colors_with_thresholds)} colors for detection with individual thresholds")
-        
-        # Debug output of parameters
+          # Debug output of parameters
         if hasattr(self.app, 'using_pixels_mode') and self.app.using_pixels_mode:
             print(f"Parameters: min_area={min_area} pixels (working: {working_min_area}), "
                   f"blur={blur}, canny1={canny1}, canny2={canny2}, edge_margin={edge_margin}")
@@ -112,18 +124,47 @@ class ImageProcessor:
             print(f"Parameters: min_area={min_area} (working: {working_min_area}, {min_area_percentage:.4f}% of image), "
                   f"blur={blur}, canny1={canny1}, canny2={canny2}, edge_margin={edge_margin}")
 
-        # Process the image directly with detect_walls
-        contours = detect_walls(
-            processed_image,
-            min_contour_area=working_min_area,
-            max_contour_area=None,
-            blur_kernel_size=blur,
-            canny_threshold1=canny1,
-            canny_threshold2=canny2,
-            edge_margin=edge_margin,
-            wall_colors=wall_colors_with_thresholds,
-            color_threshold=default_threshold
-        )
+        # Create cache key for detection parameters
+        detection_params = {
+            'working_min_area': working_min_area,
+            'blur': blur,
+            'canny1': canny1,
+            'canny2': canny2,
+            'edge_margin': edge_margin,
+            'wall_colors': wall_colors_with_thresholds,
+            'default_threshold': default_threshold,
+            'merge_contours': self.app.merge_contours.isChecked(),
+            'min_merge_distance': min_merge_distance,
+            'hatching_enabled': self.app.remove_hatching_checkbox.isChecked(),
+            'hatching_params': (self.app.hatching_color.rgb(), self.app.hatching_threshold, self.app.hatching_width) if self.app.remove_hatching_checkbox.isChecked() else None,
+            'image_hash': fast_hash(processed_image.tobytes()[:1000])  # Hash first 1KB for speed
+        }
+        
+        cache_key = fast_hash(tuple(sorted(detection_params.items())))
+        
+        # Check cache first
+        cached_result = self.detection_cache.get(cache_key)
+        if cached_result is not None and self.last_detection_params == detection_params:
+            print("[CACHE] Using cached detection result")
+            contours = cached_result
+        else:
+            # Process the image directly with detect_walls
+            with PerformanceTimer("Wall detection"):
+                contours = detect_walls(
+                    processed_image,
+                    min_contour_area=working_min_area,
+                    max_contour_area=None,
+                    blur_kernel_size=blur,
+                    canny_threshold1=canny1,
+                    canny_threshold2=canny2,
+                    edge_margin=edge_margin,
+                    wall_colors=wall_colors_with_thresholds,
+                    color_threshold=default_threshold
+                )
+            
+            # Cache the result
+            self.detection_cache.put(cache_key, contours.copy() if contours else [])
+            self.last_detection_params = detection_params
         
         print(f"Detected {len(contours)} contours before merging")
 
