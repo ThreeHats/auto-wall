@@ -60,13 +60,14 @@ Watch the video:
 ## Quick Start Guide
 
 1. **Open an image**: Click "Open Image" or "Load from URL" to import your battle map
-2. **Pick detection mode**:
+2. **Navigate the view**: Use scroll wheel to zoom, right-click and drag to pan
+3. **Pick detection mode**:
    - For maps with clear lines, use edge detection (default)
    - For maps with with distinct colors for the walls or background, enable "Color Detection" and select colors
-3. **Fine-tune results**: Use the sliders to adjust detection sensitivity
-4. **Clean up walls**: Switch to "Deletion" mode and select on unwanted walls
-5. **Bake the mask**: Click "Bake Contours to Mask", and use the drawing tools to make any final adjustments
-6. **Export to Foundry**: Click "Export to Foundry VTT" to generate wall data
+4. **Fine-tune results**: Use the sliders to adjust detection sensitivity
+5. **Clean up walls**: Switch to "Deletion" mode and select on unwanted walls
+6. **Bake the mask**: Click "Bake Contours to Mask", and use the drawing tools to make any final adjustments
+7. **Export to Foundry**: Click "Export to Foundry VTT" to generate wall data
 
 ## Usage Guide
 
@@ -124,7 +125,7 @@ Reduces wall thickness:
 To create an executable:
 
 1. Ensure PyInstaller is installed: `pip install pyinstaller`
-2. Run the build script: `build.bat`
+2. Run the build script: `build.py`
 3. Find the executable in the `dist` folder
 
 ## Contributing
