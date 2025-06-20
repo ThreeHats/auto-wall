@@ -24,7 +24,7 @@ except ImportError as e:
 root_dir = os.getcwd()
 
 # Define output directory
-output_dir = os.path.join(root_dir, 'dist', 'Auto-Wall')
+output_dir = os.path.join(root_dir, 'dist')
 
 # Clean any previous build artifacts
 if os.path.exists(output_dir):
@@ -67,11 +67,15 @@ if not os.path.exists(resources_path):
 pyinstaller_args = [
     'auto_wall.py',                # Script to package
     '--name=Auto-Wall',            # Name of the application
-    '--onedir',                    # Create a directory containing an executable
+    '--onefile',                   # Create a single portable executable
     '--windowed',                  # Windows GUI application (no console)
     '--clean',                     # Clean PyInstaller cache
     f'--distpath={os.path.join(root_dir, "dist")}',  # Output directory
     f'--workpath={os.path.join(root_dir, "build")}', # Work directory
+    '--collect-all=cv2',           # Include all cv2 dependencies
+    '--collect-all=sklearn',       # Include all sklearn dependencies
+    '--collect-all=numpy',         # Include all numpy dependencies
+    '--collect-all=PIL',           # Include all PIL dependencies
 ]
 
 # Add style sheet if it exists
@@ -166,16 +170,8 @@ try:
         # Run PyInstaller via command line as fallback
         cmd = ['pyinstaller'] + pyinstaller_args
         print(f"Executing command: {' '.join(cmd)}")
-        subprocess.run(cmd, check=True)
-        
-    print(f"\n\nBuild completed! Executable is located at: {glob.glob(f'{output_dir}/Auto-Wall*')[0]}")
-
-    # Copy sample data (optional)
-    sample_data_dir = os.path.join(root_dir, 'data')
-    if os.path.exists(sample_data_dir):
-        output_data_dir = os.path.join(output_dir, 'data')
-        print(f"Copying sample data to {output_data_dir}")
-        shutil.copytree(sample_data_dir, output_data_dir, dirs_exist_ok=True)
+        subprocess.run(cmd, check=True)        
+    print(f"\n\nBuild completed! Executable is located at: {os.path.join(output_dir, 'Auto-Wall.exe')}")
 
     # Copy README
     readme_path = os.path.join(root_dir, 'README.md')
