@@ -180,7 +180,7 @@ class DetectionPanel:
             # Clear any highlighting
             self.app.image_label.clear_hover()            # Display normal image without mask
             if self.app.processed_image is not None:
-                self.app.image_processor.display_image(self.app.processed_image, preserve_view=True)
+                self.app.refresh_display()
         
         # Clear any selection when switching modes
         self.app.selection_manager.clear_selection()

@@ -25,11 +25,11 @@ def resizeEvent(self, event):
     
     # If we have a current image displayed, update it to fit the new window size
     if hasattr(self, 'processed_image') and self.processed_image is not None:
-        self.image_processor.display_image(self.processed_image)
+        self.refresh_display()
         
-    # If we're in foundry preview mode, redraw the preview
-    if hasattr(self, 'foundry_preview_active') and self.foundry_preview_active and self.foundry_walls_preview:
-        self.export_panel.display_foundry_preview()
+    # If we're in UVTT preview mode, redraw the preview
+    if hasattr(self, 'uvtt_preview_active') and self.uvtt_preview_active and self.uvtt_walls_preview:
+        self.export_panel.display_uvtt_preview()
     
     # Update the position of the update notification
     if hasattr(self, 'update_notification'):

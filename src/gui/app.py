@@ -1,5 +1,6 @@
 import sys
 import os
+import cv2
 
 # Add the project root directory to the Python path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
@@ -127,6 +128,10 @@ class WallDetectionApp(QMainWindow):
         self.brush_preview_active = False
         self.last_preview_image = None
         self.foundry_preview_active = False 
+        
+        # Grid overlay
+        self.grid_overlay_enabled = False
+        self.pixels_per_grid = 72  # Default grid size
         
         # History tracking for undo feature
         self.history = deque(maxlen=5)  # Store up to 5 previous states
@@ -565,6 +570,34 @@ class WallDetectionApp(QMainWindow):
         self.high_res_checkbox.stateChanged.connect(self.image_processor.reload_working_image)
         self.controls_layout.addWidget(self.high_res_checkbox)
 
+        # Add grid overlay controls
+        self.grid_section = QWidget()
+        self.grid_section_layout = QVBoxLayout(self.grid_section)
+        self.grid_section_layout.setContentsMargins(0, 0, 0, 0)
+        
+        # Grid overlay checkbox
+        self.grid_overlay_checkbox = QCheckBox("Show Grid Overlay")
+        self.grid_overlay_checkbox.setChecked(False)
+        self.grid_overlay_checkbox.setToolTip("Display a grid overlay on the image")
+        self.grid_overlay_checkbox.stateChanged.connect(self.toggle_grid_overlay)
+        self.grid_section_layout.addWidget(self.grid_overlay_checkbox)
+        
+        # Grid size control
+        self.grid_size_layout = QHBoxLayout()
+        self.grid_size_label = QLabel("Grid Size (pixels):")
+        self.grid_size_layout.addWidget(self.grid_size_label)
+        
+        self.grid_size_input = QSpinBox()
+        self.grid_size_input.setRange(10, 500)
+        self.grid_size_input.setSingleStep(5)
+        self.grid_size_input.setValue(70)
+        self.grid_size_input.setToolTip("Size of grid squares in pixels")
+        self.grid_size_input.valueChanged.connect(self.update_grid_size)
+        self.grid_size_layout.addWidget(self.grid_size_input)
+        
+        self.grid_section_layout.addLayout(self.grid_size_layout)
+        self.controls_layout.addWidget(self.grid_section)
+
         # Group edge detection settings
         self.edge_detection_widgets = []
         self.edge_detection_widgets.append(self.sliders["Edge Sensitivity"])
@@ -653,32 +686,32 @@ class WallDetectionApp(QMainWindow):
         self.mask_processor.undo_button.setEnabled(False)  # Initially disabled until actions are performed
         self.wall_actions_layout.addWidget(self.mask_processor.undo_button)
         
-        # Move the Export to Foundry button
-        self.export_foundry_button = QPushButton("Export to Foundry VTT")
-        self.export_foundry_button.clicked.connect(self.export_panel.export_to_foundry_vtt)
-        self.export_foundry_button.setToolTip("Export walls as JSON for Foundry VTT")
-        self.export_foundry_button.setEnabled(False)  # Initially disabled
-        self.wall_actions_layout.addWidget(self.export_foundry_button)
+        # Move the Export button
+        self.export_uvtt_button = QPushButton("Export")
+        self.export_uvtt_button.clicked.connect(self.export_panel.export_to_uvtt)
+        self.export_uvtt_button.setToolTip("Export walls as Universal VTT format")
+        self.export_uvtt_button.setEnabled(False)  # Initially disabled
+        self.wall_actions_layout.addWidget(self.export_uvtt_button)
         
-        # Move the Save Foundry Walls and Cancel Preview buttons
-        self.save_foundry_button = QPushButton("Save Foundry Walls")
-        self.save_foundry_button.clicked.connect(self.export_panel.save_foundry_preview)
-        self.save_foundry_button.setToolTip("Save the previewed walls to Foundry VTT JSON file")
-        self.save_foundry_button.setEnabled(False)
-        self.wall_actions_layout.addWidget(self.save_foundry_button)
+        # Move the Save File and Cancel Preview buttons
+        self.save_uvtt_button = QPushButton("Save File")
+        self.save_uvtt_button.clicked.connect(self.export_panel.save_uvtt_preview)
+        self.save_uvtt_button.setToolTip("Save the previewed walls to Universal VTT file")
+        self.save_uvtt_button.setEnabled(False)
+        self.wall_actions_layout.addWidget(self.save_uvtt_button)
         
-        self.cancel_foundry_button = QPushButton("Cancel Preview")
-        self.cancel_foundry_button.clicked.connect(self.export_panel.cancel_foundry_preview)
-        self.cancel_foundry_button.setToolTip("Return to normal view")
-        self.cancel_foundry_button.setEnabled(False)
-        self.wall_actions_layout.addWidget(self.cancel_foundry_button)
+        self.cancel_uvtt_button = QPushButton("Cancel Preview")
+        self.cancel_uvtt_button.clicked.connect(self.export_panel.cancel_uvtt_preview)
+        self.cancel_uvtt_button.setToolTip("Return to normal view")
+        self.cancel_uvtt_button.setEnabled(False)
+        self.wall_actions_layout.addWidget(self.cancel_uvtt_button)
         
-        # Add a copy to clipboard button next to Save Foundry Walls
-        self.copy_foundry_button = QPushButton("Copy to Clipboard")
-        self.copy_foundry_button.clicked.connect(self.export_panel.copy_foundry_to_clipboard)
-        self.copy_foundry_button.setToolTip("Copy the walls JSON to clipboard for Foundry VTT")
-        self.copy_foundry_button.setEnabled(False)
-        self.wall_actions_layout.addWidget(self.copy_foundry_button)
+        # Add a copy to clipboard button next to Save File
+        self.copy_uvtt_button = QPushButton("Copy to Clipboard")
+        self.copy_uvtt_button.clicked.connect(self.export_panel.copy_uvtt_to_clipboard)
+        self.copy_uvtt_button.setToolTip("Copy the UVTT file JSON to clipboard")
+        self.copy_uvtt_button.setEnabled(False)
+        self.wall_actions_layout.addWidget(self.copy_uvtt_button)
         
         # Connect drawing tool radio buttons to handler
         self.brush_tool_radio.toggled.connect(self.drawing_tools.update_drawing_tool)
@@ -768,6 +801,51 @@ class WallDetectionApp(QMainWindow):
         """Fit the image to the current window size."""
         if hasattr(self.image_label, 'fit_to_window'):
             self.image_label.fit_to_window()
+
+    def toggle_grid_overlay(self, state):
+        """Toggle the grid overlay on the image."""
+        self.grid_overlay_enabled = state == Qt.CheckState.Checked.value
+        if self.processed_image is not None:
+            self.refresh_display()
+    
+    def update_grid_size(self, value):
+        """Update the grid size and refresh display if grid is enabled."""
+        self.pixels_per_grid = value
+        if self.grid_overlay_enabled and self.processed_image is not None:
+            self.refresh_display()
+    
+    def refresh_display(self):
+        """Refresh the image display with current overlays."""
+        if self.processed_image is not None:
+            display_image = self.processed_image.copy()
+            
+            # Add grid overlay if enabled
+            if self.grid_overlay_enabled:
+                display_image = self.add_grid_overlay(display_image)
+            
+            self.image_processor.display_image(display_image, preserve_view=True)
+    
+    def add_grid_overlay(self, image):
+        """Add a grid overlay to the image."""
+        if self.pixels_per_grid <= 0:
+            return image
+        
+        overlay_image = image.copy()
+        height, width = overlay_image.shape[:2]
+        
+        # Grid color (light gray, semi-transparent)
+        grid_color = (128, 128, 128)  # Gray
+        thickness = 1
+        
+        # Draw vertical lines
+        for x in range(0, width, self.pixels_per_grid):
+            cv2.line(overlay_image, (x, 0), (x, height), grid_color, thickness)
+        
+        # Draw horizontal lines
+        for y in range(0, height, self.pixels_per_grid):
+            cv2.line(overlay_image, (0, y), (width, y), grid_color, thickness)
+        
+        return overlay_image
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)

@@ -880,3 +880,111 @@ def snap_walls_to_grid(walls, grid_size, allow_half_grid=True):
         snapped_walls.append(snapped_wall)
     
     return snapped_walls
+
+# export
+def contours_to_uvtt_walls(contours, image_shape, original_image=None, simplify_tolerance=0.0, max_wall_length=50, max_walls=5000, merge_distance=1.0, angle_tolerance=0.5, max_gap=5.0, grid_size=0, allow_half_grid=True):
+    """
+    Convert OpenCV contours to Universal VTT format with intelligent segmentation.
+    
+    Parameters:
+    - contours: List of contours to convert
+    - image_shape: Original image shape (height, width) for proper scaling
+    - original_image: The original image data (numpy array) to include as base64
+    - simplify_tolerance: Tolerance for Douglas-Peucker simplification algorithm
+    - max_wall_length: Maximum length for a single wall segment
+    - max_walls: Maximum number of walls to generate
+    - grid_size: Size of the grid in pixels (0 to disable grid snapping)
+    - allow_half_grid: Whether to allow snapping to half-grid positions
+    
+    Returns:
+    - Dictionary in Universal VTT format with walls in 'line_of_sight' array
+    """
+    height, width = image_shape[:2]
+    
+    # TODO: implement UVTT-specific wall generation logic instead of reusing Foundry logic
+    # First convert to foundry format to reuse existing logic
+    foundry_walls = contours_to_foundry_walls(
+        contours, image_shape, simplify_tolerance, max_wall_length, 
+        max_walls, merge_distance, angle_tolerance, max_gap, grid_size, allow_half_grid
+    )
+    
+    # Convert foundry walls to UVTT line_of_sight format
+    line_of_sight = []
+    line_of_sight_preview_pixels = []  # Store pixel coordinates for preview
+    pixels_per_grid_unit = grid_size if grid_size > 0 else 70  # Default to 70px per grid
+    
+    for wall in foundry_walls:
+        # Foundry wall format: {"c": [start_x, start_y, end_x, end_y]}
+        # UVTT format: [{"x": x, "y": y}, {"x": x, "y": y}, ...]
+        # Convert pixel coordinates to grid coordinates by dividing by pixels_per_grid
+        start_x, start_y, end_x, end_y = wall["c"]
+        
+        # Grid coordinates for UVTT file
+        wall_points = [
+            {"x": float(start_x / pixels_per_grid_unit), "y": float(start_y / pixels_per_grid_unit)},
+            {"x": float(end_x / pixels_per_grid_unit), "y": float(end_y / pixels_per_grid_unit)}
+        ]
+        line_of_sight.append(wall_points)
+        
+        # Pixel coordinates for preview
+        wall_pixels = [
+            {"x": float(start_x), "y": float(start_y)},
+            {"x": float(end_x), "y": float(end_y)}
+        ]
+        line_of_sight_preview_pixels.append(wall_pixels)
+    
+    # Get image as base64 for UVTT format
+    image_base64 = ""
+    if original_image is not None:
+        try:
+            import base64
+            import cv2
+            
+            # Convert image to PNG format for base64 encoding
+            # OpenCV uses BGR format, but for PNG encoding we should use the original format
+            # Don't convert unless we know it's needed
+            image_to_encode = original_image
+            
+            # Encode as PNG (OpenCV handles BGR format correctly for PNG)
+            success, buffer = cv2.imencode('.png', image_to_encode)
+            if success:
+                # Convert to base64
+                image_base64 = base64.b64encode(buffer).decode('utf-8')
+                print(f"Image encoded as base64 (size: {len(image_base64)} characters)")
+            else:
+                print("Failed to encode image as PNG")
+        except Exception as e:
+            print(f"Error encoding image as base64: {e}")
+            pass
+    
+    # Create UVTT format structure
+    uvtt_data = {
+        "format": 0.3,
+        "resolution": {
+            "map_origin": {
+                "x": 0.0,
+                "y": 0.0
+            },
+            "map_size": {
+                "x": float(width / grid_size) if grid_size > 0 else float(width / 70),  # Default to 70px grid
+                "y": float(height / grid_size) if grid_size > 0 else float(height / 70)
+            },
+            "pixels_per_grid": grid_size if grid_size > 0 else 72  # Default grid size
+        },
+        "line_of_sight": line_of_sight,
+        "objects_line_of_sight": [],
+        "portals": [],
+        "environment": {
+            "ambient_light": "77a8c8a2"
+        },
+        "lights": [],
+        "_preview_pixels": line_of_sight_preview_pixels  # Internal use for preview display
+    }
+    
+    # Add image as base64 if available
+    if image_base64:
+        uvtt_data["image"] = image_base64
+    
+    print(f"Generated {len(line_of_sight)} wall segments for Universal VTT")
+    
+    return uvtt_data

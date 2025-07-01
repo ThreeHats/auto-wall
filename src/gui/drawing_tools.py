@@ -171,7 +171,10 @@ class DrawingTools:
                     
                 cv2.circle(blended_image, (img_x, img_y), self.brush_size, color, 1)
                 self.app.last_preview_image = blended_image.copy()
-                self.app.image_processor.display_image(blended_image, preserve_view=True)
+                
+                # Update processed image and display with grid overlay
+                self.app.processed_image = blended_image.copy()
+                self.app.refresh_display()
         
         elif self.app.original_processed_image is not None:
             # If no mask exists yet, draw on the original image (just the region)
@@ -205,7 +208,10 @@ class DrawingTools:
                 color = (0, 255, 0) if self.app.draw_radio.isChecked() else (0, 0, 255)
                 cv2.circle(preview_image, (img_x, img_y), self.brush_size, color, 1)
                 self.app.last_preview_image = preview_image.copy()
-                self.app.image_processor.display_image(preview_image, preserve_view=True)
+                
+                # Update processed image and display with grid overlay
+                self.app.processed_image = preview_image.copy()
+                self.app.refresh_display()
                 
     def clear_brush_preview(self):
         """Clear the brush preview when mouse leaves the widget or drawing starts."""
@@ -253,13 +259,16 @@ class DrawingTools:
             # Use cached base blend if available for better performance
             base_blend = self.get_base_blend()
             if base_blend is not None:
-                self.app.image_processor.display_image(base_blend, preserve_view=True)
+                # Update processed image and display with grid overlay
+                self.app.processed_image = base_blend.copy()
+                self.app.refresh_display()
             else:
                 # Fallback to full update
                 self.app.mask_processor.update_display_with_mask()
         elif self.app.original_processed_image is not None:
             # Restore the original image
-            self.app.image_processor.display_image(self.app.original_processed_image.copy(), preserve_view=True)
+            self.app.processed_image = self.app.original_processed_image.copy()
+            self.app.refresh_display()
                 
     def invalidate_cache(self):
         """Invalidate the cached blend when mask or image changes."""
@@ -776,8 +785,8 @@ class DrawingTools:
         # Store this as our preview image
         self.app.last_preview_image = blended_image.copy()
         
-        # Display the image with brush preview
-        self.app.image_processor.display_image(blended_image, preserve_view=True)
+        # Display the image with brush preview and grid overlay
+        self.app.refresh_display()
 
     def update_display_with_brush_region(self, img_x, img_y, region):
         """Update only the affected region of the display with both mask and brush outline.

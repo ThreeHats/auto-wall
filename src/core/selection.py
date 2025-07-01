@@ -28,7 +28,7 @@ class SelectionManager:
           # Redraw without selection rectangle
         if self.app.processed_image is not None and self.app.original_processed_image is not None:
             self.app.processed_image = self.app.original_processed_image.copy()
-            self.app.image_processor.display_image(self.app.processed_image, preserve_view=True)
+            self.app.refresh_display()
 
     def start_selection(self, x, y):
         """Start a selection rectangle at the given coordinates."""
@@ -186,7 +186,7 @@ class SelectionManager:
                     break
                     
         # Display the updated image
-        self.app.image_processor.display_image(self.app.processed_image, preserve_view=True)
+        self.app.refresh_display()
 
     def update_color_selection_display(self):
         """Update the display with the color selection rectangle."""
@@ -209,7 +209,7 @@ class SelectionManager:
         cv2.addWeighted(overlay, 0.3, self.app.processed_image, 0.7, 0, self.app.processed_image)
                     
         # Display the updated image
-        self.app.image_processor.display_image(self.app.processed_image, preserve_view=True)
+        self.app.refresh_display()
 
     def end_selection(self, x, y):
         """Complete the selection and process it according to the current mode."""        # Convert to image coordinates

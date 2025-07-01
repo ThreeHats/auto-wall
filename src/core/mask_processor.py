@@ -49,8 +49,8 @@ class MaskProcessor:
         self.app.edit_mask_mode_radio.setVisible(True)
         self.app.edit_mask_mode_radio.setChecked(True)
         
-        # Enable the Export to Foundry VTT button
-        self.app.export_foundry_button.setEnabled(True)
+        # Enable the Export to UVTT button
+        self.app.export_uvtt_button.setEnabled(True)
           # Update display
         self.update_display_with_mask()
         
@@ -92,8 +92,10 @@ class MaskProcessor:
         
         # If no region specified or region update not supported, update the full image
         display_image = blend_image_with_mask(display_base_image, self.app.mask_layer)
+        # Store for refresh_display
+        self.app.processed_image = display_image.copy()
         # Display the blended image
-        self.app.image_processor.display_image(display_image, preserve_view=True)
+        self.app.refresh_display()
         
         # Store this as the baseline image for brush preview
         self.app.last_preview_image = display_image.copy()

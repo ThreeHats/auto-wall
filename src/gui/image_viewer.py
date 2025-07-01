@@ -366,8 +366,8 @@ class InteractiveImageLabel(QLabel):
                 0, highlight_color, highlight_thickness
             )
             
-        # Update the display while preserving the current zoom and pan
-        self.parent_app.image_processor.display_image(self.parent_app.processed_image, preserve_view=True)
+        # Use refresh_display to preserve grid overlay and other overlays
+        self.parent_app.refresh_display()
 
     def center_image(self):
         """Center the image in the widget."""

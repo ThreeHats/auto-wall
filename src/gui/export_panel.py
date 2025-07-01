@@ -6,13 +6,15 @@ from PyQt6.QtWidgets import (
 )
 import cv2
 import json
+import base64
+import numpy as np
 
 class ExportPanel:
     def __init__(self, app):
         self.app = app
 
-    def export_to_foundry_vtt(self):
-        """Prepare walls for export to Foundry VTT and show a preview."""
+    def export_to_uvtt(self):
+        """Prepare walls for export to Universal VTT format and show a preview."""
         if self.app.current_image is None:
             return
             
@@ -105,9 +107,9 @@ class ExportPanel:
         max_length_input.setSingleStep(5)
         max_length_input.setValue(50)
         max_length_input.setToolTip("Limits the maximum length of a single wall segment:\n"
-                                   "Lower values (20-50): Creates more, shorter walls which are more adjustable in Foundry\n"
+                                   "Lower values (20-50): Creates more, shorter walls which are more adjustable\n"
                                    "Higher values (100+): Creates fewer, longer wall segments for better performance\n"
-                                   "This setting affects Foundry VTT performance - longer walls mean fewer total walls")
+                                   "This setting affects VTT performance - longer walls mean fewer total walls")
         layout.addWidget(max_length_label)
         layout.addWidget(max_length_input)
 
@@ -119,7 +121,7 @@ class ExportPanel:
         max_walls_input.setValue(5000)
         max_walls_input.setToolTip("Caps the total number of wall points generated:\n"
                                   "Lower values (1000-3000): Better performance but may truncate complex maps\n"
-                                  "Higher values (5000+): Handles more complex maps but may impact Foundry performance\n"
+                                  "Higher values (5000+): Handles more complex maps but may impact VTT performance\n"
                                   "These are not the walls that will be exported, but the points used to generate them")
         layout.addWidget(max_walls_label)
         layout.addWidget(max_walls_input)
@@ -185,7 +187,7 @@ class ExportPanel:
         grid_size_input.setToolTip("Aligns walls to a grid of this size (in pixels):\n"
                                   "0: No grid alignment, walls follow exact detected contours\n"
                                   "70-100: Common grid sizes for standard VTT maps\n"
-                                  "Set this to match your Foundry scene's grid size for perfect alignment")
+                                  "Set this to match your VTT scene's grid size for perfect alignment")
         grid_size_layout.addWidget(grid_size_label)
         grid_size_layout.addWidget(grid_size_input)
         layout.addLayout(grid_size_layout)
@@ -276,7 +278,7 @@ class ExportPanel:
         half_grid_allowed = allow_half_grid.isChecked()
         
         # Store export parameters for later use when saving
-        self.app.foundry_export_params = {
+        self.app.uvtt_export_params = {
             'walls_to_export': walls_to_export,
             'image_shape': image_shape,
             'simplify_tolerance': tolerance,
@@ -305,16 +307,16 @@ class ExportPanel:
         self.app.color_selection_mode_radio.setChecked(True)
         
         # Generate walls for preview
-        self.preview_foundry_walls()
+        self.preview_uvtt_walls()
 
-    def preview_foundry_walls(self):
-        """Generate and display a preview of the Foundry VTT walls."""
-        if not self.app.foundry_export_params:
+    def preview_uvtt_walls(self):
+        """Generate and display a preview of the Universal VTT walls."""
+        if not self.app.uvtt_export_params:
             return
             
-        params = self.app.foundry_export_params        
+        params = self.app.uvtt_export_params        
         # Generate walls without saving to file
-        from src.wall_detection.mask_editor import contours_to_foundry_walls
+        from src.wall_detection.mask_editor import contours_to_uvtt_walls
         
         if isinstance(params['walls_to_export'], list):  # It's contours
             contours = params['walls_to_export']
@@ -325,9 +327,10 @@ class ExportPanel:
                 # Scale contours up to match the full-resolution image_shape
                 contours = self.app.contour_processor.scale_contours_to_original(contours, self.app.scale_factor)
             
-            foundry_walls = contours_to_foundry_walls(
+            uvtt_walls = contours_to_uvtt_walls(
                 contours,
                 params['image_shape'],
+                original_image=self.app.original_image,
                 simplify_tolerance=params['simplify_tolerance'],
                 max_wall_length=params['max_wall_length'],
                 max_walls=params['max_walls'],
@@ -346,9 +349,10 @@ class ExportPanel:
             from src.wall_detection.detector import process_contours_with_hierarchy
             processed_contours = process_contours_with_hierarchy(contours, hierarchy, 0, None)
             
-            foundry_walls = contours_to_foundry_walls(
+            uvtt_walls = contours_to_uvtt_walls(
                 processed_contours,
                 params['image_shape'],
+                original_image=self.app.original_image,
                 simplify_tolerance=params['simplify_tolerance'],
                 max_wall_length=params['max_wall_length'],
                 max_walls=params['max_walls'],
@@ -360,29 +364,29 @@ class ExportPanel:
             )
         
         # Store the generated walls for later use
-        self.app.foundry_walls_preview = foundry_walls
+        self.app.uvtt_walls_preview = uvtt_walls
         
         # Create a preview image showing the walls
-        self.display_foundry_preview()
+        self.display_uvtt_preview()
         
         # Enable save/cancel/copy buttons
-        self.app.save_foundry_button.setEnabled(True)
-        self.app.cancel_foundry_button.setEnabled(True)
-        self.app.copy_foundry_button.setEnabled(True)
+        self.app.save_uvtt_button.setEnabled(True)
+        self.app.cancel_uvtt_button.setEnabled(True)
+        self.app.copy_uvtt_button.setEnabled(True)
         
         # Set flag for preview mode
-        self.app.foundry_preview_active = True
+        self.app.uvtt_preview_active = True
         
         # Disable detection controls while in preview mode
         self.set_controls_enabled(False)
         
         # Update status with more detailed information
-        wall_count = len(foundry_walls)
-        self.app.setStatusTip(f"Previewing {wall_count} walls for Foundry VTT. Click 'Save Foundry Walls' to export or 'Copy to Clipboard'.")
+        wall_count = len(uvtt_walls['line_of_sight']) if 'line_of_sight' in uvtt_walls else 0
+        self.app.setStatusTip(f"Previewing {wall_count} walls for Universal VTT. Click 'Save File' to export or 'Copy to Clipboard'.")
 
-    def display_foundry_preview(self):
-        """Display a preview of the Foundry VTT walls over the current image."""
-        if not self.app.foundry_walls_preview or self.app.current_image is None:
+    def display_uvtt_preview(self):
+        """Display a preview of the Universal VTT walls over the current image."""
+        if not self.app.uvtt_walls_preview or self.app.current_image is None:
             return
             
         # Use original image for display if available, otherwise use current image
@@ -394,32 +398,73 @@ class ExportPanel:
         # Convert back to RGB for better visibility
         if len(preview_image.shape) == 2:  # Grayscale
             preview_image = cv2.cvtColor(preview_image, cv2.COLOR_GRAY2BGR)
-              # Draw the walls on the preview image
-        for wall in self.app.foundry_walls_preview:
-            # Get wall coordinates
-            start_x, start_y, end_x, end_y = wall["c"]
             
-            # Wall coordinates are now already at the correct resolution (full-res)
-            # No scaling needed since we scaled the contours before generating walls
-            
-            # Draw line for this wall segment
-            cv2.line(
-                preview_image,
-                (int(start_x), int(start_y)),
-                (int(end_x), int(end_y)),
-                (0, 255, 255),  # Yellow color for preview
-                2,  # Thickness
-                cv2.LINE_AA  # Anti-aliased line
-            )
-            
-            # Draw dots at wall endpoints (like Foundry VTT does)
-            endpoint_color = (255, 128, 0)  # Orange dots for endpoints
-            dot_radius = 4
-            cv2.circle(preview_image, (int(start_x), int(start_y)), dot_radius, endpoint_color, -1)  # Start point
-            cv2.circle(preview_image, (int(end_x), int(end_y)), dot_radius, endpoint_color, -1)  # End point
+        # Draw the walls on the preview image
+        if 'line_of_sight' in self.app.uvtt_walls_preview:
+            # Use preview pixel coordinates if available, otherwise convert from grid coordinates
+            if '_preview_pixels' in self.app.uvtt_walls_preview:
+                # Use the stored pixel coordinates for accurate preview
+                wall_points_list = self.app.uvtt_walls_preview['_preview_pixels']
+                for wall_points in wall_points_list:
+                    # These are already in pixel coordinates
+                    for i in range(len(wall_points) - 1):
+                        start_x = wall_points[i]["x"]
+                        start_y = wall_points[i]["y"]
+                        end_x = wall_points[i + 1]["x"]
+                        end_y = wall_points[i + 1]["y"]
+                        
+                        # Draw line for this wall segment
+                        cv2.line(
+                            preview_image,
+                            (int(start_x), int(start_y)),
+                            (int(end_x), int(end_y)),
+                            (0, 255, 255),  # Yellow color for preview
+                            2,  # Thickness
+                            cv2.LINE_AA  # Anti-aliased line
+                        )
+                        
+                        # Draw dots at wall endpoints
+                        endpoint_color = (255, 128, 0)  # Orange dots for endpoints
+                        dot_radius = 4
+                        cv2.circle(preview_image, (int(start_x), int(start_y)), dot_radius, endpoint_color, -1)  # Start point
+                        cv2.circle(preview_image, (int(end_x), int(end_y)), dot_radius, endpoint_color, -1)  # End point
+            else:
+                # Fallback: convert from grid coordinates (may be less accurate)
+                pixels_per_grid = self.app.uvtt_walls_preview.get('resolution', {}).get('pixels_per_grid', 70)
+                
+                for wall_points in self.app.uvtt_walls_preview['line_of_sight']:
+                    # UVTT walls are arrays of {"x": x, "y": y} objects in grid coordinates
+                    # Convert back to pixel coordinates for display
+                    for i in range(len(wall_points) - 1):
+                        start_x = wall_points[i]["x"] * pixels_per_grid
+                        start_y = wall_points[i]["y"] * pixels_per_grid
+                        end_x = wall_points[i + 1]["x"] * pixels_per_grid
+                        end_y = wall_points[i + 1]["y"] * pixels_per_grid
+                        
+                        # Draw line for this wall segment
+                        cv2.line(
+                            preview_image,
+                            (int(start_x), int(start_y)),
+                            (int(end_x), int(end_y)),
+                            (0, 255, 255),  # Yellow color for preview
+                            2,  # Thickness
+                            cv2.LINE_AA  # Anti-aliased line
+                        )
+                        
+                        # Draw dots at wall endpoints
+                        endpoint_color = (255, 128, 0)  # Orange dots for endpoints
+                        dot_radius = 4
+                        cv2.circle(preview_image, (int(start_x), int(start_y)), dot_radius, endpoint_color, -1)  # Start point
+                        cv2.circle(preview_image, (int(end_x), int(end_y)), dot_radius, endpoint_color, -1)  # End point
         
         # Add text showing the number of walls
-        wall_count = len(self.app.foundry_walls_preview)
+        wall_count = len(self.app.uvtt_walls_preview.get('line_of_sight', []))
+        # Position in top-left corner with padding
+        x_pos, y_pos = 20, 40
+        font_scale = 1.2
+        font_thickness = 2
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        text = f"Walls: {wall_count}"
         # Position in top-left corner with padding
         x_pos, y_pos = 20, 40
         font_scale = 1.2
@@ -453,56 +498,58 @@ class ExportPanel:
             self.app.original_processed_image = preview_image.copy()
           # Update the display with the preview
         self.app.processed_image = preview_image
-        self.app.image_processor.display_image(self.app.processed_image, preserve_view=True)
+        self.app.refresh_display()
 
-    def save_foundry_preview(self):
-        """Save the previewed Foundry VTT walls to a JSON file."""
-        if not self.app.foundry_walls_preview:
+    def save_uvtt_preview(self):
+        """Save the previewed Universal VTT file."""
+        if not self.app.uvtt_walls_preview:
             return
             
         # Get file path for saving
         file_path, _ = QFileDialog.getSaveFileName(
-            self, "Export Walls for Foundry VTT", "", "JSON Files (*.json)"
+            self.app, "Export Universal VTT File", "", "UVTT Files (*.uvtt);;JSON Files (*.json)"
         )
         if not file_path:
             return
             
-        # Add .json extension if not present
-        if not file_path.lower().endswith('.json'):
-            file_path += '.json'
+        # Add .uvtt extension if not present
+        if not file_path.lower().endswith(('.uvtt', '.json')):
+            file_path += '.uvtt'
             
-        # Save walls directly to JSON file
+        # Save UVTT file
         try:
+            # Create a copy without the preview pixel data
+            uvtt_data_to_save = self.app.uvtt_walls_preview.copy()
+            if '_preview_pixels' in uvtt_data_to_save:
+                del uvtt_data_to_save['_preview_pixels']
+            
             with open(file_path, 'w') as f:
-                import json
-                json.dump(self.app.foundry_walls_preview, f, indent=2)
+                json.dump(uvtt_data_to_save, f, indent=2)
                 
-            print(f"Successfully exported {len(self.app.foundry_walls_preview)} walls to {file_path}")
-            self.app.setStatusTip(f"Walls exported to {file_path}. Import in Foundry using Walls > Import")
+            wall_count = len(self.app.uvtt_walls_preview.get('line_of_sight', []))
+            print(f"Successfully exported {wall_count} walls to {file_path}")
+            file_saved_path = file_path  # Store for later use
             
-            # After successful saving:
-            # Disable save/cancel buttons
-            self.app.save_foundry_button.setEnabled(False)
-            self.app.cancel_foundry_button.setEnabled(False)
-            self.app.copy_foundry_button.setEnabled(False)
+            # Exit preview mode and return to edit mode
+            self.cancel_uvtt_preview()
             
-            # Exit preview mode
-            self.cancel_foundry_preview()
+            # Update status with save path after returning to edit mode
+            self.app.setStatusTip(f"Universal VTT file exported to {file_saved_path}")
         except Exception as e:
-            print(f"Failed to export walls: {e}")
-            self.app.setStatusTip(f"Failed to export walls: {e}")
+            print(f"Failed to export UVTT file: {e}")
+            self.app.setStatusTip(f"Failed to export UVTT file: {e}")
 
-    def cancel_foundry_preview(self):
-        """Cancel the Foundry VTT wall preview and return to normal view."""
+    def cancel_uvtt_preview(self):
+        """Cancel the Universal VTT preview and return to normal view."""
         # Disable buttons
-        self.app.save_foundry_button.setEnabled(False)
-        self.app.cancel_foundry_button.setEnabled(False)
-        self.app.copy_foundry_button.setEnabled(False)
+        self.app.save_uvtt_button.setEnabled(False)
+        self.app.cancel_uvtt_button.setEnabled(False)
+        self.app.copy_uvtt_button.setEnabled(False)
         
         # Clear preview-related data
-        self.app.foundry_walls_preview = None
-        self.app.foundry_export_params = None
-        self.app.foundry_preview_active = False
+        self.app.uvtt_walls_preview = None
+        self.app.uvtt_export_params = None
+        self.app.uvtt_preview_active = False
         
         # Re-enable detection controls
         self.set_controls_enabled(True)
@@ -510,32 +557,54 @@ class ExportPanel:
         # Restore original display
         if self.app.original_processed_image is not None:
             self.app.processed_image = self.app.original_processed_image.copy()
-            self.app.image_processor.display_image(self.app.processed_image)
+            self.app.refresh_display()
+        
+        # Restore the deletion mode (edit mode) as default
+        self.app.deletion_mode_radio.setChecked(True)
+        self.app.deletion_mode_enabled = True
+        self.app.color_selection_mode_enabled = False
+        self.app.edit_mask_mode_enabled = False
+        self.app.thin_mode_enabled = False
+        
+        # Update UI for edit mode
+        self.app.color_selection_options.setVisible(False)
+        self.app.mask_edit_options.setVisible(False)
+        self.app.thin_options.setVisible(False)
+        
+        # Store original image for highlighting
+        if self.app.processed_image is not None:
+            self.app.original_processed_image = self.app.processed_image.copy()
         
         # Update status
-        self.app.setStatusTip("Foundry VTT preview canceled")
+        self.app.setStatusTip("Universal VTT preview canceled, returned to edit mode")
 
-    def copy_foundry_to_clipboard(self):
-        """Copy the Foundry VTT walls JSON to the clipboard."""
-        if not self.app.foundry_walls_preview:
+    def copy_uvtt_to_clipboard(self):
+        """Copy the Universal VTT file JSON to the clipboard."""
+        if not self.app.uvtt_walls_preview:
             QMessageBox.warning(self.app, "No Walls", "No walls available to copy.")
             return
             
         try:
-            # Convert walls to JSON string
-            walls_json = json.dumps(self.app.foundry_walls_preview, indent=2)
+            # Create a copy without the preview pixel data
+            uvtt_data_to_copy = self.app.uvtt_walls_preview.copy()
+            if '_preview_pixels' in uvtt_data_to_copy:
+                del uvtt_data_to_copy['_preview_pixels']
+            
+            # Convert UVTT data to JSON string
+            uvtt_json = json.dumps(uvtt_data_to_copy, indent=2)
             
             # Copy to clipboard
             clipboard = QApplication.clipboard()
-            clipboard.setText(walls_json)
+            clipboard.setText(uvtt_json)
             
             # Show confirmation
-            self.app.setStatusTip(f"{len(self.app.foundry_walls_preview)} walls copied to clipboard. Paste in Foundry using Walls > Import.")
+            wall_count = len(self.app.uvtt_walls_preview.get('line_of_sight', []))
+            self.app.setStatusTip(f"Universal VTT file with {wall_count} walls copied to clipboard.")
             QMessageBox.information(self.app, "Copied to Clipboard", 
-                               f"{len(self.app.foundry_walls_preview)} walls copied to clipboard.\n"
-                               f"Use Walls > Import JSON in Foundry VTT to import them.")
+                               f"Universal VTT file with {wall_count} walls copied to clipboard.\n"
+                               f"Save as .uvtt file in your VTT software.")
         except Exception as e:
-            QMessageBox.warning(self.app, "Error", f"Failed to copy walls to clipboard: {str(e)}")
+            QMessageBox.warning(self.app, "Error", f"Failed to copy UVTT data to clipboard: {str(e)}")
 
     def set_controls_enabled(self, enabled, color_detection_mode=False):
         """Enable or disable detection controls based on preview state."""

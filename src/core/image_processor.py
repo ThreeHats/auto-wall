@@ -212,7 +212,11 @@ class ImageProcessor:
             # Display original full-resolution image without contours
             display_image = self.app.original_image.copy() if self.app.original_image is not None else processed_image
             self.app.processed_image = display_image
+            # Disable export button when no contours are found
+            self.app.export_uvtt_button.setEnabled(False)
         else:
+            # Enable export button when contours are successfully detected
+            self.app.export_uvtt_button.setEnabled(True)
             # Scale contours up to original resolution for display
             if self.app.scale_factor != 1.0 and self.app.original_image is not None:
                 # Scale contours to original resolution
@@ -233,8 +237,8 @@ class ImageProcessor:
         self.app.selection_manager.clear_selection()
         # Reset highlighted contour when re-detecting
         self.app.highlighted_contour_index = -1
-          # Convert to QPixmap and display
-        self.display_image(self.app.processed_image)
+          # Display the image with grid overlay
+        self.app.refresh_display()
         
     def display_image(self, image, preserve_view=False, region=None):
         """Display an image on the image label.
@@ -309,18 +313,21 @@ class ImageProcessor:
             
             # Reset the mask layer when loading a new image to prevent dimension mismatch
             self.app.mask_layer = None
-            self.app.foundry_walls_preview = None
+            self.app.uvtt_walls_preview = None
 
             self.app.export_panel.set_controls_enabled(True)
             
             # Reset button states when loading a new image
-            self.app.export_foundry_button.setEnabled(False)
+            self.app.export_uvtt_button.setEnabled(False)
             
             # Reset the current overlays and detected contours
             self.app.current_contours = None
             self.app.edges_overlay = None
             
-            # Update the image display
+            # Display the original image immediately (centered/fit to window)
+            self.display_image(self.app.original_image, preserve_view=False)
+            
+            # Update the image display (run detection and overlays)
             self.update_image()
 
     def load_image_from_url(self):
@@ -369,18 +376,23 @@ class ImageProcessor:
             
             # Reset the mask layer when loading a new image to prevent dimension mismatch
             self.app.mask_layer = None
-            self.app.foundry_walls_preview = None
+            self.app.uvtt_walls_preview = None
 
             self.app.export_panel.set_controls_enabled(True)
             
             # Reset button states when loading a new image
-            self.app.export_foundry_button.setEnabled(False)
-            self.app.save_foundry_button.setEnabled(False)
-            self.app.cancel_foundry_button.setEnabled(False)
-            self.app.copy_foundry_button.setEnabled(False)
+            self.app.export_uvtt_button.setEnabled(False)
+            self.app.save_uvtt_button.setEnabled(False)
+            self.app.cancel_uvtt_button.setEnabled(False)
+            self.app.copy_uvtt_button.setEnabled(False)
             
             # Update the display
             self.app.setStatusTip(f"Image loaded from URL. Size: {img.shape[1]}x{img.shape[0]}")
+            
+            # Display the original image immediately (centered/fit to window)
+            self.display_image(self.app.original_image, preserve_view=False)
+            
+            # Update the image display (run detection and overlays)
             self.update_image()
             
         except requests.exceptions.RequestException as e:
