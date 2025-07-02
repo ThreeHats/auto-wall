@@ -181,8 +181,64 @@ class InteractiveImageLabel(QLabel):
             self.selection_start = QPoint(x, y)
             self.selection_current = self.selection_start
             
-            # Handle left button clicks
-            if event.button() == Qt.MouseButton.LeftButton:
+            # Convert display coordinates to image coordinates
+            img_pos = self.display_to_image_coords(QPoint(x, y))
+            if img_pos is None:
+                super().mousePressEvent(event)
+                return
+                
+            img_x, img_y = img_pos
+            
+            # Special handling for UVTT preview mode
+            if self.parent_app.uvtt_preview_active:
+                if event.button() == Qt.MouseButton.LeftButton:
+                    if self.parent_app.uvtt_draw_mode:
+                        # Start drawing a new wall
+                        self.parent_app.drawing_new_wall = True
+                        self.parent_app.new_wall_start = (img_x, img_y)
+                        self.parent_app.new_wall_end = (img_x, img_y)  # Initialize with same point
+                        
+                    elif self.parent_app.uvtt_edit_mode:
+                        # Check if we're clicking on an existing wall point
+                        wall_idx, point_idx = self.find_closest_wall_point(img_x, img_y)
+                        if wall_idx != -1:
+                            # Selected a wall point for dragging
+                            self.parent_app.selected_wall_index = wall_idx
+                            self.parent_app.selected_point_index = point_idx
+                            
+                    elif self.parent_app.uvtt_delete_mode:
+                        # Find the wall under the cursor
+                        wall_idx = self.find_wall_under_cursor(img_x, img_y)
+                        if wall_idx != -1:
+                            # Save current state for undo
+                            self.parent_app.export_panel.save_wall_state_for_undo()
+                            
+                            # Delete the wall
+                            if self.parent_app.uvtt_walls_preview and '_preview_pixels' in self.parent_app.uvtt_walls_preview:
+                                # Delete from both collections
+                                if wall_idx < len(self.parent_app.uvtt_walls_preview['line_of_sight']):
+                                    del self.parent_app.uvtt_walls_preview['line_of_sight'][wall_idx]
+                                
+                                if wall_idx < len(self.parent_app.uvtt_walls_preview['_preview_pixels']):
+                                    del self.parent_app.uvtt_walls_preview['_preview_pixels'][wall_idx]
+                                
+                                # Reset selection
+                                self.parent_app.selected_wall_index = -1
+                                self.parent_app.selected_point_index = -1
+                                
+                                # Ensure we stay in delete mode
+                                self.parent_app.uvtt_delete_mode = True
+                                
+                                # Update the display
+                                self.parent_app.export_panel.display_uvtt_preview()
+                                self.parent_app.setStatusTip(f"Deleted wall {wall_idx}")
+                    
+                    # Update the preview
+                    self.parent_app.export_panel.display_uvtt_preview()
+                    return
+            
+            # Handle regular mode clicks
+            elif event.button() == Qt.MouseButton.LeftButton:
                 if self.parent_app.deletion_mode_enabled or self.parent_app.color_selection_mode_enabled:
                     self.parent_app.selection_manager.start_selection(x, y)
                 elif self.parent_app.edit_mask_mode_enabled:
@@ -205,8 +261,84 @@ class InteractiveImageLabel(QLabel):
                 self.pan_offset = self.pan_start_offset + delta
                 self.update_display()
                 return
+                
+            # Convert display coordinates to image coordinates
+            img_pos = self.display_to_image_coords(QPoint(x, y))
             
-            # If dragging with left button
+            # Handle UVTT preview mode
+            if self.parent_app.uvtt_preview_active and img_pos is not None:
+                img_x, img_y = img_pos
+                
+                # Left button dragging for various UVTT editing operations
+                if event.buttons() & Qt.MouseButton.LeftButton:
+                    if self.parent_app.uvtt_draw_mode and self.parent_app.drawing_new_wall:
+                        # Update the end point of the wall being drawn
+                        self.parent_app.new_wall_end = (img_x, img_y)
+                        self.parent_app.export_panel.display_uvtt_preview()
+                        return
+                        
+                    elif self.parent_app.uvtt_edit_mode and self.parent_app.selected_wall_index != -1:
+                        # Move the selected wall point
+                        wall_idx = self.parent_app.selected_wall_index
+                        point_idx = self.parent_app.selected_point_index
+                        
+                        if '_preview_pixels' in self.parent_app.uvtt_walls_preview and wall_idx < len(self.parent_app.uvtt_walls_preview['_preview_pixels']):
+                            # Update the pixel coordinates
+                            wall_points = self.parent_app.uvtt_walls_preview['_preview_pixels'][wall_idx]
+                            if point_idx < len(wall_points):
+                                wall_points[point_idx]["x"] = float(img_x)
+                                wall_points[point_idx]["y"] = float(img_y)
+                                
+                                # Update the grid coordinates in the UVTT data
+                                if 'line_of_sight' in self.parent_app.uvtt_walls_preview and wall_idx < len(self.parent_app.uvtt_walls_preview['line_of_sight']):
+                                    # Get the grid size
+                                    grid_size = self.parent_app.uvtt_walls_preview['resolution']['pixels_per_grid']
+                                    if grid_size <= 0:
+                                        grid_size = 70  # Default
+                                    
+                                    # Update grid coordinates
+                                    self.parent_app.uvtt_walls_preview['line_of_sight'][wall_idx][point_idx]["x"] = float(img_x / grid_size)
+                                    self.parent_app.uvtt_walls_preview['line_of_sight'][wall_idx][point_idx]["y"] = float(img_y / grid_size)
+                                
+                                self.parent_app.export_panel.display_uvtt_preview()
+                                return
+                
+                # No button press - update hover effects for edit/delete modes
+                elif self.parent_app.uvtt_edit_mode:
+                    # Highlight the closest wall point
+                    wall_idx, point_idx = self.find_closest_wall_point(img_x, img_y)
+                    
+                    # Only update if the selection has changed
+                    if wall_idx != self.parent_app.selected_wall_index or point_idx != self.parent_app.selected_point_index:
+                        self.parent_app.selected_wall_index = wall_idx
+                        self.parent_app.selected_point_index = point_idx
+                        self.parent_app.export_panel.display_uvtt_preview()
+                        
+                        # Update cursor based on selection
+                        if wall_idx != -1:
+                            self.setCursor(Qt.CursorShape.PointingHandCursor)
+                        else:
+                            self.setCursor(Qt.CursorShape.ArrowCursor)
+                        
+                elif self.parent_app.uvtt_delete_mode:
+                    # Highlight the wall under cursor
+                    wall_idx = self.find_wall_under_cursor(img_x, img_y)
+                    
+                    # Only update if the selection has changed
+                    if wall_idx != self.parent_app.selected_wall_index:
+                        self.parent_app.selected_wall_index = wall_idx
+                        self.parent_app.selected_point_index = -1
+                        self.parent_app.export_panel.display_uvtt_preview()
+                        
+                        # Update cursor based on selection
+                        if wall_idx != -1:
+                            self.setCursor(Qt.CursorShape.CrossCursor)
+                        else:
+                            self.setCursor(Qt.CursorShape.ArrowCursor)
+                
+                return
+            
+            # If dragging with left button in regular mode
             if self.selection_start and event.buttons() & Qt.MouseButton.LeftButton:
                 self.selection_current = QPoint(x, y)
                 if self.parent_app.deletion_mode_enabled or self.parent_app.color_selection_mode_enabled:
@@ -241,6 +373,78 @@ class InteractiveImageLabel(QLabel):
                 x, y = int(pos.x()), int(pos.y())
                 self.selection_current = QPoint(x, y)
                 
+                # Handle UVTT preview mode
+                if self.parent_app.uvtt_preview_active:
+                    # Convert display coordinates to image coordinates
+                    img_pos = self.display_to_image_coords(QPoint(x, y))
+                    if img_pos is not None:
+                        img_x, img_y = img_pos
+                        
+                        if self.parent_app.uvtt_draw_mode and self.parent_app.drawing_new_wall:
+                            # Finish drawing a new wall if the start and end points are different
+                            if (self.parent_app.new_wall_start is not None and 
+                                self.parent_app.new_wall_end is not None and
+                                self.parent_app.new_wall_start != self.parent_app.new_wall_end):
+                                
+                                # Extract start and end points
+                                start_x, start_y = self.parent_app.new_wall_start
+                                end_x, end_y = self.parent_app.new_wall_end
+                                
+                                # Create a new wall
+                                if self.parent_app.uvtt_walls_preview:
+                                    # Save current state for undo
+                                    self.parent_app.export_panel.save_wall_state_for_undo()
+                                    
+                                    # Get the grid size
+                                    grid_size = self.parent_app.uvtt_walls_preview['resolution']['pixels_per_grid']
+                                    if grid_size <= 0:
+                                        grid_size = 70  # Default
+                                    
+                                    # Create wall points in pixel coordinates
+                                    wall_pixels = [
+                                        {"x": float(start_x), "y": float(start_y)},
+                                        {"x": float(end_x), "y": float(end_y)}
+                                    ]
+                                    
+                                    # Create wall points in grid coordinates
+                                    wall_grid = [
+                                        {"x": float(start_x / grid_size), "y": float(start_y / grid_size)},
+                                        {"x": float(end_x / grid_size), "y": float(end_y / grid_size)}
+                                    ]
+                                    
+                                    # Add to the walls list
+                                    self.parent_app.uvtt_walls_preview['_preview_pixels'].append(wall_pixels)
+                                    self.parent_app.uvtt_walls_preview['line_of_sight'].append(wall_grid)
+                                    
+                                    self.parent_app.setStatusTip(f"Added new wall from ({start_x:.1f}, {start_y:.1f}) to ({end_x:.1f}, {end_y:.1f})")
+                            
+                            # Reset drawing state
+                            self.parent_app.drawing_new_wall = False
+                            self.parent_app.new_wall_start = None
+                            self.parent_app.new_wall_end = None
+                            
+                        elif self.parent_app.uvtt_edit_mode and self.parent_app.selected_wall_index != -1:
+                            # Finish editing a wall point
+                            self.parent_app.setStatusTip(f"Moved wall point")
+                            
+                            # Save the edit for undo
+                            self.parent_app.export_panel.save_wall_state_for_undo()
+                            
+                            # Reset selection after dragging to enable finding another point
+                            self.parent_app.selected_wall_index = -1
+                            self.parent_app.selected_point_index = -1
+                            
+                            # Ensure we stay in edit mode
+                            self.parent_app.uvtt_edit_mode = True
+                        
+                        # Update the preview
+                        self.parent_app.export_panel.display_uvtt_preview()
+                    
+                    # Reset selection points
+                    self.selection_start = None
+                    return
+                
+                # Regular mode handling
                 if self.parent_app.deletion_mode_enabled or self.parent_app.color_selection_mode_enabled:
                     self.parent_app.selection_manager.end_selection(x, y)
                 elif self.parent_app.edit_mask_mode_enabled:
@@ -765,3 +969,93 @@ class InteractiveImageLabel(QLabel):
         
         # Set the updated pixmap
         self.setPixmap(temp_display_pixmap)
+        
+    def find_closest_wall_point(self, x, y, max_distance=10):
+        """Find the closest wall endpoint to the given coordinates.
+        
+        Args:
+            x, y: Image coordinates to check
+            max_distance: Maximum distance to consider a point close enough
+            
+        Returns:
+            Tuple of (wall_index, point_index) or (-1, -1) if none found within distance
+        """
+        if not self.parent_app.uvtt_preview_active or not self.parent_app.uvtt_walls_preview:
+            return -1, -1
+            
+        if '_preview_pixels' not in self.parent_app.uvtt_walls_preview:
+            return -1, -1
+            
+        closest_wall = -1
+        closest_point = -1
+        min_distance = max_distance  # Initialize with max threshold
+        
+        # Check all wall endpoints
+        wall_points_list = self.parent_app.uvtt_walls_preview['_preview_pixels']
+        for wall_idx, wall_points in enumerate(wall_points_list):
+            # Each wall is a list of points
+            if len(wall_points) < 2:
+                continue
+                
+            # Check start point
+            start_x = wall_points[0]["x"]
+            start_y = wall_points[0]["y"]
+            start_distance = ((start_x - x)**2 + (start_y - y)**2)**0.5
+            
+            if start_distance < min_distance:
+                min_distance = start_distance
+                closest_wall = wall_idx
+                closest_point = 0
+                
+            # Check end point
+            end_x = wall_points[1]["x"]
+            end_y = wall_points[1]["y"]
+            end_distance = ((end_x - x)**2 + (end_y - y)**2)**0.5
+            
+            if end_distance < min_distance:
+                min_distance = end_distance
+                closest_wall = wall_idx
+                closest_point = 1
+        
+        return closest_wall, closest_point
+
+    def find_wall_under_cursor(self, x, y, max_distance=5):
+        """Find a wall segment close to the cursor position.
+        
+        Args:
+            x, y: Image coordinates to check
+            max_distance: Maximum distance from line to consider it selected
+            
+        Returns:
+            Wall index or -1 if none found
+        """
+        if not self.parent_app.uvtt_preview_active or not self.parent_app.uvtt_walls_preview:
+            return -1
+            
+        if '_preview_pixels' not in self.parent_app.uvtt_walls_preview:
+            return -1
+            
+        closest_wall = -1
+        min_distance = max_distance  # Initialize with max threshold
+        
+        # Check all wall segments
+        wall_points_list = self.parent_app.uvtt_walls_preview['_preview_pixels']
+        for wall_idx, wall_points in enumerate(wall_points_list):
+            # Each wall is a list of points
+            if len(wall_points) < 2:
+                continue
+                
+            # Get wall coordinates
+            start_x = wall_points[0]["x"]
+            start_y = wall_points[0]["y"]
+            end_x = wall_points[1]["x"]
+            end_y = wall_points[1]["y"]
+            
+            # Calculate distance from point to line segment
+            distance = point_to_line_distance(self.parent_app, x, y, start_x, start_y, end_x, end_y)
+            
+            if distance < min_distance:
+                min_distance = distance
+                closest_wall = wall_idx
+        
+        return closest_wall

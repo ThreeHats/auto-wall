@@ -2,7 +2,7 @@ from PyQt6.QtWidgets import (
     QApplication, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, 
     QFileDialog, QCheckBox, QListWidget,
     QDialog, QDialogButtonBox, QFrame, QSpinBox, QDoubleSpinBox,
-    QMessageBox, QComboBox
+    QMessageBox, QComboBox, QButtonGroup, QRadioButton
 )
 import cv2
 import json
@@ -366,6 +366,17 @@ class ExportPanel:
         # Store the generated walls for later use
         self.app.uvtt_walls_preview = uvtt_walls
         
+        # Initialize the wall edit history
+        self.app.wall_edit_history = []
+        
+        # Save the initial state to history
+        if 'line_of_sight' in uvtt_walls and '_preview_pixels' in uvtt_walls:
+            initial_state = {
+                'line_of_sight': [wall.copy() for wall in uvtt_walls['line_of_sight']],
+                'preview_pixels': [wall.copy() for wall in uvtt_walls['_preview_pixels']]
+            }
+            self.app.wall_edit_history.append(initial_state)
+        
         # Create a preview image showing the walls
         self.display_uvtt_preview()
         
@@ -380,14 +391,29 @@ class ExportPanel:
         # Disable detection controls while in preview mode
         self.set_controls_enabled(False)
         
+        # Set up the wall editing controls
+        self.setup_wall_editing_controls()
+        
         # Update status with more detailed information
         wall_count = len(uvtt_walls['line_of_sight']) if 'line_of_sight' in uvtt_walls else 0
-        self.app.setStatusTip(f"Previewing {wall_count} walls for Universal VTT. Click 'Save File' to export or 'Copy to Clipboard'.")
+        self.app.setStatusTip(f"Previewing {wall_count} walls for Universal VTT. Use the editing tools to modify walls.")
 
     def display_uvtt_preview(self):
         """Display a preview of the Universal VTT walls over the current image."""
         if not self.app.uvtt_walls_preview or self.app.current_image is None:
             return
+            
+        # Ensure we're in preview mode
+        self.app.uvtt_preview_active = True
+        
+        # Ensure radio buttons match the current mode
+        if hasattr(self.app, 'draw_mode_radio') and hasattr(self.app, 'edit_mode_radio') and hasattr(self.app, 'delete_mode_radio'):
+            if self.app.uvtt_draw_mode:
+                self.app.draw_mode_radio.setChecked(True)
+            elif self.app.uvtt_edit_mode:
+                self.app.edit_mode_radio.setChecked(True)
+            elif self.app.uvtt_delete_mode:
+                self.app.delete_mode_radio.setChecked(True)
             
         # Use original image for display if available, otherwise use current image
         if self.app.original_image is not None:
@@ -405,7 +431,7 @@ class ExportPanel:
             if '_preview_pixels' in self.app.uvtt_walls_preview:
                 # Use the stored pixel coordinates for accurate preview
                 wall_points_list = self.app.uvtt_walls_preview['_preview_pixels']
-                for wall_points in wall_points_list:
+                for idx, wall_points in enumerate(wall_points_list):
                     # These are already in pixel coordinates
                     for i in range(len(wall_points) - 1):
                         start_x = wall_points[i]["x"]
@@ -413,21 +439,40 @@ class ExportPanel:
                         end_x = wall_points[i + 1]["x"]
                         end_y = wall_points[i + 1]["y"]
                         
+                        # Determine the color of the wall (highlight selected wall)
+                        wall_color = (0, 255, 255)  # Default: Yellow color for preview
+                        if idx == self.app.selected_wall_index:
+                            wall_color = (0, 255, 0)  # Green for selected wall
+                            
                         # Draw line for this wall segment
                         cv2.line(
                             preview_image,
                             (int(start_x), int(start_y)),
                             (int(end_x), int(end_y)),
-                            (0, 255, 255),  # Yellow color for preview
+                            wall_color,
                             2,  # Thickness
                             cv2.LINE_AA  # Anti-aliased line
                         )
                         
-                        # Draw dots at wall endpoints
-                        endpoint_color = (255, 128, 0)  # Orange dots for endpoints
+                        # Determine endpoint colors based on selection
+                        start_endpoint_color = (255, 128, 0)  # Default: Orange dots for endpoints
+                        end_endpoint_color = (255, 128, 0)
+                        
+                        # Highlight the selected point if in edit mode
+                        if idx == self.app.selected_wall_index:
+                            if self.app.selected_point_index == 0:
+                                start_endpoint_color = (0, 0, 255)  # Red for selected start point
+                            elif self.app.selected_point_index == 1:
+                                end_endpoint_color = (0, 0, 255)  # Red for selected end point
+                        
+                        # Make endpoints larger when in edit mode for easier selection
                         dot_radius = 4
-                        cv2.circle(preview_image, (int(start_x), int(start_y)), dot_radius, endpoint_color, -1)  # Start point
-                        cv2.circle(preview_image, (int(end_x), int(end_y)), dot_radius, endpoint_color, -1)  # End point
+                        if self.app.uvtt_edit_mode:
+                            dot_radius = 6
+                        
+                        # Draw dots at wall endpoints
+                        cv2.circle(preview_image, (int(start_x), int(start_y)), dot_radius, start_endpoint_color, -1)  # Start point
+                        cv2.circle(preview_image, (int(end_x), int(end_y)), dot_radius, end_endpoint_color, -1)  # End point
             else:
                 # Fallback: convert from grid coordinates (may be less accurate)
                 pixels_per_grid = self.app.uvtt_walls_preview.get('resolution', {}).get('pixels_per_grid', 70)
@@ -493,6 +538,60 @@ class ExportPanel:
             font_thickness
         )
         
+        # If currently drawing a new wall, show it
+        if self.app.drawing_new_wall and self.app.new_wall_start is not None and self.app.new_wall_end is not None:
+            start_x, start_y = self.app.new_wall_start
+            end_x, end_y = self.app.new_wall_end
+            
+            # Draw the new wall in a different color
+            cv2.line(
+                preview_image,
+                (int(start_x), int(start_y)),
+                (int(end_x), int(end_y)),
+                (0, 0, 255),  # Red for new wall being drawn
+                2,  # Thickness
+                cv2.LINE_AA  # Anti-aliased line
+            )
+            
+            # Draw dots at the endpoints
+            cv2.circle(preview_image, (int(start_x), int(start_y)), 4, (0, 255, 255), -1)  # Start point
+            cv2.circle(preview_image, (int(end_x), int(end_y)), 4, (0, 255, 255), -1)  # End point
+        
+        # Add mode indicator text in the top-right
+        mode_text = ""
+        if self.app.uvtt_draw_mode:
+            mode_text = "Drawing Mode"
+        elif self.app.uvtt_edit_mode:
+            mode_text = "Edit Mode"
+        elif self.app.uvtt_delete_mode:
+            mode_text = "Delete Mode"
+        
+        if mode_text:
+            # Position in top-right corner
+            (text_width, text_height), _ = cv2.getTextSize(mode_text, font, font_scale, font_thickness)
+            mode_x_pos = preview_image.shape[1] - text_width - 20
+            mode_y_pos = 40
+            
+            # Add background for better visibility
+            cv2.rectangle(
+                preview_image, 
+                (mode_x_pos - 10, mode_y_pos - text_height - 10), 
+                (mode_x_pos + text_width + 10, mode_y_pos + 10), 
+                (0, 0, 0), 
+                -1
+            )
+            
+            # Draw the mode text
+            cv2.putText(
+                preview_image,
+                mode_text,
+                (mode_x_pos, mode_y_pos),
+                font, 
+                font_scale,
+                (255, 255, 255),  # White text
+                font_thickness
+            )
+        
         # Save a copy of the original processed image if not already saved
         if self.app.original_processed_image is None:
             self.app.original_processed_image = preview_image.copy()
@@ -518,6 +617,9 @@ class ExportPanel:
             
         # Save UVTT file
         try:
+            # Ensure we're in preview mode
+            self.app.uvtt_preview_active = True
+            
             # Create a copy without the preview pixel data
             uvtt_data_to_save = self.app.uvtt_walls_preview.copy()
             if '_preview_pixels' in uvtt_data_to_save:
@@ -530,11 +632,27 @@ class ExportPanel:
             print(f"Successfully exported {wall_count} walls to {file_path}")
             file_saved_path = file_path  # Store for later use
             
-            # Exit preview mode and return to edit mode
-            self.cancel_uvtt_preview()
+            # Don't exit preview mode, stay in edit mode with the same walls
+            # Ensure we're still in preview mode and have valid walls data
+            self.app.uvtt_preview_active = True
             
-            # Update status with save path after returning to edit mode
-            self.app.setStatusTip(f"Universal VTT file exported to {file_saved_path}")
+            # Recreate the wall editing controls to ensure they're visible
+            # First, remove any existing ones to avoid duplicates
+            if hasattr(self.app, 'wall_edit_frame') and self.app.wall_edit_frame is not None:
+                self.app.wall_edit_frame.setVisible(False)
+                self.app.wall_edit_frame.deleteLater()
+                self.app.wall_edit_frame = None
+            
+            # Create new controls
+            self.setup_wall_editing_controls()
+            
+            # Make sure they're visible
+            if hasattr(self.app, 'wall_edit_frame') and self.app.wall_edit_frame is not None:
+                self.app.wall_edit_frame.setVisible(True)
+                self.app.wall_edit_frame.raise_()  # Bring to front
+            
+            # Update the status with save path while remaining in preview mode
+            self.app.setStatusTip(f"Universal VTT file exported to {file_saved_path}. You can continue editing walls in the preview.")
         except Exception as e:
             print(f"Failed to export UVTT file: {e}")
             self.app.setStatusTip(f"Failed to export UVTT file: {e}")
@@ -546,10 +664,26 @@ class ExportPanel:
         self.app.cancel_uvtt_button.setEnabled(False)
         self.app.copy_uvtt_button.setEnabled(False)
         
+        # Remove wall editing controls if they exist
+        if hasattr(self.app, 'wall_edit_frame') and self.app.wall_edit_frame is not None:
+            self.app.wall_edit_frame.setVisible(False)
+            self.app.wall_edit_frame.deleteLater()
+            self.app.wall_edit_frame = None
+        
         # Clear preview-related data
         self.app.uvtt_walls_preview = None
         self.app.uvtt_export_params = None
         self.app.uvtt_preview_active = False
+        
+        # Clear wall editing state
+        self.app.uvtt_draw_mode = False
+        self.app.uvtt_edit_mode = False
+        self.app.uvtt_delete_mode = False
+        self.app.selected_wall_index = -1
+        self.app.selected_point_index = -1
+        self.app.drawing_new_wall = False
+        self.app.new_wall_start = None
+        self.app.new_wall_end = None
         
         # Re-enable detection controls
         self.set_controls_enabled(True)
@@ -635,3 +769,206 @@ class ExportPanel:
         # If re-enabling, respect color detection mode
         if enabled and self.app.color_detection_radio.isChecked():
             self.app.detection_panel.toggle_detection_mode_radio(True)
+    
+    def preview_uvtt(self, uvtt_walls, export_params):
+        """Preview the Universal VTT walls."""
+        if uvtt_walls is None:
+            QMessageBox.warning(self.app, "Error", "Failed to generate Universal VTT walls.")
+            return
+            
+        # Store the walls data and params for later use
+        self.app.uvtt_walls_preview = uvtt_walls
+        self.app.uvtt_export_params = export_params
+        
+        # Enable the export buttons
+        self.app.save_uvtt_button.setEnabled(True)
+        self.app.cancel_uvtt_button.setEnabled(True)
+        self.app.copy_uvtt_button.setEnabled(True)
+        
+        # Create wall editing controls
+        self.setup_wall_editing_controls()
+        
+        # Set the preview flag
+        self.app.uvtt_preview_active = True
+        
+        # Display the preview
+        self.display_uvtt_preview()
+        
+        # Disable detection controls while in preview mode
+        self.set_controls_enabled(False)
+        
+        # Update status with more detailed information
+        wall_count = len(uvtt_walls['line_of_sight']) if 'line_of_sight' in uvtt_walls else 0
+        self.app.setStatusTip(f"Previewing {wall_count} walls for Universal VTT. Use the editing tools to modify walls.")
+
+    def setup_wall_editing_controls(self):
+        """Create controls for wall editing in the preview mode."""
+        # Create a frame to hold the wall editing controls
+        if hasattr(self.app, 'wall_edit_frame') and self.app.wall_edit_frame is not None:
+            self.app.wall_edit_frame.deleteLater()
+        
+        self.app.wall_edit_frame = QFrame(self.app)
+        self.app.wall_edit_frame.setFrameShape(QFrame.Shape.StyledPanel)
+        self.app.wall_edit_frame.setFrameShadow(QFrame.Shadow.Raised)
+        wall_edit_layout = QVBoxLayout(self.app.wall_edit_frame)
+        
+        # Add title
+        edit_title = QLabel("Wall Editing Tools")
+        edit_title.setStyleSheet("font-weight: bold; font-size: 14px;")
+        wall_edit_layout.addWidget(edit_title)
+        
+        # Create radio buttons for different editing modes
+        edit_mode_group = QButtonGroup(self.app.wall_edit_frame)
+        
+        # Draw mode
+        draw_mode_radio = QRadioButton("Draw Mode")
+        draw_mode_radio.setToolTip("Click and drag to draw new wall segments")
+        draw_mode_radio.setChecked(True)  # Default mode
+        edit_mode_group.addButton(draw_mode_radio)
+        wall_edit_layout.addWidget(draw_mode_radio)
+        
+        # Edit mode
+        edit_mode_radio = QRadioButton("Edit Mode")
+        edit_mode_radio.setToolTip("Click and drag wall endpoints to move them")
+        edit_mode_group.addButton(edit_mode_radio)
+        wall_edit_layout.addWidget(edit_mode_radio)
+        
+        # Delete mode
+        delete_mode_radio = QRadioButton("Delete Mode")
+        delete_mode_radio.setToolTip("Click on walls to delete them")
+        edit_mode_group.addButton(delete_mode_radio)
+        wall_edit_layout.addWidget(delete_mode_radio)
+        
+        # Add a separator
+        separator = QFrame()
+        separator.setFrameShape(QFrame.Shape.HLine)
+        separator.setFrameShadow(QFrame.Shadow.Sunken)
+        wall_edit_layout.addWidget(separator)
+        
+        # Add undo button for wall edits
+        undo_button = QPushButton("Undo Last Wall Edit")
+        undo_button.setToolTip("Undo the last wall addition, edit, or deletion")
+        wall_edit_layout.addWidget(undo_button)
+        
+        # Add clear all button
+        clear_button = QPushButton("Clear All Walls")
+        clear_button.setToolTip("Remove all walls from the preview")
+        wall_edit_layout.addWidget(clear_button)
+        
+        wall_edit_layout.addStretch()
+        
+        # Add the frame to the main window at the proper position
+        # Insert it at a position where it's clearly visible
+        self.app.controls_layout.insertWidget(0, self.app.wall_edit_frame)  # Insert at top for visibility
+        
+        # Connect signals
+        draw_mode_radio.toggled.connect(lambda checked: self.toggle_wall_edit_mode('draw', checked))
+        edit_mode_radio.toggled.connect(lambda checked: self.toggle_wall_edit_mode('edit', checked))
+        delete_mode_radio.toggled.connect(lambda checked: self.toggle_wall_edit_mode('delete', checked))
+        undo_button.clicked.connect(self.undo_wall_edit)
+        clear_button.clicked.connect(self.clear_all_walls)
+        
+        # Store references to the controls
+        self.app.draw_mode_radio = draw_mode_radio
+        self.app.edit_mode_radio = edit_mode_radio
+        self.app.delete_mode_radio = delete_mode_radio
+        
+        # Set default mode
+        self.toggle_wall_edit_mode('draw', True)
+
+    def toggle_wall_edit_mode(self, mode, checked):
+        """Toggle between different wall editing modes."""
+        if not checked:
+            return
+            
+        # Reset all modes
+        self.app.uvtt_draw_mode = False
+        self.app.uvtt_edit_mode = False
+        self.app.uvtt_delete_mode = False
+        
+        # Set the selected mode
+        if mode == 'draw':
+            self.app.uvtt_draw_mode = True
+            self.app.setStatusTip("Draw Mode: Click and drag to draw new wall segments")
+        elif mode == 'edit':
+            self.app.uvtt_edit_mode = True
+            self.app.setStatusTip("Edit Mode: Click and drag wall endpoints to move them")
+        elif mode == 'delete':
+            self.app.uvtt_delete_mode = True
+            self.app.setStatusTip("Delete Mode: Click on walls to delete them")
+            
+        # Reset selection state
+        self.app.selected_wall_index = -1
+        self.app.selected_point_index = -1
+        self.app.drawing_new_wall = False
+        self.app.new_wall_start = None
+        self.app.new_wall_end = None
+        
+        # Update the preview to reflect the current mode
+        self.display_uvtt_preview()
+
+    def undo_wall_edit(self):
+        """Undo the last wall edit operation."""
+        if not hasattr(self.app, 'wall_edit_history') or not self.app.wall_edit_history:
+            QMessageBox.information(self.app, "Undo", "Nothing to undo")
+            return
+            
+        # Get the last state from history
+        last_state = self.app.wall_edit_history.pop()
+        
+        # Restore the previous state
+        if last_state:
+            self.app.uvtt_walls_preview['line_of_sight'] = last_state['line_of_sight']
+            self.app.uvtt_walls_preview['_preview_pixels'] = last_state['preview_pixels']
+            
+            # Update the preview
+            self.display_uvtt_preview()
+            self.app.setStatusTip("Last wall edit undone")
+
+    def clear_all_walls(self):
+        """Remove all walls from the preview."""
+        if self.app.uvtt_walls_preview is None:
+            return
+            
+        # Ask for confirmation
+        result = QMessageBox.question(
+            self.app,
+            "Clear All Walls",
+            "Are you sure you want to delete all walls?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        
+        if result == QMessageBox.StandardButton.Yes:
+            # Save current state for undo
+            self.save_wall_state_for_undo()
+            
+            # Create empty walls list but keep the rest of the structure
+            self.app.uvtt_walls_preview['line_of_sight'] = []
+            self.app.uvtt_walls_preview['_preview_pixels'] = []
+            
+            # Update the display
+            self.display_uvtt_preview()
+            self.app.setStatusTip("All walls cleared")
+
+    def save_wall_state_for_undo(self):
+        """Save the current wall state for undo operations."""
+        if not self.app.uvtt_walls_preview or not hasattr(self.app, 'wall_edit_history'):
+            return
+            
+        # Create a deep copy of the current walls
+        current_state = {
+            'line_of_sight': [wall.copy() for wall in self.app.uvtt_walls_preview.get('line_of_sight', [])],
+            'preview_pixels': [wall.copy() for wall in self.app.uvtt_walls_preview.get('_preview_pixels', [])]
+        }
+        
+        # Add to history (limit history to 20 states)
+        self.app.wall_edit_history.append(current_state)
+        if len(self.app.wall_edit_history) > 20:
+            self.app.wall_edit_history.pop(0)
+        
+        # Ensure wall editing controls are visible
+        if hasattr(self.app, 'wall_edit_frame') and self.app.wall_edit_frame is not None:
+            self.app.wall_edit_frame.setVisible(True)
+            
+        # Preserve the current edit mode by not changing the radio button
+        # Do not set the draw mode as default here, let display_uvtt_preview handle it

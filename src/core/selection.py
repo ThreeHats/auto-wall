@@ -10,10 +10,10 @@ class SelectionManager:
     
     def clear_selection(self):
         """Clear the current selection."""
-        # Also check if we're in Foundry preview mode
-        if self.app.foundry_preview_active and self.app.foundry_walls_preview:
+        # Check if we're in UVTT preview mode
+        if hasattr(self.app, 'uvtt_preview_active') and self.app.uvtt_preview_active and self.app.uvtt_walls_preview:
             # If in preview mode, redraw the preview instead
-            self.app.export_panel.display_foundry_preview()
+            self.app.export_panel.display_uvtt_preview()
             return
         
         # Original code for normal mode

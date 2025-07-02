@@ -127,7 +127,17 @@ class WallDetectionApp(QMainWindow):
         # Preview state
         self.brush_preview_active = False
         self.last_preview_image = None
-        self.foundry_preview_active = False 
+        self.uvtt_preview_active = False
+        
+        # UVTT wall editing states
+        self.uvtt_draw_mode = False      # Drawing new walls
+        self.uvtt_edit_mode = False      # Moving wall points
+        self.uvtt_delete_mode = False    # Deleting walls
+        self.selected_wall_index = -1    # Currently selected wall
+        self.selected_point_index = -1   # Currently selected point (0=start, 1=end)
+        self.drawing_new_wall = False    # Flag for currently drawing a new wall
+        self.new_wall_start = None       # Start point for new wall being drawn
+        self.new_wall_end = None         # End point for new wall being drawn
         
         # Grid overlay
         self.grid_overlay_enabled = False
