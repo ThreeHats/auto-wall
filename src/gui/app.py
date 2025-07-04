@@ -134,11 +134,15 @@ class WallDetectionApp(QMainWindow):
         self.uvtt_draw_mode = False      # Drawing new walls
         self.uvtt_edit_mode = False      # Moving wall points
         self.uvtt_delete_mode = False    # Deleting walls
+        self.uvtt_portal_mode = False    # Drawing new portals/doors
         self.selected_wall_index = -1    # Currently selected wall
         self.selected_point_index = -1   # Currently selected point (0=start, 1=end)
         self.drawing_new_wall = False    # Flag for currently drawing a new wall
+        self.drawing_new_portal = False  # Flag for currently drawing a new portal
         self.new_wall_start = None       # Start point for new wall being drawn
         self.new_wall_end = None         # End point for new wall being drawn
+        self.new_portal_start = None     # Start point for new portal being drawn
+        self.new_portal_end = None       # End point for new portal being drawn
         self.selecting_walls = False     # Flag for wall selection box
         self.wall_selection_start = None # Start point of wall selection box
         self.wall_selection_current = None # Current point of wall selection box

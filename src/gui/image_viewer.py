@@ -221,30 +221,157 @@ class InteractiveImageLabel(QLabel):
                             # Standard wall starting at cursor
                             self.parent_app.new_wall_start = (img_x, img_y)
                             self.parent_app.new_wall_end = (img_x, img_y)  # Initialize with same point
+                            
+                    elif self.parent_app.uvtt_portal_mode:
+                        # Save the current state for undo before drawing a new portal
+                        self.parent_app.export_panel.save_wall_state_for_undo()
+                        
+                        # Start drawing a new portal/door
+                        self.parent_app.drawing_new_portal = True
+                        
+                        # Check if Ctrl is held and if we have a previous portal to continue from
+                        if (event.modifiers() & Qt.KeyboardModifier.ControlModifier and 
+                            'portals' in self.parent_app.uvtt_walls_preview and 
+                            len(self.parent_app.uvtt_walls_preview['portals']) > 0):
+                            
+                            # Use the endpoint of the last portal as the starting point for the new portal
+                            last_portal = self.parent_app.uvtt_walls_preview['portals'][-1]
+                            # Get the last point of the last portal (second bound)
+                            if 'bounds' in last_portal and len(last_portal['bounds']) > 1:
+                                grid_size = self.parent_app.uvtt_walls_preview.get('resolution', {}).get('pixels_per_grid', 70)
+                                last_x = float(last_portal['bounds'][1]['x']) * grid_size
+                                last_y = float(last_portal['bounds'][1]['y']) * grid_size
+                                self.parent_app.new_portal_start = (last_x, last_y)
+                                self.parent_app.new_portal_end = (img_x, img_y)
+                                self.parent_app.setStatusTip("Continuing portal from previous endpoint")
+                            else:
+                                # Fallback if the last portal is malformed
+                                self.parent_app.new_portal_start = (img_x, img_y)
+                                self.parent_app.new_portal_end = (img_x, img_y)
+                        else:
+                            # Standard portal starting at cursor
+                            self.parent_app.new_portal_start = (img_x, img_y)
+                            self.parent_app.new_portal_end = (img_x, img_y)  # Initialize with same point
+                            self.parent_app.setStatusTip("Drawing new portal/door")
                         
                     elif self.parent_app.uvtt_edit_mode:
                         # First check if we're clicking on a wall point
                         wall_idx, point_idx = self.find_closest_wall_point(img_x, img_y)
+                        portal_idx, portal_point_idx = self.find_closest_portal_point(img_x, img_y)
+                        
+                        # Determine which is closer - wall point or portal point
+                        wall_distance = float('inf')
+                        portal_distance = float('inf')
+                        
                         if wall_idx != -1:
-                            # Found a wall point
+                            # Calculate distance to wall point
+                            if '_preview_pixels' in self.parent_app.uvtt_walls_preview and wall_idx < len(self.parent_app.uvtt_walls_preview['_preview_pixels']):
+                                wall_points = self.parent_app.uvtt_walls_preview['_preview_pixels'][wall_idx]
+                                if point_idx < len(wall_points):
+                                    wall_x = float(wall_points[point_idx]["x"])
+                                    wall_y = float(wall_points[point_idx]["y"])
+                                    wall_distance = ((img_x - wall_x) ** 2 + (img_y - wall_y) ** 2) ** 0.5
+                        
+                        if portal_idx != -1:
+                            # Calculate distance to portal point
+                            if 'portals' in self.parent_app.uvtt_walls_preview and portal_idx < len(self.parent_app.uvtt_walls_preview['portals']):
+                                portal = self.parent_app.uvtt_walls_preview['portals'][portal_idx]
+                                if 'bounds' in portal and portal_point_idx < len(portal['bounds']):
+                                    grid_size = self.parent_app.uvtt_walls_preview.get('resolution', {}).get('pixels_per_grid', 70)
+                                    portal_x = portal['bounds'][portal_point_idx]['x'] * grid_size
+                                    portal_y = portal['bounds'][portal_point_idx]['y'] * grid_size
+                                    portal_distance = ((img_x - portal_x) ** 2 + (img_y - portal_y) ** 2) ** 0.5
+                        
+                        # Choose the closer point (wall or portal)
+                        if portal_distance < wall_distance and portal_idx != -1:
+                            # Portal point is closer - handle portal editing
+                            if not hasattr(self.parent_app, 'selected_portal_points'):
+                                self.parent_app.selected_portal_points = []
+                            
+                            portal_point_is_selected = (portal_idx, portal_point_idx) in self.parent_app.selected_portal_points
+                            
+                            if portal_point_is_selected:
+                                # This portal point is already selected - start moving all selected items (portal points and any selected walls)
+                                self.parent_app.export_panel.save_wall_state_for_undo()
+                                self.store_initial_positions_for_portal_points()
+                                # Also store wall positions if we have selected walls
+                                if hasattr(self.parent_app, 'selected_wall_indices') and self.parent_app.selected_wall_indices:
+                                    self.store_initial_positions_for_walls()
+                                if hasattr(self.parent_app, 'selected_points') and self.parent_app.selected_points:
+                                    self.store_initial_positions_for_points()
+                                
+                                # Enable both drag systems for unified movement
+                                self.parent_app.multi_portal_drag = True
+                                self.parent_app.multi_portal_drag_start = (img_x, img_y)
+                                if hasattr(self.parent_app, 'selected_wall_indices') and (self.parent_app.selected_wall_indices or (hasattr(self.parent_app, 'selected_points') and self.parent_app.selected_points)):
+                                    self.parent_app.multi_wall_drag = True
+                                    self.parent_app.multi_wall_drag_start = (img_x, img_y)
+                                
+                                total_selected = len(self.parent_app.selected_portal_points)
+                                if hasattr(self.parent_app, 'selected_points') and self.parent_app.selected_points:
+                                    total_selected += len(self.parent_app.selected_points)
+                                if hasattr(self.parent_app, 'selected_wall_indices') and self.parent_app.selected_wall_indices:
+                                    total_selected += len(self.parent_app.selected_wall_indices)
+                                    
+                                self.parent_app.setStatusTip(f"Moving {total_selected} selected items")
+                                print(f"Starting unified drag of {len(self.parent_app.selected_portal_points)} portal points and {len(getattr(self.parent_app, 'selected_points', []))} wall points")
+                            else:
+                                # Clear wall selections and select this portal point
+                                self.parent_app.selected_wall_indices = []
+                                self.parent_app.selected_points = []
+                                self.parent_app.selected_portal_points = [(portal_idx, portal_point_idx)]
+                                self.parent_app.selected_portal_index = portal_idx
+                                self.parent_app.selected_portal_point_index = portal_point_idx
+                                
+                                self.parent_app.export_panel.save_wall_state_for_undo()
+                                self.store_initial_positions_for_portal_points()
+                                self.parent_app.multi_portal_drag = True
+                                self.parent_app.multi_portal_drag_start = (img_x, img_y)
+                                self.parent_app.setStatusTip(f"Moving portal point")
+                                print(f"Starting drag of portal point {portal_point_idx} on portal {portal_idx}")
+                            return
+                            
+                        elif wall_idx != -1:
+                            # Wall point is closer or only option - handle wall editing
                             if not hasattr(self.parent_app, 'selected_points'):
                                 self.parent_app.selected_points = []
                             
                             point_is_selected = (wall_idx, point_idx) in self.parent_app.selected_points
                             
                             if point_is_selected:
-                                # This point is already selected - start moving all selected points
+                                # This point is already selected - start moving all selected items (wall points and any selected portals)
                                 self.parent_app.export_panel.save_wall_state_for_undo()
                                 self.store_initial_positions_for_points()
+                                # Also store portal positions if we have selected portals
+                                if hasattr(self.parent_app, 'selected_portal_indices') and self.parent_app.selected_portal_indices:
+                                    self.store_initial_positions_for_portals()
+                                if hasattr(self.parent_app, 'selected_portal_points') and self.parent_app.selected_portal_points:
+                                    self.store_initial_positions_for_portal_points()
+                                
+                                # Enable both drag systems for unified movement
                                 self.parent_app.multi_wall_drag = True
                                 self.parent_app.multi_wall_drag_start = (img_x, img_y)
                                 self.parent_app.dragging_from_line = False  # We're dragging points
-                                self.parent_app.setStatusTip(f"Moving {len(self.parent_app.selected_points)} selected points")
-                                print(f"Starting drag of {len(self.parent_app.selected_points)} selected points")
+                                if hasattr(self.parent_app, 'selected_portal_indices') and (self.parent_app.selected_portal_indices or (hasattr(self.parent_app, 'selected_portal_points') and self.parent_app.selected_portal_points)):
+                                    self.parent_app.multi_portal_drag = True
+                                    self.parent_app.multi_portal_drag_start = (img_x, img_y)
+                                
+                                total_selected = len(self.parent_app.selected_points)
+                                if hasattr(self.parent_app, 'selected_portal_points') and self.parent_app.selected_portal_points:
+                                    total_selected += len(self.parent_app.selected_portal_points)
+                                if hasattr(self.parent_app, 'selected_portal_indices') and self.parent_app.selected_portal_indices:
+                                    total_selected += len(self.parent_app.selected_portal_indices)
+                                    
+                                self.parent_app.setStatusTip(f"Moving {total_selected} selected items")
+                                print(f"Starting unified drag of {len(self.parent_app.selected_points)} wall points and {len(getattr(self.parent_app, 'selected_portal_points', []))} portal points")
                             else:
-                                # This point is not selected - clear selection and move just this point
+                                # Clear portal selections and select this wall point
                                 self.parent_app.selected_wall_indices = []
                                 self.parent_app.selected_points = [(wall_idx, point_idx)]
+                                if hasattr(self.parent_app, 'selected_portal_points'):
+                                    self.parent_app.selected_portal_points = []
+                                if hasattr(self.parent_app, 'selected_portal_indices'):
+                                    self.parent_app.selected_portal_indices = []
                                 self.parent_app.selected_wall_index = wall_idx
                                 self.parent_app.selected_point_index = point_idx
                                 
@@ -257,26 +384,139 @@ class InteractiveImageLabel(QLabel):
                                 print(f"Starting drag of single point {point_idx} on wall {wall_idx}")
                             return
                         
-                        # Check if we're clicking on a wall line
-                        wall_idx = self.find_wall_under_cursor(img_x, img_y)
-                        if wall_idx != -1:
-                            # Found a wall line
-                            wall_is_selected = wall_idx in self.parent_app.selected_wall_indices
+                        # Check if we're clicking on a wall line or portal line
+                        wall_line_idx = self.find_wall_under_cursor(img_x, img_y)
+                        portal_line_idx = self.find_portal_under_cursor(img_x, img_y)
+                        
+                        # Determine which is closer - wall line or portal line
+                        wall_line_distance = float('inf')
+                        portal_line_distance = float('inf')
+                        
+                        if wall_line_idx != -1:
+                            # Calculate distance to wall line
+                            if '_preview_pixels' in self.parent_app.uvtt_walls_preview and wall_line_idx < len(self.parent_app.uvtt_walls_preview['_preview_pixels']):
+                                wall_points = self.parent_app.uvtt_walls_preview['_preview_pixels'][wall_line_idx]
+                                if len(wall_points) >= 2:
+                                    x1, y1 = float(wall_points[0]["x"]), float(wall_points[0]["y"])
+                                    x2, y2 = float(wall_points[1]["x"]), float(wall_points[1]["y"])
+                                    wall_line_distance = self.calculate_point_to_line_distance(img_x, img_y, x1, y1, x2, y2)
+                        
+                        if portal_line_idx != -1:
+                            # Calculate distance to portal line
+                            if 'portals' in self.parent_app.uvtt_walls_preview and portal_line_idx < len(self.parent_app.uvtt_walls_preview['portals']):
+                                portal = self.parent_app.uvtt_walls_preview['portals'][portal_line_idx]
+                                if 'bounds' in portal and len(portal['bounds']) >= 2:
+                                    grid_size = self.parent_app.uvtt_walls_preview.get('resolution', {}).get('pixels_per_grid', 70)
+                                    x1 = portal['bounds'][0]['x'] * grid_size
+                                    y1 = portal['bounds'][0]['y'] * grid_size
+                                    x2 = portal['bounds'][1]['x'] * grid_size
+                                    y2 = portal['bounds'][1]['y'] * grid_size
+                                    portal_line_distance = self.calculate_point_to_line_distance(img_x, img_y, x1, y1, x2, y2)
+                        
+                        # Choose the closer line (wall or portal)
+                        if portal_line_distance < wall_line_distance and portal_line_idx != -1:
+                            # Portal line is closer - handle portal line editing
+                            if not hasattr(self.parent_app, 'selected_portal_indices'):
+                                self.parent_app.selected_portal_indices = []
+                            
+                            portal_is_selected = portal_line_idx in self.parent_app.selected_portal_indices
+                            
+                            if portal_is_selected:
+                                # This portal is already selected - start moving all selected items (portals and any selected walls)
+                                self.parent_app.export_panel.save_wall_state_for_undo()
+                                self.store_initial_positions_for_portals()
+                                # Also store wall positions if we have selected walls
+                                if hasattr(self.parent_app, 'selected_wall_indices') and self.parent_app.selected_wall_indices:
+                                    self.store_initial_positions_for_walls()
+                                if hasattr(self.parent_app, 'selected_points') and self.parent_app.selected_points:
+                                    self.store_initial_positions_for_points()
+                                
+                                # Enable both drag systems for unified movement
+                                self.parent_app.multi_portal_drag = True
+                                self.parent_app.multi_portal_drag_start = (img_x, img_y)
+                                self.parent_app.dragging_from_portal_line = True
+                                if hasattr(self.parent_app, 'selected_wall_indices') and (self.parent_app.selected_wall_indices or (hasattr(self.parent_app, 'selected_points') and self.parent_app.selected_points)):
+                                    self.parent_app.multi_wall_drag = True
+                                    self.parent_app.multi_wall_drag_start = (img_x, img_y)
+                                    # Set appropriate wall drag type
+                                    if self.parent_app.selected_wall_indices:
+                                        self.parent_app.dragging_from_line = True
+                                    else:
+                                        self.parent_app.dragging_from_line = False
+                                
+                                total_selected = len(self.parent_app.selected_portal_indices)
+                                if hasattr(self.parent_app, 'selected_wall_indices') and self.parent_app.selected_wall_indices:
+                                    total_selected += len(self.parent_app.selected_wall_indices)
+                                if hasattr(self.parent_app, 'selected_points') and self.parent_app.selected_points:
+                                    total_selected += len(self.parent_app.selected_points)
+                                    
+                                self.parent_app.setStatusTip(f"Moving {total_selected} selected items")
+                                print(f"Starting unified drag of {len(self.parent_app.selected_portal_indices)} portals and {len(getattr(self.parent_app, 'selected_wall_indices', []))} walls")
+                            else:
+                                # Clear wall selections and select this portal
+                                self.parent_app.selected_wall_indices = []
+                                self.parent_app.selected_points = []
+                                if hasattr(self.parent_app, 'selected_portal_points'):
+                                    self.parent_app.selected_portal_points = []
+                                self.parent_app.selected_portal_indices = [portal_line_idx]
+                                self.parent_app.selected_portal_index = portal_line_idx
+                                
+                                self.parent_app.export_panel.save_wall_state_for_undo()
+                                self.store_initial_positions_for_portals()
+                                self.parent_app.multi_portal_drag = True
+                                self.parent_app.multi_portal_drag_start = (img_x, img_y)
+                                self.parent_app.dragging_from_portal_line = True
+                                self.parent_app.setStatusTip(f"Moving single portal")
+                                print(f"Starting drag of single portal {portal_line_idx}")
+                            
+                            # Update the display to show selection
+                            self.parent_app.export_panel.display_uvtt_preview()
+                            return
+                            
+                        elif wall_line_idx != -1:
+                            # Wall line is closer or only option - handle wall line editing
+                            wall_is_selected = wall_line_idx in self.parent_app.selected_wall_indices
                             
                             if wall_is_selected:
-                                # This wall is already selected - start moving all selected walls
+                                # This wall is already selected - start moving all selected items (walls and any selected portals)
                                 self.parent_app.export_panel.save_wall_state_for_undo()
                                 self.store_initial_positions_for_walls()
+                                # Also store portal positions if we have selected portals
+                                if hasattr(self.parent_app, 'selected_portal_indices') and self.parent_app.selected_portal_indices:
+                                    self.store_initial_positions_for_portals()
+                                if hasattr(self.parent_app, 'selected_portal_points') and self.parent_app.selected_portal_points:
+                                    self.store_initial_positions_for_portal_points()
+                                
+                                # Enable both drag systems for unified movement
                                 self.parent_app.multi_wall_drag = True
                                 self.parent_app.multi_wall_drag_start = (img_x, img_y)
                                 self.parent_app.dragging_from_line = True  # We're dragging wall lines
-                                self.parent_app.setStatusTip(f"Moving {len(self.parent_app.selected_wall_indices)} selected walls")
-                                print(f"Starting drag of {len(self.parent_app.selected_wall_indices)} selected walls")
+                                if hasattr(self.parent_app, 'selected_portal_indices') and (self.parent_app.selected_portal_indices or (hasattr(self.parent_app, 'selected_portal_points') and self.parent_app.selected_portal_points)):
+                                    self.parent_app.multi_portal_drag = True
+                                    self.parent_app.multi_portal_drag_start = (img_x, img_y)
+                                    # Set appropriate portal drag type
+                                    if self.parent_app.selected_portal_indices:
+                                        self.parent_app.dragging_from_portal_line = True
+                                    else:
+                                        self.parent_app.dragging_from_portal_line = False
+                                
+                                total_selected = len(self.parent_app.selected_wall_indices)
+                                if hasattr(self.parent_app, 'selected_portal_indices') and self.parent_app.selected_portal_indices:
+                                    total_selected += len(self.parent_app.selected_portal_indices)
+                                if hasattr(self.parent_app, 'selected_portal_points') and self.parent_app.selected_portal_points:
+                                    total_selected += len(self.parent_app.selected_portal_points)
+                                    
+                                self.parent_app.setStatusTip(f"Moving {total_selected} selected items")
+                                print(f"Starting unified drag of {len(self.parent_app.selected_wall_indices)} walls and {len(getattr(self.parent_app, 'selected_portal_indices', []))} portals")
                             else:
-                                # This wall is not selected - clear selection and move just this wall
-                                self.parent_app.selected_wall_indices = [wall_idx]
+                                # Clear portal selections and select this wall
+                                self.parent_app.selected_wall_indices = [wall_line_idx]
                                 self.parent_app.selected_points = []
-                                self.parent_app.selected_wall_index = wall_idx
+                                if hasattr(self.parent_app, 'selected_portal_points'):
+                                    self.parent_app.selected_portal_points = []
+                                if hasattr(self.parent_app, 'selected_portal_indices'):
+                                    self.parent_app.selected_portal_indices = []
+                                self.parent_app.selected_wall_index = wall_line_idx
                                 self.parent_app.selected_point_index = -1
                                 
                                 self.parent_app.export_panel.save_wall_state_for_undo()
@@ -285,7 +525,7 @@ class InteractiveImageLabel(QLabel):
                                 self.parent_app.multi_wall_drag_start = (img_x, img_y)
                                 self.parent_app.dragging_from_line = True  # We're dragging a wall line
                                 self.parent_app.setStatusTip(f"Moving single wall")
-                                print(f"Starting drag of single wall {wall_idx}")
+                                print(f"Starting drag of single wall {wall_line_idx}")
                             
                             # Update the display to show selection
                             self.parent_app.export_panel.display_uvtt_preview()
@@ -298,10 +538,28 @@ class InteractiveImageLabel(QLabel):
                         self.parent_app.selected_wall_index = -1
                         self.parent_app.selected_point_index = -1
                         
+                        # Clear portal selections as well
+                        if hasattr(self.parent_app, 'selected_portal_indices'):
+                            self.parent_app.selected_portal_indices = []
+                        if hasattr(self.parent_app, 'selected_portal_points'):
+                            self.parent_app.selected_portal_points = []
+                        if hasattr(self.parent_app, 'selected_portal_index'):
+                            self.parent_app.selected_portal_index = -1
+                        if hasattr(self.parent_app, 'selected_portal_point_index'):
+                            self.parent_app.selected_portal_point_index = -1
+                        
                         # Clear any previous drag operations
                         self.parent_app.multi_wall_drag = False
                         self.parent_app.multi_wall_drag_start = None
                         self.parent_app.dragging_from_line = False
+                        
+                        # Clear portal drag operations as well
+                        if hasattr(self.parent_app, 'multi_portal_drag'):
+                            self.parent_app.multi_portal_drag = False
+                        if hasattr(self.parent_app, 'multi_portal_drag_start'):
+                            self.parent_app.multi_portal_drag_start = None
+                        if hasattr(self.parent_app, 'dragging_from_portal_line'):
+                            self.parent_app.dragging_from_portal_line = False
                         
                         self.parent_app.selecting_walls = True
                         self.parent_app.wall_selection_start = (img_x, img_y)
@@ -309,14 +567,62 @@ class InteractiveImageLabel(QLabel):
                         print(f"Starting selection box at ({img_x}, {img_y})")
                             
                     elif self.parent_app.uvtt_delete_mode:
-                        # First check if we're directly clicking on a wall for immediate deletion
+                        # Check if we're clicking on a wall or portal for immediate deletion
                         wall_idx = self.find_wall_under_cursor(img_x, img_y)
+                        portal_idx = self.find_portal_under_cursor(img_x, img_y)
+                        
+                        # Determine which is closer - wall or portal
+                        wall_distance = float('inf')
+                        portal_distance = float('inf')
+                        
                         if wall_idx != -1:
-                            # Save current state for undo - use force=True to ensure state is saved
-                            # This ensures each delete operation can be individually undone
+                            # Calculate distance to wall
+                            if '_preview_pixels' in self.parent_app.uvtt_walls_preview and wall_idx < len(self.parent_app.uvtt_walls_preview['_preview_pixels']):
+                                wall_points = self.parent_app.uvtt_walls_preview['_preview_pixels'][wall_idx]
+                                if len(wall_points) >= 2:
+                                    x1, y1 = float(wall_points[0]["x"]), float(wall_points[0]["y"])
+                                    x2, y2 = float(wall_points[1]["x"]), float(wall_points[1]["y"])
+                                    wall_distance = self.calculate_point_to_line_distance(img_x, img_y, x1, y1, x2, y2)
+                        
+                        if portal_idx != -1:
+                            # Calculate distance to portal
+                            if 'portals' in self.parent_app.uvtt_walls_preview and portal_idx < len(self.parent_app.uvtt_walls_preview['portals']):
+                                portal = self.parent_app.uvtt_walls_preview['portals'][portal_idx]
+                                if 'bounds' in portal and len(portal['bounds']) >= 2:
+                                    grid_size = self.parent_app.uvtt_walls_preview.get('resolution', {}).get('pixels_per_grid', 70)
+                                    x1 = portal['bounds'][0]['x'] * grid_size
+                                    y1 = portal['bounds'][0]['y'] * grid_size
+                                    x2 = portal['bounds'][1]['x'] * grid_size
+                                    y2 = portal['bounds'][1]['y'] * grid_size
+                                    portal_distance = self.calculate_point_to_line_distance(img_x, img_y, x1, y1, x2, y2)
+                        
+                        # Delete the closer item (portal or wall)
+                        if portal_distance < wall_distance and portal_idx != -1:
+                            # Delete the portal
                             self.parent_app.export_panel.save_wall_state_for_undo(force=True)
                             
+                            if self.parent_app.uvtt_walls_preview and 'portals' in self.parent_app.uvtt_walls_preview:
+                                if portal_idx < len(self.parent_app.uvtt_walls_preview['portals']):
+                                    del self.parent_app.uvtt_walls_preview['portals'][portal_idx]
+                                
+                                # Reset portal selection
+                                if hasattr(self.parent_app, 'selected_portal_index'):
+                                    self.parent_app.selected_portal_index = -1
+                                
+                                # Ensure we stay in delete mode
+                                self.parent_app.uvtt_delete_mode = True
+                                
+                                # Update the display
+                                self.parent_app.export_panel.display_uvtt_preview()
+                                self.parent_app.setStatusTip(f"Deleted portal {portal_idx}")
+                                
+                                # Save the final state for undo
+                                self.parent_app.export_panel.save_wall_state_for_undo(force=True)
+                                
+                        elif wall_idx != -1:
                             # Delete the wall
+                            self.parent_app.export_panel.save_wall_state_for_undo(force=True)
+                            
                             if self.parent_app.uvtt_walls_preview and '_preview_pixels' in self.parent_app.uvtt_walls_preview:
                                 # Delete from both collections
                                 if wall_idx < len(self.parent_app.uvtt_walls_preview['line_of_sight']):
@@ -339,12 +645,18 @@ class InteractiveImageLabel(QLabel):
                                 # Save the final state for undo
                                 self.parent_app.export_panel.save_wall_state_for_undo(force=True)
                         else:
-                            # No wall was clicked - start a selection box
+                            # No wall or portal was clicked - start a selection box
                             self.parent_app.selecting_walls = True
                             self.parent_app.wall_selection_start = (img_x, img_y)
                             self.parent_app.wall_selection_current = (img_x, img_y)
-                            # Clear existing selection when starting a new one
+                            # Clear existing selections when starting a new one
                             self.parent_app.selected_wall_indices = []
+                            if hasattr(self.parent_app, 'selected_portal_indices'):
+                                self.parent_app.selected_portal_indices = []
+                            if hasattr(self.parent_app, 'selected_points'):
+                                self.parent_app.selected_points = []
+                            if hasattr(self.parent_app, 'selected_portal_points'):
+                                self.parent_app.selected_portal_points = []
                     
                     # Update the preview
                     self.parent_app.export_panel.display_uvtt_preview()
@@ -401,6 +713,44 @@ class InteractiveImageLabel(QLabel):
                     self.parent_app.ctrl_held_for_preview = False
                     self.parent_app.export_panel.display_uvtt_preview()
                 
+                # Show portal preview when Ctrl is held in portal mode (but not actively drawing)
+                elif (self.parent_app.uvtt_portal_mode and 
+                      not self.parent_app.drawing_new_portal and 
+                      event.modifiers() & Qt.KeyboardModifier.ControlModifier):
+                    
+                    # Store mouse position for preview line display
+                    self.parent_app.preview_mouse_pos = (img_x, img_y)
+                    self.parent_app.ctrl_held_for_portal_preview = True
+                    
+                    # Update display to show preview
+                    self.parent_app.export_panel.display_uvtt_preview()
+                elif (self.parent_app.uvtt_portal_mode and 
+                      not self.parent_app.drawing_new_portal and
+                      hasattr(self.parent_app, 'ctrl_held_for_portal_preview') and
+                      self.parent_app.ctrl_held_for_portal_preview):
+                    # Ctrl was released, clear portal preview
+                    self.parent_app.ctrl_held_for_portal_preview = False
+                    self.parent_app.export_panel.display_uvtt_preview()
+                    
+                # Show portal preview when Ctrl is held in portal mode (but not actively drawing)
+                elif (self.parent_app.uvtt_portal_mode and 
+                      not self.parent_app.drawing_new_portal and 
+                      event.modifiers() & Qt.KeyboardModifier.ControlModifier):
+                    
+                    # Store mouse position for preview line display
+                    self.parent_app.preview_mouse_pos = (img_x, img_y)
+                    self.parent_app.ctrl_held_for_portal_preview = True
+                    
+                    # Update display to show preview
+                    self.parent_app.export_panel.display_uvtt_preview()
+                elif (self.parent_app.uvtt_portal_mode and 
+                      not self.parent_app.drawing_new_portal and
+                      hasattr(self.parent_app, 'ctrl_held_for_portal_preview') and
+                      self.parent_app.ctrl_held_for_portal_preview):
+                    # Ctrl was released, clear preview
+                    self.parent_app.ctrl_held_for_portal_preview = False
+                    self.parent_app.export_panel.display_uvtt_preview()
+                
                 # Left button dragging for various UVTT editing operations
                 if event.buttons() & Qt.MouseButton.LeftButton:
                     if self.parent_app.uvtt_draw_mode and self.parent_app.drawing_new_wall:
@@ -409,40 +759,73 @@ class InteractiveImageLabel(QLabel):
                         self.parent_app.export_panel.display_uvtt_preview()
                         return
                         
+                    elif self.parent_app.uvtt_portal_mode and self.parent_app.drawing_new_portal:
+                        # Update the end point of the portal being drawn
+                        self.parent_app.new_portal_end = (img_x, img_y)
+                        self.parent_app.export_panel.display_uvtt_preview()
+                        return
+                        
                     elif self.parent_app.uvtt_edit_mode:
-                        # Check if we're doing a multi-wall/point drag operation
-                        if hasattr(self.parent_app, 'multi_wall_drag') and self.parent_app.multi_wall_drag and hasattr(self.parent_app, 'multi_wall_drag_start'):
-                            print(f"MouseMove: Multi-drag active, dragging_from_line={getattr(self.parent_app, 'dragging_from_line', 'NOT_SET')}")
+                        # Check if we're doing a unified multi-drag operation (walls and/or portals)
+                        if ((hasattr(self.parent_app, 'multi_wall_drag') and self.parent_app.multi_wall_drag and hasattr(self.parent_app, 'multi_wall_drag_start')) or
+                            (hasattr(self.parent_app, 'multi_portal_drag') and self.parent_app.multi_portal_drag and hasattr(self.parent_app, 'multi_portal_drag_start'))):
                             
-                            # Calculate movement delta from the initial drag start position
-                            start_x, start_y = self.parent_app.multi_wall_drag_start
-                            dx = img_x - start_x
-                            dy = img_y - start_y
-                            
-                            # Don't update the drag start point - keep it as the original starting position
-                            # This ensures we calculate the total movement from the initial click position
+                            # Use wall drag start if available, otherwise portal drag start
+                            drag_start = None
+                            if hasattr(self.parent_app, 'multi_wall_drag_start') and self.parent_app.multi_wall_drag_start:
+                                drag_start = self.parent_app.multi_wall_drag_start
+                            elif hasattr(self.parent_app, 'multi_portal_drag_start') and self.parent_app.multi_portal_drag_start:
+                                drag_start = self.parent_app.multi_portal_drag_start
                                 
-                            # Handle different cases based on what was initially clicked:
-                            # 1. If dragging from a wall line: move the entire wall(s)
-                            # 2. If dragging from a point: move only that point and any other selected points
-                            
-                            # Check if we're dragging from a line or a point
-                            if self.parent_app.dragging_from_line:
-                                print(f"MouseMove: Dragging from line, selected_wall_indices={getattr(self.parent_app, 'selected_wall_indices', 'NOT_SET')}")
-                                # We're dragging from a wall line, so move entire walls
-                                if self.move_selected_walls_absolute(img_x, img_y):
+                            if drag_start:
+                                print(f"MouseMove: Unified multi-drag active")
+                                
+                                # Calculate movement delta from the initial drag start position
+                                start_x, start_y = drag_start
+                                dx = img_x - start_x
+                                dy = img_y - start_y
+                                
+                                # Don't update the drag start point - keep it as the original starting position
+                                # This ensures we calculate the total movement from the initial click position
+                                
+                                moved_something = False
+                                
+                                # Handle wall dragging
+                                if hasattr(self.parent_app, 'multi_wall_drag') and self.parent_app.multi_wall_drag:
+                                    # Check if we're dragging from a line or points
+                                    if hasattr(self.parent_app, 'dragging_from_line') and self.parent_app.dragging_from_line:
+                                        print(f"MouseMove: Dragging walls from line, selected_wall_indices={getattr(self.parent_app, 'selected_wall_indices', 'NOT_SET')}")
+                                        # We're dragging from a wall line, so move entire walls
+                                        if self.move_selected_walls_absolute(img_x, img_y):
+                                            moved_something = True
+                                    elif hasattr(self.parent_app, 'selected_points') and self.parent_app.selected_points:
+                                        print(f"MouseMove: Dragging wall points, selected_points={getattr(self.parent_app, 'selected_points', 'NOT_SET')}")
+                                        # We're dragging from selected wall points, move only those points
+                                        if self.move_selected_wall_points_absolute(img_x, img_y):
+                                            moved_something = True
+                                
+                                # Handle portal dragging
+                                if hasattr(self.parent_app, 'multi_portal_drag') and self.parent_app.multi_portal_drag:
+                                    # Check if we're dragging from a portal line or portal points
+                                    if hasattr(self.parent_app, 'dragging_from_portal_line') and self.parent_app.dragging_from_portal_line:
+                                        print(f"MouseMove: Dragging portals from line, selected_portal_indices={getattr(self.parent_app, 'selected_portal_indices', 'NOT_SET')}")
+                                        # We're dragging from a portal line, so move entire portals
+                                        if self.move_selected_portals_absolute(img_x, img_y):
+                                            moved_something = True
+                                    elif hasattr(self.parent_app, 'selected_portal_points') and self.parent_app.selected_portal_points:
+                                        print(f"MouseMove: Dragging portal points, selected_portal_points={getattr(self.parent_app, 'selected_portal_points', 'NOT_SET')}")
+                                        # We're dragging from selected portal points, move only those points
+                                        if self.move_selected_portal_points_absolute(img_x, img_y):
+                                            moved_something = True
+                                
+                                # Update display if anything moved
+                                if moved_something:
                                     self.parent_app.export_panel.display_uvtt_preview()
                                     return
-                            elif hasattr(self.parent_app, 'selected_points') and self.parent_app.selected_points:
-                                print(f"MouseMove: Dragging from points, selected_points={getattr(self.parent_app, 'selected_points', 'NOT_SET')}")
-                                # We're dragging from selected points, move only those points
-                                if self.move_selected_wall_points_absolute(img_x, img_y):
+                                else:
+                                    # If we get here, we didn't find any special drag case, so just update the display
+                                    print("MouseMove: No specific drag case found, updating display")
                                     self.parent_app.export_panel.display_uvtt_preview()
-                                    return
-                                
-                            # If we get here, we didn't find any special drag case, so just update the display
-                            print("MouseMove: No specific drag case found, updating display")
-                            self.parent_app.export_panel.display_uvtt_preview()
                         
                         # Single point movement (endpoint drag) - only if we have a specific selected wall/point
                         elif (self.parent_app.selected_wall_index != -1 and 
@@ -587,56 +970,152 @@ class InteractiveImageLabel(QLabel):
                             # Save the final state for undo
                             self.parent_app.export_panel.save_wall_state_for_undo(force=True)
                             
-                        elif self.parent_app.uvtt_edit_mode and self.parent_app.selected_wall_index != -1:
-                            # Finish editing a wall point or multi-wall drag
-                            if hasattr(self.parent_app, 'multi_wall_drag') and self.parent_app.multi_wall_drag:
-                                # Finish multi-wall drag
-                                self.parent_app.multi_wall_drag = False
-                                self.parent_app.multi_wall_drag_start = None
+                        elif self.parent_app.uvtt_portal_mode and self.parent_app.drawing_new_portal:
+                            # Finish drawing a new portal if the start and end points are different
+                            if (self.parent_app.new_portal_start is not None and 
+                                self.parent_app.new_portal_end is not None and
+                                self.parent_app.new_portal_start != self.parent_app.new_portal_end):
                                 
-                                # Handle based on what was dragged
-                                if self.parent_app.dragging_from_line:
-                                    # Status update with count of moved walls
-                                    wall_count = len(self.parent_app.selected_wall_indices)
-                                    if wall_count > 1:
-                                        self.parent_app.setStatusTip(f"Moved {wall_count} walls")
-                                    else:
-                                        self.parent_app.setStatusTip(f"Moved wall")
+                                # Extract start and end points
+                                start_x, start_y = self.parent_app.new_portal_start
+                                end_x, end_y = self.parent_app.new_portal_end
+                                
+                                # Create a new portal
+                                if self.parent_app.uvtt_walls_preview:
+                                    # State has already been saved in mousePressEvent before starting to draw
                                     
-                                    print(f"Dragging completed: Moved {wall_count} walls by dragging line")
-                                else:
-                                    # Clean up special point selection data
-                                    if hasattr(self.parent_app, 'selected_points'):
+                                    # Get the grid size
+                                    grid_size = self.parent_app.uvtt_walls_preview['resolution']['pixels_per_grid']
+                                    if grid_size <= 0:
+                                        grid_size = 70  # Default
+                                    
+                                    # Calculate portal center position in grid coordinates
+                                    center_x = (start_x + end_x) / (2 * grid_size)
+                                    center_y = (start_y + end_y) / (2 * grid_size)
+                                    
+                                    # Calculate portal bounds (endpoints) in grid coordinates
+                                    bound1_x = start_x / grid_size
+                                    bound1_y = start_y / grid_size
+                                    bound2_x = end_x / grid_size
+                                    bound2_y = end_y / grid_size
+                                    
+                                    # Calculate rotation based on the line direction
+                                    import math
+                                    dx = end_x - start_x
+                                    dy = end_y - start_y
+                                    rotation = math.atan2(dy, dx)
+                                    
+                                    # Create the portal object according to UVTT format
+                                    portal = {
+                                        "position": {
+                                            "x": float(center_x),
+                                            "y": float(center_y)
+                                        },
+                                        "bounds": [
+                                            {
+                                                "x": float(bound1_x),
+                                                "y": float(bound1_y)
+                                            },
+                                            {
+                                                "x": float(bound2_x),
+                                                "y": float(bound2_y)
+                                            }
+                                        ],
+                                        "rotation": float(rotation),
+                                        "closed": True,  # Default to closed (door)
+                                        "freestanding": False  # Default to not freestanding
+                                    }
+                                    
+                                    # Add to the portals list
+                                    if 'portals' not in self.parent_app.uvtt_walls_preview:
+                                        self.parent_app.uvtt_walls_preview['portals'] = []
+                                    self.parent_app.uvtt_walls_preview['portals'].append(portal)
+                                    
+                                    self.parent_app.setStatusTip(f"Added new portal from ({start_x:.1f}, {start_y:.1f}) to ({end_x:.1f}, {end_y:.1f})")
+                            
+                            # Reset drawing state
+                            self.parent_app.drawing_new_portal = False
+                            self.parent_app.new_portal_start = None
+                            self.parent_app.new_portal_end = None
+                            
+                            # Save the final state for undo
+                            self.parent_app.export_panel.save_wall_state_for_undo(force=True)
+                            
+                        elif self.parent_app.uvtt_edit_mode and (
+                            (self.parent_app.selected_wall_index != -1) or 
+                            (hasattr(self.parent_app, 'selected_portal_index') and self.parent_app.selected_portal_index != -1)
+                        ):
+                            # Finish editing - unified cleanup for both walls and portals
+                            wall_drag_active = hasattr(self.parent_app, 'multi_wall_drag') and self.parent_app.multi_wall_drag
+                            portal_drag_active = hasattr(self.parent_app, 'multi_portal_drag') and self.parent_app.multi_portal_drag
+                            
+                            if wall_drag_active or portal_drag_active:
+                                # Finish unified multi-drag
+                                moved_items = []
+                                
+                                # Handle wall dragging
+                                if wall_drag_active:
+                                    self.parent_app.multi_wall_drag = False
+                                    self.parent_app.multi_wall_drag_start = None
+                                    
+                                    if hasattr(self.parent_app, 'dragging_from_line') and self.parent_app.dragging_from_line:
+                                        # Dragging wall lines
+                                        wall_count = len(getattr(self.parent_app, 'selected_wall_indices', []))
+                                        if wall_count > 0:
+                                            moved_items.append(f"{wall_count} wall{'s' if wall_count > 1 else ''}")
+                                            print(f"Dragging completed: Moved {wall_count} walls by dragging line")
+                                    elif hasattr(self.parent_app, 'selected_points') and self.parent_app.selected_points:
+                                        # Dragging wall points
                                         point_count = len(self.parent_app.selected_points)
-                                        if point_count > 1:
-                                            self.parent_app.setStatusTip(f"Moved {point_count} points")
-                                        else:
-                                            self.parent_app.setStatusTip(f"Moved wall point")
-                                        
-                                        print(f"Dragging completed: Moved {point_count} point(s) by dragging point")
-                                        # Don't clear selected_points here - keep them selected for future operations
+                                        moved_items.append(f"{point_count} wall point{'s' if point_count > 1 else ''}")
+                                        print(f"Dragging completed: Moved {point_count} wall point(s) by dragging point")
+                                    
+                                    # Reset the dragging_from_line flag
+                                    self.parent_app.dragging_from_line = False
                                 
-                                # Reset the dragging_from_line flag
-                                self.parent_app.dragging_from_line = False
+                                # Handle portal dragging
+                                if portal_drag_active:
+                                    self.parent_app.multi_portal_drag = False
+                                    self.parent_app.multi_portal_drag_start = None
+                                    
+                                    if hasattr(self.parent_app, 'dragging_from_portal_line') and self.parent_app.dragging_from_portal_line:
+                                        # Dragging portal lines
+                                        portal_count = len(getattr(self.parent_app, 'selected_portal_indices', []))
+                                        if portal_count > 0:
+                                            moved_items.append(f"{portal_count} portal{'s' if portal_count > 1 else ''}")
+                                            print(f"Portal dragging completed: Moved {portal_count} portals by dragging line")
+                                    elif hasattr(self.parent_app, 'selected_portal_points') and self.parent_app.selected_portal_points:
+                                        # Dragging portal points
+                                        portal_point_count = len(self.parent_app.selected_portal_points)
+                                        moved_items.append(f"{portal_point_count} portal point{'s' if portal_point_count > 1 else ''}")
+                                        print(f"Portal dragging completed: Moved {portal_point_count} portal point(s) by dragging point")
+                                    
+                                    # Reset the dragging_from_portal_line flag
+                                    if hasattr(self.parent_app, 'dragging_from_portal_line'):
+                                        self.parent_app.dragging_from_portal_line = False
                                 
-                                # Clean up initial position data
-                                if hasattr(self.parent_app, 'initial_wall_positions'):
-                                    delattr(self.parent_app, 'initial_wall_positions')
-                                if hasattr(self.parent_app, 'initial_point_positions'):
-                                    delattr(self.parent_app, 'initial_point_positions')
+                                # Update status with unified message
+                                if moved_items:
+                                    self.parent_app.setStatusTip(f"Moved {', '.join(moved_items)}")
+                                else:
+                                    self.parent_app.setStatusTip("Moved selected items")
+                                
+                                # Clean up all initial position data
+                                for attr in ['initial_wall_positions', 'initial_point_positions', 'initial_portal_positions', 'initial_portal_point_positions']:
+                                    if hasattr(self.parent_app, attr):
+                                        delattr(self.parent_app, attr)
                                 
                                 # Save the final state for undo
                                 self.parent_app.export_panel.save_wall_state_for_undo()
                             else:
                                 # Finish single point move
-                                self.parent_app.setStatusTip(f"Moved wall point")
-                                print(f"Dragging completed: Moved single point")
+                                self.parent_app.setStatusTip(f"Moved item")
+                                print(f"Dragging completed: Moved single item")
                                 
-                                # Clean up initial position data
-                                if hasattr(self.parent_app, 'initial_wall_positions'):
-                                    delattr(self.parent_app, 'initial_wall_positions')
-                                if hasattr(self.parent_app, 'initial_point_positions'):
-                                    delattr(self.parent_app, 'initial_point_positions')
+                                # Clean up all initial position data
+                                for attr in ['initial_wall_positions', 'initial_point_positions', 'initial_portal_positions', 'initial_portal_point_positions']:
+                                    if hasattr(self.parent_app, attr):
+                                        delattr(self.parent_app, attr)
                                 
                                 # Save the final state for undo
                                 self.parent_app.export_panel.save_wall_state_for_undo()
@@ -644,6 +1123,10 @@ class InteractiveImageLabel(QLabel):
                             # Reset drag-specific state but keep selections
                             self.parent_app.selected_wall_index = -1
                             self.parent_app.selected_point_index = -1
+                            if hasattr(self.parent_app, 'selected_portal_index'):
+                                self.parent_app.selected_portal_index = -1
+                            if hasattr(self.parent_app, 'selected_portal_point_index'):
+                                self.parent_app.selected_portal_point_index = -1
                             
                             # Clean up any endpoint move tracking
                             if hasattr(self.parent_app, 'last_endpoint_move_position'):
@@ -1307,6 +1790,7 @@ class InteractiveImageLabel(QLabel):
             return -1
             
         if '_preview_pixels' not in self.parent_app.uvtt_walls_preview:
+           
             return -1
             
         closest_wall = -1
@@ -1335,7 +1819,7 @@ class InteractiveImageLabel(QLabel):
         return closest_wall
     
     def update_walls_in_selection(self):
-        """Update the list of wall points within the current selection box."""
+        """Update the list of wall points and portal points within the current selection box."""
         if not self.parent_app.selecting_walls or not self.parent_app.uvtt_walls_preview:
             return
             
@@ -1357,6 +1841,17 @@ class InteractiveImageLabel(QLabel):
             self.parent_app.selected_points = []
         else:
             self.parent_app.selected_points = []
+            
+        # Reset portal selections
+        if not hasattr(self.parent_app, 'selected_portal_indices'):
+            self.parent_app.selected_portal_indices = []
+        else:
+            self.parent_app.selected_portal_indices = []
+            
+        if not hasattr(self.parent_app, 'selected_portal_points'):
+            self.parent_app.selected_portal_points = []
+        else:
+            self.parent_app.selected_portal_points = []
         
         # Check each wall point to see if it's within the selection rectangle
         if '_preview_pixels' in self.parent_app.uvtt_walls_preview:
@@ -1379,19 +1874,45 @@ class InteractiveImageLabel(QLabel):
             # Update selected_wall_indices to include all walls that have selected points
             # This is used for display purposes (highlighting walls that have selected points)
             self.parent_app.selected_wall_indices = list(selected_walls_set)
+        
+        # Check each portal point to see if it's within the selection rectangle
+        if 'portals' in self.parent_app.uvtt_walls_preview:
+            grid_size = self.parent_app.uvtt_walls_preview.get('resolution', {}).get('pixels_per_grid', 70)
+            selected_portals_set = set()  # Track which portals have points selected
             
-            print(f"Selection box: ({x1:.1f}, {y1:.1f}) to ({x2:.1f}, {y2:.1f})")
-            print(f"Selected {len(self.parent_app.selected_points)} points from {len(selected_walls_set)} walls")
+            for portal_idx, portal in enumerate(self.parent_app.uvtt_walls_preview['portals']):
+                if 'bounds' in portal:
+                    for point_idx, bound in enumerate(portal['bounds']):
+                        # Convert from grid coordinates to pixel coordinates
+                        point_x = bound['x'] * grid_size
+                        point_y = bound['y'] * grid_size
+                        
+                        # Check if this portal point is within the selection rectangle
+                        if x1 <= point_x <= x2 and y1 <= point_y <= y2:
+                            # Add this portal point to the selected portal points list
+                            self.parent_app.selected_portal_points.append((portal_idx, point_idx))
+                            # Track that this portal has selected points
+                            selected_portals_set.add(portal_idx)
+            
+            # Update selected_portal_indices to include all portals that have selected points
+            self.parent_app.selected_portal_indices = list(selected_portals_set)
+            
+        print(f"Selection box: ({x1:.1f}, {y1:.1f}) to ({x2:.1f}, {y2:.1f})")
+        print(f"Selected {len(self.parent_app.selected_points)} wall points from {len(self.parent_app.selected_wall_indices)} walls")
+        print(f"Selected {len(getattr(self.parent_app, 'selected_portal_points', []))} portal points from {len(getattr(self.parent_app, 'selected_portal_indices', []))} portals")
     
     def handle_selected_walls_deletion(self):
-        """Delete all walls that are currently selected."""
-        if not self.parent_app.selected_wall_indices or not self.parent_app.uvtt_walls_preview:
+        """Delete all walls and portals that are currently selected."""
+        if not self.parent_app.uvtt_walls_preview:
             return
             
-        # If there are walls selected
-        if self.parent_app.selected_wall_indices:
+        walls_deleted = 0
+        portals_deleted = 0
+        
+        # Delete selected walls
+        if hasattr(self.parent_app, 'selected_wall_indices') and self.parent_app.selected_wall_indices:
             # Count the selected walls
-            count = len(self.parent_app.selected_wall_indices)
+            walls_deleted = len(self.parent_app.selected_wall_indices)
             
             # Save current state for undo - use force=True to ensure state is saved
             # We only save once before the entire batch deletion
@@ -1408,16 +1929,53 @@ class InteractiveImageLabel(QLabel):
                 if '_preview_pixels' in self.parent_app.uvtt_walls_preview and idx < len(self.parent_app.uvtt_walls_preview['_preview_pixels']):
                     del self.parent_app.uvtt_walls_preview['_preview_pixels'][idx]
             
-            # Clear the selection
+            # Clear the wall selection
             self.parent_app.selected_wall_indices = []
             self.parent_app.selected_wall_index = -1
             self.parent_app.selected_point_index = -1
+            if hasattr(self.parent_app, 'selected_points'):
+                self.parent_app.selected_points = []
+        
+        # Delete selected portals
+        if hasattr(self.parent_app, 'selected_portal_indices') and self.parent_app.selected_portal_indices:
+            # Count the selected portals
+            portals_deleted = len(self.parent_app.selected_portal_indices)
             
+            # Save current state for undo if we haven't already (for walls)
+            if walls_deleted == 0:
+                self.parent_app.export_panel.save_wall_state_for_undo(force=True)
+            
+            # Sort indices in descending order to avoid index shifting problems when deleting
+            sorted_portal_indices = sorted(self.parent_app.selected_portal_indices, reverse=True)
+            
+            # Delete portals
+            for idx in sorted_portal_indices:
+                if 'portals' in self.parent_app.uvtt_walls_preview and idx < len(self.parent_app.uvtt_walls_preview['portals']):
+                    del self.parent_app.uvtt_walls_preview['portals'][idx]
+            
+            # Clear the portal selection
+            self.parent_app.selected_portal_indices = []
+            if hasattr(self.parent_app, 'selected_portal_index'):
+                self.parent_app.selected_portal_index = -1
+            if hasattr(self.parent_app, 'selected_portal_point_index'):
+                self.parent_app.selected_portal_point_index = -1
+            if hasattr(self.parent_app, 'selected_portal_points'):
+                self.parent_app.selected_portal_points = []
+        
+        # Update status and display if anything was deleted
+        if walls_deleted > 0 or portals_deleted > 0:
             # Ensure we stay in delete mode
             self.parent_app.uvtt_delete_mode = True
             
-            # Update status and display
-            self.parent_app.setStatusTip(f"Deleted {count} walls")
+            # Update status
+            if walls_deleted > 0 and portals_deleted > 0:
+                self.parent_app.setStatusTip(f"Deleted {walls_deleted} walls and {portals_deleted} portals")
+            elif walls_deleted > 0:
+                self.parent_app.setStatusTip(f"Deleted {walls_deleted} walls")
+            elif portals_deleted > 0:
+                self.parent_app.setStatusTip(f"Deleted {portals_deleted} portals")
+            
+            # Update display
             self.parent_app.export_panel.display_uvtt_preview()
     
     def move_selected_walls(self, dx, dy):
@@ -1675,4 +2233,259 @@ class InteractiveImageLabel(QLabel):
         print(f"move_selected_wall_points_absolute: Moved {len(self.parent_app.selected_points)} points, result={points_moved}")
         return points_moved
 
-    # Removed handle_ctrl_hover_in_edit_mode - no longer needed with simplified selection
+    def store_initial_positions_for_portals(self):
+        """Store initial positions of selected portals for movement operations."""
+        if not hasattr(self.parent_app, 'selected_portal_indices') or not self.parent_app.uvtt_walls_preview:
+            return
+            
+        self.parent_app.initial_portal_positions = {}
+        
+        for portal_idx in self.parent_app.selected_portal_indices:
+            if ('portals' in self.parent_app.uvtt_walls_preview and 
+                portal_idx < len(self.parent_app.uvtt_walls_preview['portals'])):
+                
+                portal = self.parent_app.uvtt_walls_preview['portals'][portal_idx]
+                if 'bounds' in portal:
+                    # Store all points of this portal
+                    initial_bounds = []
+                    for bound in portal['bounds']:
+                        initial_bounds.append({
+                            "x": float(bound["x"]),
+                            "y": float(bound["y"])
+                        })
+                    self.parent_app.initial_portal_positions[portal_idx] = initial_bounds
+        
+        print(f"Stored initial positions for {len(self.parent_app.initial_portal_positions)} portals")
+
+    def store_initial_positions_for_portal_points(self):
+        """Store initial positions of selected portal points for movement operations."""
+        if not hasattr(self.parent_app, 'selected_portal_points') or not self.parent_app.uvtt_walls_preview:
+            return
+            
+        self.parent_app.initial_portal_point_positions = {}
+        
+        # Get grid size for coordinate conversion
+        grid_size = self.parent_app.uvtt_walls_preview.get('resolution', {}).get('pixels_per_grid', 70)
+        
+        for portal_idx, point_idx in self.parent_app.selected_portal_points:
+            if ('portals' in self.parent_app.uvtt_walls_preview and 
+                portal_idx < len(self.parent_app.uvtt_walls_preview['portals'])):
+                
+                portal = self.parent_app.uvtt_walls_preview['portals'][portal_idx]
+                if 'bounds' in portal and point_idx < len(portal['bounds']):
+                    bound = portal['bounds'][point_idx]
+                    # Store in pixel coordinates for easier movement calculation
+                    key = (portal_idx, point_idx)
+                    self.parent_app.initial_portal_point_positions[key] = {
+                        "x": float(bound["x"] * grid_size),
+                        "y": float(bound["y"] * grid_size)
+                    }
+        
+        print(f"Stored initial positions for {len(self.parent_app.initial_portal_point_positions)} portal points")
+
+    def find_closest_portal_point(self, x, y, max_distance=10):
+        """Find the closest portal endpoint to the given coordinates.
+        
+        Args:
+            x, y: Image coordinates to check
+            max_distance: Maximum distance to consider a point close enough
+            
+        Returns:
+            Tuple of (portal_index, point_index) or (-1, -1) if none found within distance
+        """
+        if not self.parent_app.uvtt_preview_active or not self.parent_app.uvtt_walls_preview:
+            return (-1, -1)
+            
+        if 'portals' not in self.parent_app.uvtt_walls_preview:
+            return (-1, -1)
+            
+        closest_portal = -1
+        closest_point = -1
+        min_distance = max_distance  # Initialize with max threshold
+        
+        # Check all portal endpoints
+        portals_list = self.parent_app.uvtt_walls_preview['portals']
+        grid_size = self.parent_app.uvtt_walls_preview.get('resolution', {}).get('pixels_per_grid', 70)
+        
+        for portal_idx, portal in enumerate(portals_list):
+            if 'bounds' not in portal:
+                continue
+                
+            # Check each endpoint of the portal
+            for point_idx, bound in enumerate(portal['bounds']):
+                if 'x' in bound and 'y' in bound:
+                    # Convert from grid coordinates to pixel coordinates
+                    portal_x = float(bound['x']) * grid_size
+                    portal_y = float(bound['y']) * grid_size
+                    
+                    # Calculate distance
+                    distance = ((x - portal_x) ** 2 + (y - portal_y) ** 2) ** 0.5
+                    
+                    if distance < min_distance:
+                        min_distance = distance
+                        closest_portal = portal_idx
+                        closest_point = point_idx
+        
+        return (closest_portal, closest_point)
+
+    def find_portal_under_cursor(self, x, y, max_distance=5):
+        """Find a portal segment close to the cursor position.
+        
+        Args:
+            x, y: Image coordinates to check
+            max_distance: Maximum distance from line to consider it selected
+            
+        Returns:
+            Portal index or -1 if none found
+        """
+        if not self.parent_app.uvtt_preview_active or not self.parent_app.uvtt_walls_preview:
+            return -1
+            
+        if 'portals' not in self.parent_app.uvtt_walls_preview:
+            return -1
+            
+        closest_portal = -1
+        min_distance = max_distance  # Initialize with max threshold
+        
+        # Check all portal segments
+        portals_list = self.parent_app.uvtt_walls_preview['portals']
+        grid_size = self.parent_app.uvtt_walls_preview.get('resolution', {}).get('pixels_per_grid', 70)
+        
+        for portal_idx, portal in enumerate(portals_list):
+            if 'bounds' not in portal or len(portal['bounds']) < 2:
+                continue
+                
+            # Get the two endpoints of the portal
+            x1 = float(portal['bounds'][0]['x']) * grid_size
+            y1 = float(portal['bounds'][0]['y']) * grid_size
+            x2 = float(portal['bounds'][1]['x']) * grid_size
+            y2 = float(portal['bounds'][1]['y']) * grid_size
+            
+            # Calculate distance from cursor to this portal line
+            distance = self.calculate_point_to_line_distance(x, y, x1, y1, x2, y2)
+            
+            if distance < min_distance:
+                min_distance = distance
+                closest_portal = portal_idx
+        
+        return closest_portal
+
+    def move_selected_portals_absolute(self, mouse_x, mouse_y):
+        """Move selected portals to absolute position based on initial positions and mouse movement."""
+        if (not hasattr(self.parent_app, 'selected_portal_indices') or 
+            not self.parent_app.selected_portal_indices or
+            not hasattr(self.parent_app, 'initial_portal_positions') or
+            not hasattr(self.parent_app, 'multi_portal_drag_start')):
+            return
+            
+        # Calculate movement delta from initial drag start
+        start_x, start_y = self.parent_app.multi_portal_drag_start
+        dx = mouse_x - start_x
+        dy = mouse_y - start_y
+        
+        grid_size = self.parent_app.uvtt_walls_preview.get('resolution', {}).get('pixels_per_grid', 70)
+        
+        # Move each selected portal
+        for portal_idx in self.parent_app.selected_portal_indices:
+            if portal_idx in self.parent_app.initial_portal_positions:
+                initial_bounds = self.parent_app.initial_portal_positions[portal_idx]
+                
+                # Update the portal bounds with the movement
+                if portal_idx < len(self.parent_app.uvtt_walls_preview['portals']):
+                    portal = self.parent_app.uvtt_walls_preview['portals'][portal_idx]
+                    if 'bounds' in portal:
+                        for i, initial_bound in enumerate(initial_bounds):
+                            if i < len(portal['bounds']):
+                                # Convert to pixels, apply movement, convert back to grid coordinates
+                                new_x = (initial_bound['x'] * grid_size + dx) / grid_size
+                                new_y = (initial_bound['y'] * grid_size + dy) / grid_size
+                                portal['bounds'][i]['x'] = float(new_x)
+                                portal['bounds'][i]['y'] = float(new_y)
+                        
+                        # Update portal center position
+                        if len(portal['bounds']) >= 2:
+                            center_x = (portal['bounds'][0]['x'] + portal['bounds'][1]['x']) / 2
+                            center_y = (portal['bounds'][0]['y'] + portal['bounds'][1]['y']) / 2
+                            portal['position']['x'] = float(center_x)
+                            portal['position']['y'] = float(center_y)
+
+    def move_selected_portal_points_absolute(self, mouse_x, mouse_y):
+        """Move selected portal points to absolute position based on initial positions and mouse movement."""
+        if (not hasattr(self.parent_app, 'selected_portal_points') or 
+            not self.parent_app.selected_portal_points or
+            not hasattr(self.parent_app, 'initial_portal_point_positions') or
+            not hasattr(self.parent_app, 'multi_portal_drag_start')):
+            return
+            
+        # Calculate movement delta from initial drag start
+        start_x, start_y = self.parent_app.multi_portal_drag_start
+        dx = mouse_x - start_x
+        dy = mouse_y - start_y
+        
+        grid_size = self.parent_app.uvtt_walls_preview.get('resolution', {}).get('pixels_per_grid', 70)
+        
+        # Move each selected portal point
+        for portal_idx, point_idx in self.parent_app.selected_portal_points:
+            key = (portal_idx, point_idx)
+            if key in self.parent_app.initial_portal_point_positions:
+                initial_pos = self.parent_app.initial_portal_point_positions[key]
+                
+                # Update the portal point with the movement
+                if (portal_idx < len(self.parent_app.uvtt_walls_preview['portals']) and
+                    'bounds' in self.parent_app.uvtt_walls_preview['portals'][portal_idx] and
+                    point_idx < len(self.parent_app.uvtt_walls_preview['portals'][portal_idx]['bounds'])):
+                    
+                    # Convert to pixels, apply movement, convert back to grid coordinates
+                    new_x = (initial_pos['x'] * grid_size + dx) / grid_size
+                    new_y = (initial_pos['y'] * grid_size + dy) / grid_size
+                    
+                    portal = self.parent_app.uvtt_walls_preview['portals'][portal_idx]
+                    portal['bounds'][point_idx]['x'] = float(new_x)
+                    portal['bounds'][point_idx]['y'] = float(new_y)
+                    
+                    # Update portal center position
+                    if len(portal['bounds']) >= 2:
+                        center_x = (portal['bounds'][0]['x'] + portal['bounds'][1]['x']) / 2
+                        center_y = (portal['bounds'][0]['y'] + portal['bounds'][1]['y']) / 2
+                        portal['position']['x'] = float(center_x)
+                        portal['position']['y'] = float(center_y)
+
+    def store_initial_positions_for_portals(self):
+        """Store the initial positions of selected portals for dragging operations."""
+        if not hasattr(self.parent_app, 'selected_portal_indices'):
+            return
+            
+        self.parent_app.initial_portal_positions = {}
+        
+        for portal_idx in self.parent_app.selected_portal_indices:
+            if (portal_idx < len(self.parent_app.uvtt_walls_preview['portals']) and
+                'bounds' in self.parent_app.uvtt_walls_preview['portals'][portal_idx]):
+                
+                portal = self.parent_app.uvtt_walls_preview['portals'][portal_idx]
+                # Store a deep copy of the bounds
+                initial_bounds = []
+                for bound in portal['bounds']:
+                    initial_bounds.append({
+                        'x': float(bound['x']),
+                        'y': float(bound['y'])
+                    })
+                self.parent_app.initial_portal_positions[portal_idx] = initial_bounds
+
+    def store_initial_positions_for_portal_points(self):
+        """Store the initial positions of selected portal points for dragging operations."""
+        if not hasattr(self.parent_app, 'selected_portal_points'):
+            return
+            
+        self.parent_app.initial_portal_point_positions = {}
+        
+        for portal_idx, point_idx in self.parent_app.selected_portal_points:
+            if (portal_idx < len(self.parent_app.uvtt_walls_preview['portals']) and
+                'bounds' in self.parent_app.uvtt_walls_preview['portals'][portal_idx] and
+                point_idx < len(self.parent_app.uvtt_walls_preview['portals'][portal_idx]['bounds'])):
+                
+                bound = self.parent_app.uvtt_walls_preview['portals'][portal_idx]['bounds'][point_idx]
+                key = (portal_idx, point_idx)
+                self.parent_app.initial_portal_point_positions[key] = {
+                    'x': float(bound['x']),
+                    'y': float(bound['y'])
+                }

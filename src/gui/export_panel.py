@@ -375,6 +375,10 @@ class ExportPanel:
         # Store the generated walls for later use
         self.app.uvtt_walls_preview = uvtt_walls
         
+        # Initialize portals structure if not already present
+        if 'portals' not in self.app.uvtt_walls_preview:
+            self.app.uvtt_walls_preview['portals'] = []
+        
         # Save the initial state to history with a deep copy to ensure it's preserved properly
         if 'line_of_sight' in uvtt_walls and '_preview_pixels' in uvtt_walls:
             import copy
@@ -433,13 +437,15 @@ class ExportPanel:
         self.app.uvtt_preview_active = True
         
         # Ensure radio buttons match the current mode
-        if hasattr(self.app, 'draw_mode_radio') and hasattr(self.app, 'edit_mode_radio') and hasattr(self.app, 'delete_mode_radio'):
+        if hasattr(self.app, 'draw_mode_radio') and hasattr(self.app, 'edit_mode_radio') and hasattr(self.app, 'delete_mode_radio') and hasattr(self.app, 'portal_mode_radio'):
             if self.app.uvtt_draw_mode:
                 self.app.draw_mode_radio.setChecked(True)
             elif self.app.uvtt_edit_mode:
                 self.app.edit_mode_radio.setChecked(True)
             elif self.app.uvtt_delete_mode:
                 self.app.delete_mode_radio.setChecked(True)
+            elif self.app.uvtt_portal_mode:
+                self.app.portal_mode_radio.setChecked(True)
             
         # Use original image for display if available, otherwise use current image
         if self.app.original_image is not None:
@@ -544,6 +550,48 @@ class ExportPanel:
                         cv2.circle(preview_image, (int(start_x), int(start_y)), dot_radius, endpoint_color, -1)  # Start point
                         cv2.circle(preview_image, (int(end_x), int(end_y)), dot_radius, endpoint_color, -1)  # End point
         
+        # Draw portals/doors if they exist
+        if 'portals' in self.app.uvtt_walls_preview:
+            pixels_per_grid = self.app.uvtt_walls_preview.get('resolution', {}).get('pixels_per_grid', 70)
+            
+            for portal in self.app.uvtt_walls_preview['portals']:
+                if 'bounds' in portal and len(portal['bounds']) >= 2:
+                    # Convert bounds from grid coordinates to pixel coordinates
+                    bound1 = portal['bounds'][0]
+                    bound2 = portal['bounds'][1]
+                    
+                    start_x = bound1['x'] * pixels_per_grid
+                    start_y = bound1['y'] * pixels_per_grid
+                    end_x = bound2['x'] * pixels_per_grid
+                    end_y = bound2['y'] * pixels_per_grid
+                    
+                    # Draw portal as a thicker line with different color
+                    portal_color = (255, 0, 0)  # Red for portals/doors
+                    if portal.get('closed', True):
+                        portal_color = (255, 0, 0)  # Red for closed doors
+                    else:
+                        portal_color = (0, 255, 0)  # Green for open portals
+                    
+                    # Draw the portal line
+                    cv2.line(
+                        preview_image,
+                        (int(start_x), int(start_y)),
+                        (int(end_x), int(end_y)),
+                        portal_color,
+                        4,  # Thicker than walls
+                        cv2.LINE_AA
+                    )
+                    
+                    # Draw dots at portal endpoints
+                    portal_dot_radius = 5
+                    cv2.circle(preview_image, (int(start_x), int(start_y)), portal_dot_radius, portal_color, -1)
+                    cv2.circle(preview_image, (int(end_x), int(end_y)), portal_dot_radius, portal_color, -1)
+                    
+                    # Draw a small indicator at the center to show it's a portal
+                    center_x = (start_x + end_x) / 2
+                    center_y = (start_y + end_y) / 2
+                    cv2.circle(preview_image, (int(center_x), int(center_y)), 3, (255, 255, 255), -1)  # White center dot
+        
         # If we're showing a selection box for walls, draw it
         if self.app.selecting_walls and self.app.wall_selection_start and self.app.wall_selection_current:
             start_x, start_y = self.app.wall_selection_start
@@ -574,14 +622,22 @@ class ExportPanel:
                     cv2.LINE_AA  # Anti-aliasing
                 )
         
-        # Display the total wall count
+        # Display the total wall and portal count
         if 'line_of_sight' in self.app.uvtt_walls_preview:
             wall_count = len(self.app.uvtt_walls_preview['line_of_sight'])
         else:
             wall_count = 0
+            
+        if 'portals' in self.app.uvtt_walls_preview:
+            portal_count = len(self.app.uvtt_walls_preview['portals'])
+        else:
+            portal_count = 0
         
-        # Add text showing the number of walls
-        text = f"Walls: {wall_count}"
+        # Add text showing the number of walls and portals
+        if portal_count > 0:
+            text = f"Walls: {wall_count}, Portals: {portal_count}"
+        else:
+            text = f"Walls: {wall_count}"
         # Position in top-left corner with padding
         x_pos, y_pos = 20, 40
         font_scale = 1.2
@@ -628,6 +684,30 @@ class ExportPanel:
             cv2.circle(preview_image, (int(start_x), int(start_y)), 4, (0, 255, 255), -1)  # Start point
             cv2.circle(preview_image, (int(end_x), int(end_y)), 4, (0, 255, 255), -1)  # End point
         
+        # If currently drawing a new portal, show it
+        elif self.app.drawing_new_portal and self.app.new_portal_start is not None and self.app.new_portal_end is not None:
+            start_x, start_y = self.app.new_portal_start
+            end_x, end_y = self.app.new_portal_end
+            
+            # Draw the new portal in a different color and style
+            cv2.line(
+                preview_image,
+                (int(start_x), int(start_y)),
+                (int(end_x), int(end_y)),
+                (255, 0, 255),  # Magenta for new portal being drawn
+                4,  # Thicker than walls
+                cv2.LINE_AA  # Anti-aliased line
+            )
+            
+            # Draw dots at the endpoints
+            cv2.circle(preview_image, (int(start_x), int(start_y)), 5, (255, 0, 255), -1)  # Start point
+            cv2.circle(preview_image, (int(end_x), int(end_y)), 5, (255, 0, 255), -1)  # End point
+            
+            # Draw center indicator
+            center_x = (start_x + end_x) / 2
+            center_y = (start_y + end_y) / 2
+            cv2.circle(preview_image, (int(center_x), int(center_y)), 3, (255, 255, 255), -1)  # White center
+        
         # Show preview line when Ctrl is held in drawing mode (not actively drawing)
         elif (self.app.uvtt_draw_mode and 
               hasattr(self.app, 'ctrl_held_for_preview') and 
@@ -660,6 +740,39 @@ class ExportPanel:
                     cv2.circle(preview_image, (int(last_x), int(last_y)), 3, (255, 0, 255), -1)  # Start point
                     cv2.circle(preview_image, (int(mouse_x), int(mouse_y)), 3, (255, 0, 255), -1)  # End point
         
+        # Show portal preview line when Ctrl is held in portal mode (not actively drawing)
+        elif (self.app.uvtt_portal_mode and 
+              hasattr(self.app, 'ctrl_held_for_portal_preview') and 
+              self.app.ctrl_held_for_portal_preview and
+              hasattr(self.app, 'preview_mouse_pos') and 
+              self.app.preview_mouse_pos is not None):
+            
+            # Find the last portal endpoint to connect from
+            if ('portals' in self.app.uvtt_walls_preview and 
+                len(self.app.uvtt_walls_preview['portals']) > 0):
+                
+                last_portal = self.app.uvtt_walls_preview['portals'][-1]
+                if 'bounds' in last_portal and len(last_portal['bounds']) > 1:
+                    # Get the last point of the last portal (second bound)
+                    grid_size = self.app.uvtt_walls_preview.get('resolution', {}).get('pixels_per_grid', 70)
+                    last_x = float(last_portal['bounds'][1]['x']) * grid_size
+                    last_y = float(last_portal['bounds'][1]['y']) * grid_size
+                    mouse_x, mouse_y = self.app.preview_mouse_pos
+                    
+                    # Draw the preview line (thicker and different color for portals)
+                    cv2.line(
+                        preview_image,
+                        (int(last_x), int(last_y)),
+                        (int(mouse_x), int(mouse_y)),
+                        (0, 255, 255),  # Cyan for portal preview line
+                        3,  # Thicker line for portal preview
+                        cv2.LINE_AA  # Anti-aliased line
+                    )
+                    
+                    # Draw small dots at both ends
+                    cv2.circle(preview_image, (int(last_x), int(last_y)), 4, (0, 255, 255), -1)  # Start point
+                    cv2.circle(preview_image, (int(mouse_x), int(mouse_y)), 4, (0, 255, 255), -1)  # End point
+        
         # Add mode indicator text in the top-right
         mode_text = ""
         if self.app.uvtt_draw_mode:
@@ -668,6 +781,8 @@ class ExportPanel:
             mode_text = "Edit Mode"
         elif self.app.uvtt_delete_mode:
             mode_text = "Delete Mode"
+        elif self.app.uvtt_portal_mode:
+            mode_text = "Portal Mode"
         
         if mode_text:
             # Position in top-right corner
@@ -938,12 +1053,18 @@ class ExportPanel:
         edit_mode_group = QButtonGroup(self.app.wall_edit_frame)
         
         # Draw mode
-        draw_mode_radio = QRadioButton("Draw Mode")
+        draw_mode_radio = QRadioButton("Draw Walls")
         draw_mode_radio.setToolTip("Click and drag to draw new wall segments")
         draw_mode_radio.setChecked(True)  # Default mode
         edit_mode_group.addButton(draw_mode_radio)
         wall_edit_layout.addWidget(draw_mode_radio)
         
+        # Portal mode
+        portal_mode_radio = QRadioButton("Draw Doors")
+        portal_mode_radio.setToolTip("Click and drag to draw doors and portals")
+        edit_mode_group.addButton(portal_mode_radio)
+        wall_edit_layout.addWidget(portal_mode_radio)
+
         # Edit mode
         edit_mode_radio = QRadioButton("Edit Mode")
         edit_mode_radio.setToolTip("Click and drag wall endpoints to move them")
@@ -963,7 +1084,7 @@ class ExportPanel:
         wall_edit_layout.addWidget(separator)
         
         # Add a help text for multi-selection
-        help_text = QLabel("Edit mode: Drag to select multiple walls. Click on a wall point to move it.")
+        help_text = QLabel("Draw walls/portals with click & drag. Edit mode: Drag to select multiple walls. Click on a wall point to move it.")
         help_text.setWordWrap(True)
         help_text.setStyleSheet("color: #666; font-style: italic; font-size: 11px;")
         wall_edit_layout.addWidget(help_text)
@@ -978,11 +1099,13 @@ class ExportPanel:
         draw_mode_radio.toggled.connect(lambda checked: self.toggle_wall_edit_mode('draw', checked))
         edit_mode_radio.toggled.connect(lambda checked: self.toggle_wall_edit_mode('edit', checked))
         delete_mode_radio.toggled.connect(lambda checked: self.toggle_wall_edit_mode('delete', checked))
+        portal_mode_radio.toggled.connect(lambda checked: self.toggle_wall_edit_mode('portal', checked))
         
         # Store references to the controls
         self.app.draw_mode_radio = draw_mode_radio
         self.app.edit_mode_radio = edit_mode_radio
         self.app.delete_mode_radio = delete_mode_radio
+        self.app.portal_mode_radio = portal_mode_radio
         
         # Set default mode
         self.toggle_wall_edit_mode('draw', True)
@@ -996,6 +1119,7 @@ class ExportPanel:
         self.app.uvtt_draw_mode = False
         self.app.uvtt_edit_mode = False
         self.app.uvtt_delete_mode = False
+        self.app.uvtt_portal_mode = False
         
         # Set the selected mode
         if mode == 'draw':
@@ -1007,13 +1131,19 @@ class ExportPanel:
         elif mode == 'delete':
             self.app.uvtt_delete_mode = True
             self.app.setStatusTip("Delete Mode: Click on walls to delete them")
+        elif mode == 'portal':
+            self.app.uvtt_portal_mode = True
+            self.app.setStatusTip("Portal Mode: Click and drag to draw doors and portals")
             
         # Reset active editing state but preserve selection
         self.app.selected_wall_index = -1
         self.app.selected_point_index = -1
         self.app.drawing_new_wall = False
+        self.app.drawing_new_portal = False
         self.app.new_wall_start = None
         self.app.new_wall_end = None
+        self.app.new_portal_start = None
+        self.app.new_portal_end = None
         self.app.multi_wall_drag = False
         self.app.multi_wall_drag_start = None
         
@@ -1051,6 +1181,7 @@ class ExportPanel:
             import copy
             self.app.uvtt_walls_preview['line_of_sight'] = copy.deepcopy(last_state['line_of_sight'])
             self.app.uvtt_walls_preview['_preview_pixels'] = copy.deepcopy(last_state['preview_pixels'])
+            self.app.uvtt_walls_preview['portals'] = copy.deepcopy(last_state.get('portals', []))
             
             # Reset any active selection or dragging state
             self.app.selected_wall_index = -1
@@ -1109,7 +1240,8 @@ class ExportPanel:
         import copy
         current_state = {
             'line_of_sight': copy.deepcopy(self.app.uvtt_walls_preview.get('line_of_sight', [])),
-            'preview_pixels': copy.deepcopy(self.app.uvtt_walls_preview.get('_preview_pixels', []))
+            'preview_pixels': copy.deepcopy(self.app.uvtt_walls_preview.get('_preview_pixels', [])),
+            'portals': copy.deepcopy(self.app.uvtt_walls_preview.get('portals', []))
         }
         
         # Check if this state is different from the last one to avoid duplicate states
