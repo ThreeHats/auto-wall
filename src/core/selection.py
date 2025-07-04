@@ -49,7 +49,7 @@ class SelectionManager:
                 for j in range(len(contour_points)):
                     p1 = contour_points[j]
                     p2 = contour_points[(j + 1) % len(contour_points)]
-                    distance = point_to_line_distance(self.app, img_x, img_y, p1[0], p1[1], p2[0], p2[1])
+                    distance = point_to_line_distance(img_x, img_y, p1[0], p1[1], p2[0], p2[1])
                     
                     # If point is close enough to a line segment
                     if distance < 5 and distance < min_distance:  # Threshold for line detection (pixels)
@@ -83,7 +83,7 @@ class SelectionManager:
                 for j in range(len(contour_points)):
                     p1 = contour_points[j]
                     p2 = contour_points[(j + 1) % len(contour_points)]
-                    distance = point_to_line_distance(self.app, img_x, img_y, p1[0], p1[1], p2[0], p2[1])
+                    distance = point_to_line_distance(img_x, img_y, p1[0], p1[1], p2[0], p2[1])
                     
                     # If point is close enough to a line segment
                     if distance < 5 and distance < min_distance:  # Threshold for line detection (pixels)
@@ -395,7 +395,7 @@ class SelectionManager:
             for j in range(len(contour_points)):
                 p1 = contour_points[j]
                 p2 = contour_points[(j + 1) % len(contour_points)]
-                distance = point_to_line_distance(self.app, working_x, working_y, p1[0], p1[1], p2[0], p2[1])
+                distance = point_to_line_distance(working_x, working_y, p1[0], p1[1], p2[0], p2[1])
                 
                 # If point is close enough to a line segment
                 if distance < 5 and distance < min_distance:  # Threshold for line detection (pixels)
@@ -454,7 +454,7 @@ class SelectionManager:
             for j in range(len(contour_points)):
                 p1 = contour_points[j]
                 p2 = contour_points[(j + 1) % len(contour_points)]
-                distance = point_to_line_distance(self.app, working_x, working_y, p1[0], p1[1], p2[0], p2[1])
+                distance = point_to_line_distance(working_x, working_y, p1[0], p1[1], p2[0], p2[1])
                 
                 # If point is close enough to a line segment
                 if distance < 5 and distance < min_distance:  # Threshold for line detection (pixels)

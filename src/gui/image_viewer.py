@@ -3,7 +3,7 @@ from PyQt6.QtCore import Qt, QPoint, QPointF
 from PyQt6.QtGui import QWheelEvent, QTransform, QPainter, QPixmap, QImage, QCursor
 import cv2
 
-from src.utils.geometry import point_to_line_distance, convert_to_image_coordinates
+from src.utils.geometry import convert_to_image_coordinates
 
 class InteractiveImageLabel(QLabel):
     """Custom QLabel that handles mouse events for contour/line deletion and mask editing, with zoom and pan support."""
@@ -193,25 +193,128 @@ class InteractiveImageLabel(QLabel):
             if self.parent_app.uvtt_preview_active:
                 if event.button() == Qt.MouseButton.LeftButton:
                     if self.parent_app.uvtt_draw_mode:
+                        # Save the current wall state for undo before drawing a new wall
+                        self.parent_app.export_panel.save_wall_state_for_undo()
+                        
                         # Start drawing a new wall
                         self.parent_app.drawing_new_wall = True
-                        self.parent_app.new_wall_start = (img_x, img_y)
-                        self.parent_app.new_wall_end = (img_x, img_y)  # Initialize with same point
+                        
+                        # Check if Ctrl is held and if we have a previous wall to continue from
+                        if (event.modifiers() & Qt.KeyboardModifier.ControlModifier and 
+                            '_preview_pixels' in self.parent_app.uvtt_walls_preview and 
+                            len(self.parent_app.uvtt_walls_preview['_preview_pixels']) > 0):
+                            
+                            # Use the endpoint of the last wall as the starting point for the new wall
+                            last_wall = self.parent_app.uvtt_walls_preview['_preview_pixels'][-1]
+                            # Get the last point of the last wall
+                            if len(last_wall) > 1:
+                                last_x = float(last_wall[1]["x"])
+                                last_y = float(last_wall[1]["y"])
+                                self.parent_app.new_wall_start = (last_x, last_y)
+                                self.parent_app.new_wall_end = (img_x, img_y)
+                                self.parent_app.setStatusTip("Continuing wall from previous endpoint")
+                            else:
+                                # Fallback if the last wall is malformed
+                                self.parent_app.new_wall_start = (img_x, img_y)
+                                self.parent_app.new_wall_end = (img_x, img_y)
+                        else:
+                            # Standard wall starting at cursor
+                            self.parent_app.new_wall_start = (img_x, img_y)
+                            self.parent_app.new_wall_end = (img_x, img_y)  # Initialize with same point
                         
                     elif self.parent_app.uvtt_edit_mode:
-                        # Check if we're clicking on an existing wall point
+                        # First check if we're clicking on a wall point
                         wall_idx, point_idx = self.find_closest_wall_point(img_x, img_y)
                         if wall_idx != -1:
-                            # Selected a wall point for dragging
-                            self.parent_app.selected_wall_index = wall_idx
-                            self.parent_app.selected_point_index = point_idx
+                            # Found a wall point
+                            if not hasattr(self.parent_app, 'selected_points'):
+                                self.parent_app.selected_points = []
                             
-                    elif self.parent_app.uvtt_delete_mode:
-                        # Find the wall under the cursor
+                            point_is_selected = (wall_idx, point_idx) in self.parent_app.selected_points
+                            
+                            if point_is_selected:
+                                # This point is already selected - start moving all selected points
+                                self.parent_app.export_panel.save_wall_state_for_undo()
+                                self.store_initial_positions_for_points()
+                                self.parent_app.multi_wall_drag = True
+                                self.parent_app.multi_wall_drag_start = (img_x, img_y)
+                                self.parent_app.dragging_from_line = False  # We're dragging points
+                                self.parent_app.setStatusTip(f"Moving {len(self.parent_app.selected_points)} selected points")
+                                print(f"Starting drag of {len(self.parent_app.selected_points)} selected points")
+                            else:
+                                # This point is not selected - clear selection and move just this point
+                                self.parent_app.selected_wall_indices = []
+                                self.parent_app.selected_points = [(wall_idx, point_idx)]
+                                self.parent_app.selected_wall_index = wall_idx
+                                self.parent_app.selected_point_index = point_idx
+                                
+                                self.parent_app.export_panel.save_wall_state_for_undo()
+                                self.store_initial_positions_for_points()
+                                self.parent_app.multi_wall_drag = True
+                                self.parent_app.multi_wall_drag_start = (img_x, img_y)
+                                self.parent_app.dragging_from_line = False  # We're dragging a point
+                                self.parent_app.setStatusTip(f"Moving single wall point")
+                                print(f"Starting drag of single point {point_idx} on wall {wall_idx}")
+                            return
+                        
+                        # Check if we're clicking on a wall line
                         wall_idx = self.find_wall_under_cursor(img_x, img_y)
                         if wall_idx != -1:
-                            # Save current state for undo
-                            self.parent_app.export_panel.save_wall_state_for_undo()
+                            # Found a wall line
+                            wall_is_selected = wall_idx in self.parent_app.selected_wall_indices
+                            
+                            if wall_is_selected:
+                                # This wall is already selected - start moving all selected walls
+                                self.parent_app.export_panel.save_wall_state_for_undo()
+                                self.store_initial_positions_for_walls()
+                                self.parent_app.multi_wall_drag = True
+                                self.parent_app.multi_wall_drag_start = (img_x, img_y)
+                                self.parent_app.dragging_from_line = True  # We're dragging wall lines
+                                self.parent_app.setStatusTip(f"Moving {len(self.parent_app.selected_wall_indices)} selected walls")
+                                print(f"Starting drag of {len(self.parent_app.selected_wall_indices)} selected walls")
+                            else:
+                                # This wall is not selected - clear selection and move just this wall
+                                self.parent_app.selected_wall_indices = [wall_idx]
+                                self.parent_app.selected_points = []
+                                self.parent_app.selected_wall_index = wall_idx
+                                self.parent_app.selected_point_index = -1
+                                
+                                self.parent_app.export_panel.save_wall_state_for_undo()
+                                self.store_initial_positions_for_walls()
+                                self.parent_app.multi_wall_drag = True
+                                self.parent_app.multi_wall_drag_start = (img_x, img_y)
+                                self.parent_app.dragging_from_line = True  # We're dragging a wall line
+                                self.parent_app.setStatusTip(f"Moving single wall")
+                                print(f"Starting drag of single wall {wall_idx}")
+                            
+                            # Update the display to show selection
+                            self.parent_app.export_panel.display_uvtt_preview()
+                            return
+                        
+                        # No wall point or line was clicked - clear all selections and start selection box
+                        # This ensures that clicking on empty space always clears existing selections
+                        self.parent_app.selected_wall_indices = []
+                        self.parent_app.selected_points = []
+                        self.parent_app.selected_wall_index = -1
+                        self.parent_app.selected_point_index = -1
+                        
+                        # Clear any previous drag operations
+                        self.parent_app.multi_wall_drag = False
+                        self.parent_app.multi_wall_drag_start = None
+                        self.parent_app.dragging_from_line = False
+                        
+                        self.parent_app.selecting_walls = True
+                        self.parent_app.wall_selection_start = (img_x, img_y)
+                        self.parent_app.wall_selection_current = (img_x, img_y)
+                        print(f"Starting selection box at ({img_x}, {img_y})")
+                            
+                    elif self.parent_app.uvtt_delete_mode:
+                        # First check if we're directly clicking on a wall for immediate deletion
+                        wall_idx = self.find_wall_under_cursor(img_x, img_y)
+                        if wall_idx != -1:
+                            # Save current state for undo - use force=True to ensure state is saved
+                            # This ensures each delete operation can be individually undone
+                            self.parent_app.export_panel.save_wall_state_for_undo(force=True)
                             
                             # Delete the wall
                             if self.parent_app.uvtt_walls_preview and '_preview_pixels' in self.parent_app.uvtt_walls_preview:
@@ -232,6 +335,16 @@ class InteractiveImageLabel(QLabel):
                                 # Update the display
                                 self.parent_app.export_panel.display_uvtt_preview()
                                 self.parent_app.setStatusTip(f"Deleted wall {wall_idx}")
+                                
+                                # Save the final state for undo
+                                self.parent_app.export_panel.save_wall_state_for_undo(force=True)
+                        else:
+                            # No wall was clicked - start a selection box
+                            self.parent_app.selecting_walls = True
+                            self.parent_app.wall_selection_start = (img_x, img_y)
+                            self.parent_app.wall_selection_current = (img_x, img_y)
+                            # Clear existing selection when starting a new one
+                            self.parent_app.selected_wall_indices = []
                     
                     # Update the preview
                     self.parent_app.export_panel.display_uvtt_preview()
@@ -269,6 +382,25 @@ class InteractiveImageLabel(QLabel):
             if self.parent_app.uvtt_preview_active and img_pos is not None:
                 img_x, img_y = img_pos
                 
+                # Show wall preview when Ctrl is held in drawing mode (but not actively drawing)
+                if (self.parent_app.uvtt_draw_mode and 
+                    not self.parent_app.drawing_new_wall and 
+                    event.modifiers() & Qt.KeyboardModifier.ControlModifier):
+                    
+                    # Store mouse position for preview line display
+                    self.parent_app.preview_mouse_pos = (img_x, img_y)
+                    self.parent_app.ctrl_held_for_preview = True
+                    
+                    # Update display to show preview
+                    self.parent_app.export_panel.display_uvtt_preview()
+                elif (self.parent_app.uvtt_draw_mode and 
+                      not self.parent_app.drawing_new_wall and
+                      hasattr(self.parent_app, 'ctrl_held_for_preview') and
+                      self.parent_app.ctrl_held_for_preview):
+                    # Ctrl was released, clear preview
+                    self.parent_app.ctrl_held_for_preview = False
+                    self.parent_app.export_panel.display_uvtt_preview()
+                
                 # Left button dragging for various UVTT editing operations
                 if event.buttons() & Qt.MouseButton.LeftButton:
                     if self.parent_app.uvtt_draw_mode and self.parent_app.drawing_new_wall:
@@ -277,17 +409,62 @@ class InteractiveImageLabel(QLabel):
                         self.parent_app.export_panel.display_uvtt_preview()
                         return
                         
-                    elif self.parent_app.uvtt_edit_mode and self.parent_app.selected_wall_index != -1:
-                        # Move the selected wall point
-                        wall_idx = self.parent_app.selected_wall_index
-                        point_idx = self.parent_app.selected_point_index
+                    elif self.parent_app.uvtt_edit_mode:
+                        # Check if we're doing a multi-wall/point drag operation
+                        if hasattr(self.parent_app, 'multi_wall_drag') and self.parent_app.multi_wall_drag and hasattr(self.parent_app, 'multi_wall_drag_start'):
+                            print(f"MouseMove: Multi-drag active, dragging_from_line={getattr(self.parent_app, 'dragging_from_line', 'NOT_SET')}")
+                            
+                            # Calculate movement delta from the initial drag start position
+                            start_x, start_y = self.parent_app.multi_wall_drag_start
+                            dx = img_x - start_x
+                            dy = img_y - start_y
+                            
+                            # Don't update the drag start point - keep it as the original starting position
+                            # This ensures we calculate the total movement from the initial click position
+                                
+                            # Handle different cases based on what was initially clicked:
+                            # 1. If dragging from a wall line: move the entire wall(s)
+                            # 2. If dragging from a point: move only that point and any other selected points
+                            
+                            # Check if we're dragging from a line or a point
+                            if self.parent_app.dragging_from_line:
+                                print(f"MouseMove: Dragging from line, selected_wall_indices={getattr(self.parent_app, 'selected_wall_indices', 'NOT_SET')}")
+                                # We're dragging from a wall line, so move entire walls
+                                if self.move_selected_walls_absolute(img_x, img_y):
+                                    self.parent_app.export_panel.display_uvtt_preview()
+                                    return
+                            elif hasattr(self.parent_app, 'selected_points') and self.parent_app.selected_points:
+                                print(f"MouseMove: Dragging from points, selected_points={getattr(self.parent_app, 'selected_points', 'NOT_SET')}")
+                                # We're dragging from selected points, move only those points
+                                if self.move_selected_wall_points_absolute(img_x, img_y):
+                                    self.parent_app.export_panel.display_uvtt_preview()
+                                    return
+                                
+                            # If we get here, we didn't find any special drag case, so just update the display
+                            print("MouseMove: No specific drag case found, updating display")
+                            self.parent_app.export_panel.display_uvtt_preview()
                         
-                        if '_preview_pixels' in self.parent_app.uvtt_walls_preview and wall_idx < len(self.parent_app.uvtt_walls_preview['_preview_pixels']):
+                        # Single point movement (endpoint drag) - only if we have a specific selected wall/point
+                        elif (self.parent_app.selected_wall_index != -1 and 
+                              '_preview_pixels' in self.parent_app.uvtt_walls_preview and 
+                              self.parent_app.selected_wall_index < len(self.parent_app.uvtt_walls_preview['_preview_pixels'])):
+                            
+                            wall_idx = self.parent_app.selected_wall_index
+                            point_idx = self.parent_app.selected_point_index
+                            
                             # Update the pixel coordinates
                             wall_points = self.parent_app.uvtt_walls_preview['_preview_pixels'][wall_idx]
                             if point_idx < len(wall_points):
+                                # Track the movement but don't save state during drag operation
+                                old_x = float(wall_points[point_idx]["x"])
+                                old_y = float(wall_points[point_idx]["y"])
+                                
+                                # Update coordinates
                                 wall_points[point_idx]["x"] = float(img_x)
                                 wall_points[point_idx]["y"] = float(img_y)
+                                
+                                # Don't save state during endpoint dragging - only at start and end
+                                # State is already saved in mousePressEvent and will be saved on mouseReleaseEvent
                                 
                                 # Update the grid coordinates in the UVTT data
                                 if 'line_of_sight' in self.parent_app.uvtt_walls_preview and wall_idx < len(self.parent_app.uvtt_walls_preview['line_of_sight']):
@@ -302,41 +479,26 @@ class InteractiveImageLabel(QLabel):
                                 
                                 self.parent_app.export_panel.display_uvtt_preview()
                                 return
-                
-                # No button press - update hover effects for edit/delete modes
-                elif self.parent_app.uvtt_edit_mode:
-                    # Highlight the closest wall point
-                    wall_idx, point_idx = self.find_closest_wall_point(img_x, img_y)
+                        
+                        # Handle wall selection box updates (for edit mode)
+                        elif self.parent_app.selecting_walls:
+                            # Update the current point of the selection box
+                            self.parent_app.wall_selection_current = (img_x, img_y)
+                            # Update walls in the selection box
+                            self.update_walls_in_selection()
+                            # Update the display
+                            self.parent_app.export_panel.display_uvtt_preview()
+                            return
                     
-                    # Only update if the selection has changed
-                    if wall_idx != self.parent_app.selected_wall_index or point_idx != self.parent_app.selected_point_index:
-                        self.parent_app.selected_wall_index = wall_idx
-                        self.parent_app.selected_point_index = point_idx
+                    # Handle wall selection box updates (for delete mode)
+                    elif self.parent_app.uvtt_delete_mode and self.parent_app.selecting_walls:
+                        # Update the current point of the selection box
+                        self.parent_app.wall_selection_current = (img_x, img_y)
+                        # Update walls in the selection box
+                        self.update_walls_in_selection()
+                        # Update the display
                         self.parent_app.export_panel.display_uvtt_preview()
-                        
-                        # Update cursor based on selection
-                        if wall_idx != -1:
-                            self.setCursor(Qt.CursorShape.PointingHandCursor)
-                        else:
-                            self.setCursor(Qt.CursorShape.ArrowCursor)
-                        
-                elif self.parent_app.uvtt_delete_mode:
-                    # Highlight the wall under cursor
-                    wall_idx = self.find_wall_under_cursor(img_x, img_y)
-                    
-                    # Only update if the selection has changed
-                    if wall_idx != self.parent_app.selected_wall_index:
-                        self.parent_app.selected_wall_index = wall_idx
-                        self.parent_app.selected_point_index = -1
-                        self.parent_app.export_panel.display_uvtt_preview()
-                        
-                        # Update cursor based on selection
-                        if wall_idx != -1:
-                            self.setCursor(Qt.CursorShape.CrossCursor)
-                        else:
-                            self.setCursor(Qt.CursorShape.ArrowCursor)
-                
-                return
+                        return
             
             # If dragging with left button in regular mode
             if self.selection_start and event.buttons() & Qt.MouseButton.LeftButton:
@@ -392,8 +554,7 @@ class InteractiveImageLabel(QLabel):
                                 
                                 # Create a new wall
                                 if self.parent_app.uvtt_walls_preview:
-                                    # Save current state for undo
-                                    self.parent_app.export_panel.save_wall_state_for_undo()
+                                    # State has already been saved in mousePressEvent before starting to draw the wall
                                     
                                     # Get the grid size
                                     grid_size = self.parent_app.uvtt_walls_preview['resolution']['pixels_per_grid']
@@ -423,19 +584,95 @@ class InteractiveImageLabel(QLabel):
                             self.parent_app.new_wall_start = None
                             self.parent_app.new_wall_end = None
                             
+                            # Save the final state for undo
+                            self.parent_app.export_panel.save_wall_state_for_undo(force=True)
+                            
                         elif self.parent_app.uvtt_edit_mode and self.parent_app.selected_wall_index != -1:
-                            # Finish editing a wall point
-                            self.parent_app.setStatusTip(f"Moved wall point")
+                            # Finish editing a wall point or multi-wall drag
+                            if hasattr(self.parent_app, 'multi_wall_drag') and self.parent_app.multi_wall_drag:
+                                # Finish multi-wall drag
+                                self.parent_app.multi_wall_drag = False
+                                self.parent_app.multi_wall_drag_start = None
+                                
+                                # Handle based on what was dragged
+                                if self.parent_app.dragging_from_line:
+                                    # Status update with count of moved walls
+                                    wall_count = len(self.parent_app.selected_wall_indices)
+                                    if wall_count > 1:
+                                        self.parent_app.setStatusTip(f"Moved {wall_count} walls")
+                                    else:
+                                        self.parent_app.setStatusTip(f"Moved wall")
+                                    
+                                    print(f"Dragging completed: Moved {wall_count} walls by dragging line")
+                                else:
+                                    # Clean up special point selection data
+                                    if hasattr(self.parent_app, 'selected_points'):
+                                        point_count = len(self.parent_app.selected_points)
+                                        if point_count > 1:
+                                            self.parent_app.setStatusTip(f"Moved {point_count} points")
+                                        else:
+                                            self.parent_app.setStatusTip(f"Moved wall point")
+                                        
+                                        print(f"Dragging completed: Moved {point_count} point(s) by dragging point")
+                                        # Don't clear selected_points here - keep them selected for future operations
+                                
+                                # Reset the dragging_from_line flag
+                                self.parent_app.dragging_from_line = False
+                                
+                                # Clean up initial position data
+                                if hasattr(self.parent_app, 'initial_wall_positions'):
+                                    delattr(self.parent_app, 'initial_wall_positions')
+                                if hasattr(self.parent_app, 'initial_point_positions'):
+                                    delattr(self.parent_app, 'initial_point_positions')
+                                
+                                # Save the final state for undo
+                                self.parent_app.export_panel.save_wall_state_for_undo()
+                            else:
+                                # Finish single point move
+                                self.parent_app.setStatusTip(f"Moved wall point")
+                                print(f"Dragging completed: Moved single point")
+                                
+                                # Clean up initial position data
+                                if hasattr(self.parent_app, 'initial_wall_positions'):
+                                    delattr(self.parent_app, 'initial_wall_positions')
+                                if hasattr(self.parent_app, 'initial_point_positions'):
+                                    delattr(self.parent_app, 'initial_point_positions')
+                                
+                                # Save the final state for undo
+                                self.parent_app.export_panel.save_wall_state_for_undo()
                             
-                            # Save the edit for undo
-                            self.parent_app.export_panel.save_wall_state_for_undo()
-                            
-                            # Reset selection after dragging to enable finding another point
+                            # Reset drag-specific state but keep selections
                             self.parent_app.selected_wall_index = -1
                             self.parent_app.selected_point_index = -1
                             
+                            # Clean up any endpoint move tracking
+                            if hasattr(self.parent_app, 'last_endpoint_move_position'):
+                                delattr(self.parent_app, 'last_endpoint_move_position')
+                            if hasattr(self.parent_app, 'last_endpoint_move_time'):
+                                delattr(self.parent_app, 'last_endpoint_move_time')
+                            
                             # Ensure we stay in edit mode
                             self.parent_app.uvtt_edit_mode = True
+                            
+                        # Handle completing a wall selection box
+                        elif (self.parent_app.uvtt_edit_mode or self.parent_app.uvtt_delete_mode) and self.parent_app.selecting_walls:
+                            # Finalize the selection
+                            self.parent_app.selecting_walls = False
+                            
+                            # If in delete mode with points selected, delete the walls that have selected points
+                            if self.parent_app.uvtt_delete_mode and self.parent_app.selected_wall_indices:
+                                self.handle_selected_walls_deletion()
+                            
+                            # If in edit mode with points selected, provide feedback
+                            if self.parent_app.uvtt_edit_mode and hasattr(self.parent_app, 'selected_points'):
+                                # selected_points is already populated by update_walls_in_selection
+                                wall_count = len(self.parent_app.selected_wall_indices)
+                                point_count = len(self.parent_app.selected_points)
+                                if point_count > 0:
+                                    self.parent_app.setStatusTip(f"Selected {point_count} points from {wall_count} walls. Drag points to move them.")
+                                else:
+                                    self.parent_app.setStatusTip("No points selected in the selection box.")
+                        
                         
                         # Update the preview
                         self.parent_app.export_panel.display_uvtt_preview()
@@ -660,7 +897,8 @@ class InteractiveImageLabel(QLabel):
         painter = QPainter(current_pixmap)
         painter.drawPixmap(display_x, display_y, region_pixmap)
         painter.end()
-          # Set the updated pixmap
+        
+        # Set the updated pixmap
         self.setPixmap(current_pixmap)
         
         # Store the last updated region for potential future optimizations
@@ -1018,6 +1256,42 @@ class InteractiveImageLabel(QLabel):
                 closest_point = 1
         
         return closest_wall, closest_point
+        
+    def find_all_wall_points_in_radius(self, x, y, radius=10):
+        """Find all wall endpoints within the specified radius of the given coordinates.
+        
+        Args:
+            x, y: Image coordinates to check
+            radius: Maximum distance to consider a point close enough
+            
+        Returns:
+            List of (wall_index, point_index) tuples for points within the radius
+        """
+        if not self.parent_app.uvtt_preview_active or not self.parent_app.uvtt_walls_preview:
+            return []
+            
+        if '_preview_pixels' not in self.parent_app.uvtt_walls_preview:
+            return []
+            
+        points_in_radius = []
+        
+        # Check all wall endpoints
+        wall_points_list = self.parent_app.uvtt_walls_preview['_preview_pixels']
+        for wall_idx, wall_points in enumerate(wall_points_list):
+            # Each wall is a list of points
+            if len(wall_points) < 2:
+                continue
+            
+            # Check every point in the wall
+            for point_idx, point in enumerate(wall_points):
+                point_x = point["x"]
+                point_y = point["y"]
+                distance = ((point_x - x)**2 + (point_y - y)**2)**0.5
+                
+                if distance <= radius:
+                    points_in_radius.append((wall_idx, point_idx))
+        
+        return points_in_radius
 
     def find_wall_under_cursor(self, x, y, max_distance=5):
         """Find a wall segment close to the cursor position.
@@ -1051,11 +1325,354 @@ class InteractiveImageLabel(QLabel):
             end_x = wall_points[1]["x"]
             end_y = wall_points[1]["y"]
             
-            # Calculate distance from point to line segment
-            distance = point_to_line_distance(self.parent_app, x, y, start_x, start_y, end_x, end_y)
+            # Calculate distance from point to line segment using our local method
+            distance = self.calculate_point_to_line_distance(x, y, start_x, start_y, end_x, end_y)
             
             if distance < min_distance:
                 min_distance = distance
                 closest_wall = wall_idx
         
         return closest_wall
+    
+    def update_walls_in_selection(self):
+        """Update the list of wall points within the current selection box."""
+        if not self.parent_app.selecting_walls or not self.parent_app.uvtt_walls_preview:
+            return
+            
+        if not self.parent_app.wall_selection_start or not self.parent_app.wall_selection_current:
+            return
+            
+        # Calculate selection rectangle in image coordinates
+        start_x, start_y = self.parent_app.wall_selection_start
+        current_x, current_y = self.parent_app.wall_selection_current
+        
+        x1 = min(start_x, current_x)
+        y1 = min(start_y, current_y)
+        x2 = max(start_x, current_x)
+        y2 = max(start_y, current_y)
+        
+        # Reset the selections
+        self.parent_app.selected_wall_indices = []
+        if not hasattr(self.parent_app, 'selected_points'):
+            self.parent_app.selected_points = []
+        else:
+            self.parent_app.selected_points = []
+        
+        # Check each wall point to see if it's within the selection rectangle
+        if '_preview_pixels' in self.parent_app.uvtt_walls_preview:
+            wall_points_list = self.parent_app.uvtt_walls_preview['_preview_pixels']
+            selected_walls_set = set()  # Track which walls have points selected
+            
+            for wall_idx, wall_points in enumerate(wall_points_list):
+                for point_idx, point in enumerate(wall_points):
+                    # Get point coordinates
+                    point_x = point["x"]
+                    point_y = point["y"]
+                    
+                    # Check if this point is within the selection rectangle
+                    if x1 <= point_x <= x2 and y1 <= point_y <= y2:
+                        # Add this point to the selected points list
+                        self.parent_app.selected_points.append((wall_idx, point_idx))
+                        # Track that this wall has selected points
+                        selected_walls_set.add(wall_idx)
+            
+            # Update selected_wall_indices to include all walls that have selected points
+            # This is used for display purposes (highlighting walls that have selected points)
+            self.parent_app.selected_wall_indices = list(selected_walls_set)
+            
+            print(f"Selection box: ({x1:.1f}, {y1:.1f}) to ({x2:.1f}, {y2:.1f})")
+            print(f"Selected {len(self.parent_app.selected_points)} points from {len(selected_walls_set)} walls")
+    
+    def handle_selected_walls_deletion(self):
+        """Delete all walls that are currently selected."""
+        if not self.parent_app.selected_wall_indices or not self.parent_app.uvtt_walls_preview:
+            return
+            
+        # If there are walls selected
+        if self.parent_app.selected_wall_indices:
+            # Count the selected walls
+            count = len(self.parent_app.selected_wall_indices)
+            
+            # Save current state for undo - use force=True to ensure state is saved
+            # We only save once before the entire batch deletion
+            self.parent_app.export_panel.save_wall_state_for_undo(force=True)
+            
+            # Sort indices in descending order to avoid index shifting problems when deleting
+            sorted_indices = sorted(self.parent_app.selected_wall_indices, reverse=True)
+            
+            # Delete walls in both collections
+            for idx in sorted_indices:
+                if 'line_of_sight' in self.parent_app.uvtt_walls_preview and idx < len(self.parent_app.uvtt_walls_preview['line_of_sight']):
+                    del self.parent_app.uvtt_walls_preview['line_of_sight'][idx]
+                
+                if '_preview_pixels' in self.parent_app.uvtt_walls_preview and idx < len(self.parent_app.uvtt_walls_preview['_preview_pixels']):
+                    del self.parent_app.uvtt_walls_preview['_preview_pixels'][idx]
+            
+            # Clear the selection
+            self.parent_app.selected_wall_indices = []
+            self.parent_app.selected_wall_index = -1
+            self.parent_app.selected_point_index = -1
+            
+            # Ensure we stay in delete mode
+            self.parent_app.uvtt_delete_mode = True
+            
+            # Update status and display
+            self.parent_app.setStatusTip(f"Deleted {count} walls")
+            self.parent_app.export_panel.display_uvtt_preview()
+    
+    def move_selected_walls(self, dx, dy):
+        """Move all selected walls by the given delta amounts.
+        
+        When dragging from a wall line:
+        - Move all points in the selected walls
+        - This maintains the shape of all walls
+        - All points in selected walls will move regardless of shared points
+        - This is a simplified approach that avoids complex shared point handling
+        """
+        if not self.parent_app.selected_wall_indices or not self.parent_app.uvtt_walls_preview:
+            return False
+            
+        # Track if any walls were actually moved
+        walls_moved = False
+            
+        # Get the grid size for updating grid coordinates
+        grid_size = self.parent_app.uvtt_walls_preview['resolution']['pixels_per_grid']
+        if grid_size <= 0:
+            grid_size = 70  # Default
+            
+        # Debug log
+        print(f"Moving {len(self.parent_app.selected_wall_indices)} walls by dx={dx}, dy={dy}")
+        
+        # Move each selected wall - ALL points in the selected walls move
+        for wall_idx in self.parent_app.selected_wall_indices:
+            # Update pixel coordinates
+            if '_preview_pixels' in self.parent_app.uvtt_walls_preview and wall_idx < len(self.parent_app.uvtt_walls_preview['_preview_pixels']):
+                wall_points = self.parent_app.uvtt_walls_preview['_preview_pixels'][wall_idx]
+                for point_idx, point in enumerate(wall_points):
+                    # Move all points in the wall
+                    point["x"] = float(point["x"] + dx)
+                    point["y"] = float(point["y"] + dy)
+                    walls_moved = True
+                
+            # Update grid coordinates
+            if 'line_of_sight' in self.parent_app.uvtt_walls_preview and wall_idx < len(self.parent_app.uvtt_walls_preview['line_of_sight']):
+                grid_points = self.parent_app.uvtt_walls_preview['line_of_sight'][wall_idx]
+                for point_idx, point in enumerate(grid_points):
+                    point["x"] = float(point["x"] + (dx / grid_size))
+                    point["y"] = float(point["y"] + (dy / grid_size))
+                    
+        return walls_moved
+        
+    def move_selected_wall_points(self, dx, dy):
+        """Move only specific wall points by the given delta amounts, keeping other points in place.
+        
+        This implements the constrained movement feature for Ctrl+click and drag operations.
+        In this mode, only the points that were within the radius of the initial click will move.
+        """
+        if not hasattr(self.parent_app, 'selected_points') or not self.parent_app.selected_points or not self.parent_app.uvtt_walls_preview:
+            return False
+            
+        # Track if any points were actually moved
+        points_moved = False
+            
+        # Get the grid size for updating grid coordinates
+        grid_size = self.parent_app.uvtt_walls_preview['resolution']['pixels_per_grid']
+        if grid_size <= 0:
+            grid_size = 70  # Default
+        
+        # Create a set of coordinates that were explicitly selected 
+        # (these are the only points we want to move in Ctrl+drag mode)
+        selected_coords = set()
+        for wall_idx, point_idx in self.parent_app.selected_points:
+            if (wall_idx < len(self.parent_app.uvtt_walls_preview['_preview_pixels']) and
+                point_idx < len(self.parent_app.uvtt_walls_preview['_preview_pixels'][wall_idx])):
+                
+                point = self.parent_app.uvtt_walls_preview['_preview_pixels'][wall_idx][point_idx]
+                coord_key = (round(point["x"], 4), round(point["y"], 4))
+                selected_coords.add(coord_key)
+        
+        # Move only the selected points
+        for wall_idx, point_idx in self.parent_app.selected_points:
+            # Get the point's coordinates
+            if ('_preview_pixels' in self.parent_app.uvtt_walls_preview and 
+                wall_idx < len(self.parent_app.uvtt_walls_preview['_preview_pixels']) and
+                point_idx < len(self.parent_app.uvtt_walls_preview['_preview_pixels'][wall_idx])):
+                
+                # Update pixel coordinates
+                point = self.parent_app.uvtt_walls_preview['_preview_pixels'][wall_idx][point_idx]
+                point["x"] = float(point["x"] + dx)
+                point["y"] = float(point["y"] + dy)
+                points_moved = True
+                
+                # Update grid coordinates
+                if ('line_of_sight' in self.parent_app.uvtt_walls_preview and 
+                    wall_idx < len(self.parent_app.uvtt_walls_preview['line_of_sight']) and
+                    point_idx < len(self.parent_app.uvtt_walls_preview['line_of_sight'][wall_idx])):
+                    
+                    grid_point = self.parent_app.uvtt_walls_preview['line_of_sight'][wall_idx][point_idx]
+                    grid_point["x"] = float(grid_point["x"] + (dx / grid_size))
+                    grid_point["y"] = float(grid_point["y"] + (dy / grid_size))
+                    
+        return points_moved
+
+    def store_initial_positions_for_walls(self):
+        """Store the initial positions of all selected walls before starting a drag operation."""
+        if not hasattr(self.parent_app, 'selected_wall_indices') or not self.parent_app.uvtt_walls_preview:
+            return
+            
+        self.parent_app.initial_wall_positions = {}
+        
+        # Store initial positions for all selected walls
+        for wall_idx in self.parent_app.selected_wall_indices:
+            if '_preview_pixels' in self.parent_app.uvtt_walls_preview and wall_idx < len(self.parent_app.uvtt_walls_preview['_preview_pixels']):
+                wall_points = self.parent_app.uvtt_walls_preview['_preview_pixels'][wall_idx]
+                # Store a copy of all points in this wall
+                self.parent_app.initial_wall_positions[wall_idx] = []
+                for point in wall_points:
+                    self.parent_app.initial_wall_positions[wall_idx].append({
+                        "x": float(point["x"]),
+                        "y": float(point["y"])
+                    })
+        
+        print(f"Stored initial positions for {len(self.parent_app.initial_wall_positions)} walls")
+    
+    def store_initial_positions_for_points(self):
+        """Store the initial positions of all selected points before starting a drag operation."""
+        if not hasattr(self.parent_app, 'selected_points') or not self.parent_app.uvtt_walls_preview:
+            return
+            
+        self.parent_app.initial_point_positions = {}
+        
+        # Store initial positions for all selected points
+        for wall_idx, point_idx in self.parent_app.selected_points:
+            if ('_preview_pixels' in self.parent_app.uvtt_walls_preview and 
+                wall_idx < len(self.parent_app.uvtt_walls_preview['_preview_pixels']) and
+                point_idx < len(self.parent_app.uvtt_walls_preview['_preview_pixels'][wall_idx])):
+                
+                point = self.parent_app.uvtt_walls_preview['_preview_pixels'][wall_idx][point_idx]
+                key = (wall_idx, point_idx)
+                self.parent_app.initial_point_positions[key] = {
+                    "x": float(point["x"]),
+                    "y": float(point["y"])
+                }
+        
+        print(f"Stored initial positions for {len(self.parent_app.initial_point_positions)} points")
+
+    def move_selected_walls_absolute(self, mouse_x, mouse_y):
+        """Move all selected walls to absolute position based on mouse movement from initial drag start."""
+        if (not hasattr(self.parent_app, 'selected_wall_indices') or 
+            not hasattr(self.parent_app, 'initial_wall_positions') or
+            not hasattr(self.parent_app, 'multi_wall_drag_start') or
+            not self.parent_app.uvtt_walls_preview):
+            print("move_selected_walls_absolute: Missing required attributes")
+            return False
+            
+        # Calculate total movement from initial drag start
+        start_x, start_y = self.parent_app.multi_wall_drag_start
+        dx = mouse_x - start_x
+        dy = mouse_y - start_y
+        
+        print(f"move_selected_walls_absolute: Moving {len(self.parent_app.selected_wall_indices)} walls")
+        print(f"  Start pos: ({start_x}, {start_y}), Current pos: ({mouse_x}, {mouse_y})")
+        print(f"  Delta: ({dx}, {dy})")
+        
+        # Track if any walls were actually moved
+        walls_moved = False
+            
+        # Get the grid size for updating grid coordinates
+        grid_size = self.parent_app.uvtt_walls_preview['resolution']['pixels_per_grid']
+        if grid_size <= 0:
+            grid_size = 70  # Default
+            
+        # Move each selected wall using initial positions + delta
+        for wall_idx in self.parent_app.selected_wall_indices:
+            if wall_idx in self.parent_app.initial_wall_positions:
+                initial_points = self.parent_app.initial_wall_positions[wall_idx]
+                print(f"  Moving wall {wall_idx} with {len(initial_points)} points")
+                
+                # Update pixel coordinates
+                if '_preview_pixels' in self.parent_app.uvtt_walls_preview and wall_idx < len(self.parent_app.uvtt_walls_preview['_preview_pixels']):
+                    wall_points = self.parent_app.uvtt_walls_preview['_preview_pixels'][wall_idx]
+                    for point_idx, point in enumerate(wall_points):
+                        if point_idx < len(initial_points):
+                            # Set position based on initial position + total delta
+                            new_x = float(initial_points[point_idx]["x"] + dx)
+                            new_y = float(initial_points[point_idx]["y"] + dy)
+                            point["x"] = new_x
+                            point["y"] = new_y
+                            walls_moved = True
+                            print(f"    Point {point_idx}: ({initial_points[point_idx]['x']}, {initial_points[point_idx]['y']}) -> ({new_x}, {new_y})")
+                
+                # Update grid coordinates
+                if 'line_of_sight' in self.parent_app.uvtt_walls_preview and wall_idx < len(self.parent_app.uvtt_walls_preview['line_of_sight']):
+                    grid_points = self.parent_app.uvtt_walls_preview['line_of_sight'][wall_idx]
+                    for point_idx, point in enumerate(grid_points):
+                        if point_idx < len(initial_points):
+                            # Set position based on initial position + total delta converted to grid units
+                            point["x"] = float((initial_points[point_idx]["x"] + dx) / grid_size)
+                            point["y"] = float((initial_points[point_idx]["y"] + dy) / grid_size)
+                    
+        print(f"move_selected_walls_absolute: Moved {len(self.parent_app.selected_wall_indices)} walls, result={walls_moved}")
+        return walls_moved
+
+    def move_selected_wall_points_absolute(self, mouse_x, mouse_y):
+        """Move selected wall points to absolute position based on mouse movement from initial drag start."""
+        if (not hasattr(self.parent_app, 'selected_points') or 
+            not hasattr(self.parent_app, 'initial_point_positions') or
+            not hasattr(self.parent_app, 'multi_wall_drag_start') or
+            not self.parent_app.uvtt_walls_preview):
+            print("move_selected_wall_points_absolute: Missing required attributes")
+            return False
+            
+        # Calculate total movement from initial drag start
+        start_x, start_y = self.parent_app.multi_wall_drag_start
+        dx = mouse_x - start_x
+        dy = mouse_y - start_y
+        
+        print(f"move_selected_wall_points_absolute: Moving {len(self.parent_app.selected_points)} points")
+        print(f"  Start pos: ({start_x}, {start_y}), Current pos: ({mouse_x}, {mouse_y})")
+        print(f"  Delta: ({dx}, {dy})")
+        
+        # Track if any points were actually moved
+        points_moved = False
+            
+        # Get the grid size for updating grid coordinates
+        grid_size = self.parent_app.uvtt_walls_preview['resolution']['pixels_per_grid']
+        if grid_size <= 0:
+            grid_size = 70  # Default
+        
+        # Move only the selected points using initial positions + delta
+        for wall_idx, point_idx in self.parent_app.selected_points:
+            key = (wall_idx, point_idx)
+            if key in self.parent_app.initial_point_positions:
+                initial_pos = self.parent_app.initial_point_positions[key]
+                print(f"  Moving point {point_idx} on wall {wall_idx}")
+                
+                # Update pixel coordinates
+                if ('_preview_pixels' in self.parent_app.uvtt_walls_preview and 
+                    wall_idx < len(self.parent_app.uvtt_walls_preview['_preview_pixels']) and
+                    point_idx < len(self.parent_app.uvtt_walls_preview['_preview_pixels'][wall_idx])):
+                    
+                    point = self.parent_app.uvtt_walls_preview['_preview_pixels'][wall_idx][point_idx]
+                    # Set position based on initial position + total delta
+                    new_x = float(initial_pos["x"] + dx)
+                    new_y = float(initial_pos["y"] + dy)
+                    point["x"] = new_x
+                    point["y"] = new_y
+                    points_moved = True
+                    print(f"    Point: ({initial_pos['x']}, {initial_pos['y']}) -> ({new_x}, {new_y})")
+                    
+                    # Update grid coordinates
+                    if ('line_of_sight' in self.parent_app.uvtt_walls_preview and 
+                        wall_idx < len(self.parent_app.uvtt_walls_preview['line_of_sight']) and
+                        point_idx < len(self.parent_app.uvtt_walls_preview['line_of_sight'][wall_idx])):
+                        
+                        grid_point = self.parent_app.uvtt_walls_preview['line_of_sight'][wall_idx][point_idx]
+                        # Set position based on initial position + total delta converted to grid units
+                        grid_point["x"] = float((initial_pos["x"] + dx) / grid_size)
+                        grid_point["y"] = float((initial_pos["y"] + dy) / grid_size)
+                    
+        print(f"move_selected_wall_points_absolute: Moved {len(self.parent_app.selected_points)} points, result={points_moved}")
+        return points_moved
+
+    # Removed handle_ctrl_hover_in_edit_mode - no longer needed with simplified selection

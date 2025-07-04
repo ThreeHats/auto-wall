@@ -42,6 +42,7 @@ def keyPressEvent(self, event):
     # Add debugging for Ctrl+Z
     if event.key() == Qt.Key.Key_Z and event.modifiers() & Qt.KeyboardModifier.ControlModifier:
         print("Ctrl+Z detected via keyPressEvent")
-        self.mask_processor.undo()
+        # Use unified undo
+        self.unified_undo()
     else:
         super().keyPressEvent(event)

@@ -1,6 +1,6 @@
 import math
 
-def point_to_line_distance(app, x, y, x1, y1, x2, y2):
+def point_to_line_distance(x, y, x1, y1, x2, y2):
     """Calculate the distance from point (x,y) to line segment (x1,y1)-(x2,y2)."""
     # Line segment length squared
     l2 = (x2 - x1) ** 2 + (y2 - y1) ** 2

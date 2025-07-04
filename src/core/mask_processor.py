@@ -127,8 +127,9 @@ class MaskProcessor:
         # Add state to history
         self.app.history.append(state)
         
-        # Enable the undo button once we have history
-        self.undo_button.setEnabled(True)
+        # Enable the unified undo button once we have history
+        if hasattr(self.app, 'undo_button'):
+            self.app.undo_button.setEnabled(True)
         
         print(f"State saved to history. History size: {len(self.app.history)}")
 
@@ -146,7 +147,9 @@ class MaskProcessor:
         
         # If no more history, disable undo button
         if not self.app.history:
-            self.undo_button.setEnabled(False)
+            # Update the unified undo button state
+            if hasattr(self.app, 'undo_button'):
+                self.app.undo_button.setEnabled(False)
             self.app.setStatusTip("No more undo history available")
             return
         

@@ -9,7 +9,7 @@ from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QVBoxLayout, QHBoxLayout, QLabel, QSlider, QPushButton, QWidget, 
     QCheckBox, QRadioButton, QButtonGroup, QListWidget,
     QScrollArea, QSizePolicy, QDialog, QFrame, QSpinBox,
-    QGridLayout, QComboBox
+    QGridLayout, QComboBox, QMessageBox
 )
 from PyQt6.QtCore import Qt, QPoint
 from PyQt6.QtGui import QPixmap, QPainter, QColor, QGuiApplication, QKeySequence, QShortcut
@@ -45,9 +45,10 @@ class WallDetectionApp(QMainWindow):
         self.contour_processor = ContourProcessor(self)
         self.detection_panel = DetectionPanel(self)
         self.export_panel = ExportPanel(self)
-        self.mask_processor = MaskProcessor(self)        # Keyboard shortcut for undo
-        self.mask_processor.undo_shortcut = QShortcut(QKeySequence.StandardKey.Undo, self)
-        self.mask_processor.undo_shortcut.activated.connect(self.mask_processor.undo)
+        self.mask_processor = MaskProcessor(self)
+        # Set up unified undo shortcut
+        self.undo_shortcut = QShortcut(QKeySequence.StandardKey.Undo, self)
+        self.undo_shortcut.activated.connect(self.unified_undo)
         
         # Zoom shortcuts
         self.zoom_in_shortcut = QShortcut(QKeySequence("Ctrl++"), self)
@@ -138,6 +139,14 @@ class WallDetectionApp(QMainWindow):
         self.drawing_new_wall = False    # Flag for currently drawing a new wall
         self.new_wall_start = None       # Start point for new wall being drawn
         self.new_wall_end = None         # End point for new wall being drawn
+        self.selecting_walls = False     # Flag for wall selection box
+        self.wall_selection_start = None # Start point of wall selection box
+        self.wall_selection_current = None # Current point of wall selection box
+        self.selected_wall_indices = []  # List of selected wall indices
+        self.selected_points = []        # List of selected wall points (wall_idx, point_idx) tuples
+        self.multi_wall_drag = False     # Flag for multi-wall drag operation
+        self.multi_wall_drag_start = None # Start position for multi-wall drag
+        self.dragging_from_line = False  # Flag for dragging from wall line rather than endpoints
         
         # Grid overlay
         self.grid_overlay_enabled = False
@@ -690,11 +699,13 @@ class WallDetectionApp(QMainWindow):
         self.bake_button.clicked.connect(self.mask_processor.bake_contours_to_mask)
         self.wall_actions_layout.addWidget(self.bake_button)
         
-        # Add Undo button
-        self.mask_processor.undo_button = QPushButton("Undo (Ctrl+Z)")
-        self.mask_processor.undo_button.clicked.connect(self.mask_processor.undo)
-        self.mask_processor.undo_button.setEnabled(False)  # Initially disabled until actions are performed
-        self.wall_actions_layout.addWidget(self.mask_processor.undo_button)
+        # Add unified Undo button
+        self.undo_button = QPushButton("Undo (Ctrl+Z)")
+        self.undo_button.clicked.connect(self.unified_undo)
+        self.undo_button.setEnabled(False)  # Initially disabled until actions are performed
+        self.wall_actions_layout.addWidget(self.undo_button)
+        # Keep a reference in mask_processor for compatibility
+        self.mask_processor.undo_button = self.undo_button
         
         # Move the Export button
         self.export_uvtt_button = QPushButton("Export")
@@ -856,6 +867,39 @@ class WallDetectionApp(QMainWindow):
             cv2.line(overlay_image, (0, y), (width, y), grid_color, thickness)
         
         return overlay_image
+
+    def unified_undo(self):
+        """Unified undo function that calls the appropriate undo method based on current mode."""
+        # Print debug info about current state
+        print(f"Unified undo called. UVTT mode: {getattr(self, 'uvtt_preview_active', False)}")
+        if hasattr(self, 'wall_edit_history'):
+            print(f"Wall edit history size: {len(self.wall_edit_history)}")
+        if hasattr(self, 'history'):
+            print(f"General history size: {len(self.history)}")
+            
+        # Decide which undo to use based on current mode
+        if hasattr(self, 'uvtt_preview_active') and self.uvtt_preview_active:
+            # We're in wall edit mode, use wall undo if we have wall history
+            if (hasattr(self, 'wall_edit_history') and 
+                len(self.wall_edit_history) > 1 and 
+                hasattr(self.export_panel, 'undo_wall_edit')):
+                
+                print("Using wall edit undo")
+                self.export_panel.undo_wall_edit()
+            else:
+                print("No wall edit history to undo")
+                QMessageBox.information(self, "Undo", "Nothing to undo in wall edit mode")
+                
+        elif hasattr(self, 'history') and self.history:
+            # We're in mask/contour edit mode, use mask undo
+            print("Using mask processor undo")
+            self.mask_processor.undo()
+            self.setStatusTip("Last edit undone")
+        else:
+            # No history to undo
+            print("No history to undo")
+            self.setStatusTip("Nothing to undo")
+            QMessageBox.information(self, "Undo", "Nothing to undo")
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)

@@ -304,7 +304,8 @@ class ImageProcessor:
             
             # Clear history when loading a new image
             self.app.history.clear()
-            self.app.mask_processor.undo_button.setEnabled(False)
+            if hasattr(self.app, 'undo_button'):
+                self.app.undo_button.setEnabled(False)
             
             # Create a scaled down version for processing if needed
             self.app.current_image, self.app.scale_factor = self.create_working_image(self.app.original_image)
