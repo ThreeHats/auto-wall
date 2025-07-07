@@ -54,6 +54,45 @@ class DetectionPanel:
         if self.app.current_image is not None:
             self.app.image_processor.update_image()
 
+    def toggle_light_detection(self, checked):
+        """Toggle light detection options visibility."""
+        is_enabled = checked == 2  # Qt.CheckState.Checked
+        self.app.light_options.setVisible(is_enabled)
+        
+        # Only show light detection in edge or color detection modes
+        if self.app.current_image is not None:
+            # Update lights only, don't re-detect contours
+            self.app.image_processor.update_lights_only()
+
+    def update_light_brightness(self, value):
+        """Update light brightness threshold display."""
+        brightness = value / 100.0
+        self.app.light_brightness_value.setText(f"{brightness:.2f}")
+        if self.app.current_image is not None:
+            # Update lights only, don't re-detect contours
+            self.app.image_processor.update_lights_only()
+
+    def update_light_min_size(self, value):
+        """Update light minimum size display."""
+        self.app.light_min_size_value.setText(str(value))
+        if self.app.current_image is not None:
+            # Update lights only, don't re-detect contours
+            self.app.image_processor.update_lights_only()
+
+    def update_light_max_size(self, value):
+        """Update light maximum size display."""
+        self.app.light_max_size_value.setText(str(value))
+        if self.app.current_image is not None:
+            # Update lights only, don't re-detect contours
+            self.app.image_processor.update_lights_only()
+
+    def update_light_merge_distance(self, value):
+        """Update light merge distance display."""
+        self.app.light_merge_distance_value.setText(str(value))
+        if self.app.current_image is not None:
+            # Update lights only, don't re-detect contours
+            self.app.image_processor.update_lights_only()
+
     def add_slider(self, label, min_val, max_val, initial_val, step=1, scale_factor=None):
         """Add a slider with a label."""
         # Create a container widget to hold the slider and label
@@ -346,6 +385,103 @@ class DetectionPanel:
         # Update detection if image is loaded and we still have colors
         if self.app.current_image is not None and self.app.wall_colors_list.count() > 0:
             self.app.image_processor.update_image()
+
+    # Light color detection methods
+    def add_light_color(self):
+        """Open a color dialog to add a new light color."""
+        color = QColorDialog.getColor(QColor(255, 255, 255), self.app, "Select Light Color")
+        if color.isValid():
+            self.add_light_color_to_list(color, 15.0)  # Default threshold for lights
+            # Update lights only, don't re-detect contours
+            if self.app.current_image is not None:
+                self.app.image_processor.update_lights_only()
+    
+    def select_light_color(self, item):
+        """Handle selection of a light color in the list."""
+        self.app.selected_light_color_item = item
+        
+        # Get color data
+        color_data = item.data(Qt.ItemDataRole.UserRole)
+        threshold = color_data["threshold"]
+        
+        # Update the threshold slider to show the selected color's threshold
+        self.app.light_threshold_slider.blockSignals(True)
+        self.app.light_threshold_slider.setValue(int(threshold * 10))
+        self.app.light_threshold_slider.blockSignals(False)
+        self.app.light_threshold_label.setText(f"Threshold: {threshold:.1f}")
+        
+        # Show the threshold container
+        self.app.light_threshold_container.setVisible(True)
+
+    def update_selected_light_threshold(self, value):
+        """Update the threshold for the selected light color."""
+        if not self.app.selected_light_color_item:
+            return
+            
+        # Calculate the actual threshold value
+        threshold = value / 10.0
+        self.app.light_threshold_label.setText(f"Threshold: {threshold:.1f}")
+        
+        # Get the current color data
+        color_data = self.app.selected_light_color_item.data(Qt.ItemDataRole.UserRole)
+        color = color_data["color"]
+        
+        # Update the color data with the new threshold
+        self.update_light_color_list_item(self.app.selected_light_color_item, color, threshold)
+        
+        # Update detection immediately for visual feedback
+        if self.app.current_image is not None:
+            self.app.image_processor.update_lights_only()
+    
+    def edit_light_color(self, item):
+        """Edit an existing light color."""
+        color_data = item.data(Qt.ItemDataRole.UserRole)
+        current_color = color_data["color"]
+        current_threshold = color_data["threshold"]
+        
+        new_color = QColorDialog.getColor(current_color, self.app, "Edit Light Color")
+        if new_color.isValid():
+            self.update_light_color_list_item(item, new_color, current_threshold)
+            # Update lights only, don't re-detect contours
+            if self.app.current_image is not None:
+                self.app.image_processor.update_lights_only()
+
+    def update_light_color_list_item(self, item, color, threshold):
+        """Update a light color list item with new color and threshold."""
+        # Store both color and threshold in the item data
+        color_data = {"color": color, "threshold": threshold}
+        item.setData(Qt.ItemDataRole.UserRole, color_data)
+        
+        # Update item text and appearance
+        item.setText(f"RGB: {color.red()}, {color.green()}, {color.blue()} (T: {threshold:.1f})")
+        item.setBackground(color)
+        
+        # Set text color based on background brightness
+        if color.lightness() < 128:
+            item.setForeground(QColor(255, 255, 255))  # White text on dark background
+        else:
+            item.setForeground(QColor(0, 0, 0))  # Black text on light background
+
+    def add_light_color_to_list(self, color, threshold=15.0):
+        """Add a light color with threshold to the light colors list."""
+        item = QListWidgetItem()
+        self.update_light_color_list_item(item, color, threshold)
+        self.app.light_colors_list.addItem(item)
+        return item
+
+    def remove_light_color(self):
+        """Remove the selected light color from the list."""
+        selected_items = self.app.light_colors_list.selectedItems()
+        for item in selected_items:
+            self.app.light_colors_list.takeItem(self.app.light_colors_list.row(item))
+        
+        # Hide threshold controls if no colors are selected or all are removed
+        if not self.app.light_colors_list.selectedItems() or self.app.light_colors_list.count() == 0:
+            self.app.light_threshold_container.setVisible(False)
+        
+        # Update lights only, don't re-detect contours
+        if self.app.current_image is not None:
+            self.app.image_processor.update_lights_only()
 
     # Hatching removal
     def toggle_hatching_removal(self, enabled):

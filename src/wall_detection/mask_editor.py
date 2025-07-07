@@ -882,7 +882,7 @@ def snap_walls_to_grid(walls, grid_size, allow_half_grid=True):
     return snapped_walls
 
 # export
-def contours_to_uvtt_walls(contours, image_shape, original_image=None, simplify_tolerance=0.0, max_wall_length=50, max_walls=5000, merge_distance=1.0, angle_tolerance=0.5, max_gap=5.0, grid_size=0, allow_half_grid=True):
+def contours_to_uvtt_walls(contours, image_shape, original_image=None, simplify_tolerance=0.0, max_wall_length=50, max_walls=5000, merge_distance=1.0, angle_tolerance=0.5, max_gap=5.0, grid_size=0, allow_half_grid=True, lights=None):
     """
     Convert OpenCV contours to Universal VTT format with intelligent segmentation.
     
@@ -895,6 +895,7 @@ def contours_to_uvtt_walls(contours, image_shape, original_image=None, simplify_
     - max_walls: Maximum number of walls to generate
     - grid_size: Size of the grid in pixels (0 to disable grid snapping)
     - allow_half_grid: Whether to allow snapping to half-grid positions
+    - lights: List of light dictionaries to include in the UVTT export
     
     Returns:
     - Dictionary in Universal VTT format with walls in 'line_of_sight' array
@@ -977,7 +978,7 @@ def contours_to_uvtt_walls(contours, image_shape, original_image=None, simplify_
         "environment": {
             "ambient_light": "77a8c8a2"
         },
-        "lights": [],
+        "lights": lights if lights else [],
         "_preview_pixels": line_of_sight_preview_pixels  # Internal use for preview display
     }
     

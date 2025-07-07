@@ -90,6 +90,7 @@ class WallDetectionApp(QMainWindow):
         self.scale_factor = 1.0     # Scale factor between original and working image
         self.processed_image = None
         self.current_contours = []
+        self.current_lights = []   # Detected light points
         self.display_scale_factor = 1.0
         self.display_offset = (0, 0)
         self.sliders = {}
@@ -125,6 +126,10 @@ class WallDetectionApp(QMainWindow):
         self.color_selection_current = None
         self.selected_color_item = None
 
+        # Light color selection
+        self.light_colors = []  # List to store QColor objects for light detection
+        self.selected_light_color_item = None
+
         # Preview state
         self.brush_preview_active = False
         self.last_preview_image = None
@@ -151,6 +156,11 @@ class WallDetectionApp(QMainWindow):
         self.multi_wall_drag = False     # Flag for multi-wall drag operation
         self.multi_wall_drag_start = None # Start position for multi-wall drag
         self.dragging_from_line = False  # Flag for dragging from wall line rather than endpoints
+        
+        # Light editing states
+        self.selected_light_index = -1   # Currently selected light
+        self.selected_light_indices = [] # List of selected light indices for multi-selection
+        self.dragging_light = False      # Flag for light dragging operation
         
         # Grid overlay
         self.grid_overlay_enabled = False
@@ -675,6 +685,162 @@ class WallDetectionApp(QMainWindow):
         self.controls_layout.addStretch(1) # Stretch is now AFTER presets
         
         self.controls_layout.addWidget(separator)
+        
+        # Add light detection section
+        self.light_section = QWidget()
+        self.light_section_layout = QVBoxLayout(self.light_section)
+        
+        self.light_section_title = QLabel("Light Detection:")
+        self.light_section_title.setStyleSheet("font-weight: bold;")
+        self.light_section_layout.addWidget(self.light_section_title)
+        
+        # Enable light detection checkbox
+        self.enable_light_detection = QCheckBox("Enable Light Detection")
+        self.enable_light_detection.setChecked(False)
+        self.enable_light_detection.setToolTip("Detect bright spots in the image as lights for UVTT export")
+        self.enable_light_detection.stateChanged.connect(self.detection_panel.toggle_light_detection)
+        self.light_section_layout.addWidget(self.enable_light_detection)
+        
+        # Light detection options container
+        self.light_options = QWidget()
+        self.light_options_layout = QVBoxLayout(self.light_options)
+        self.light_options_layout.setContentsMargins(0, 0, 0, 0)
+        
+        # Light brightness threshold
+        self.light_brightness_layout = QHBoxLayout()
+        self.light_brightness_label = QLabel("Brightness Threshold:")
+        self.light_brightness_layout.addWidget(self.light_brightness_label)
+        
+        self.light_brightness_slider = QSlider(Qt.Orientation.Horizontal)
+        self.light_brightness_slider.setMinimum(30)  # 0.3
+        self.light_brightness_slider.setMaximum(100)  # 1.0
+        self.light_brightness_slider.setValue(80)  # 0.8 default
+        self.light_brightness_slider.valueChanged.connect(self.detection_panel.update_light_brightness)
+        self.light_brightness_layout.addWidget(self.light_brightness_slider)
+        
+        self.light_brightness_value = QLabel("0.8")
+        self.light_brightness_layout.addWidget(self.light_brightness_value)
+        self.light_options_layout.addLayout(self.light_brightness_layout)
+        
+        # Light minimum size
+        self.light_min_size_layout = QHBoxLayout()
+        self.light_min_size_label = QLabel("Min Light Size:")
+        self.light_min_size_layout.addWidget(self.light_min_size_label)
+        
+        self.light_min_size_slider = QSlider(Qt.Orientation.Horizontal)
+        self.light_min_size_slider.setMinimum(1)
+        self.light_min_size_slider.setMaximum(50)
+        self.light_min_size_slider.setValue(5)
+        self.light_min_size_slider.valueChanged.connect(self.detection_panel.update_light_min_size)
+        self.light_min_size_layout.addWidget(self.light_min_size_slider)
+        
+        self.light_min_size_value = QLabel("5")
+        self.light_min_size_layout.addWidget(self.light_min_size_value)
+        self.light_options_layout.addLayout(self.light_min_size_layout)
+        
+        # Light maximum size
+        self.light_max_size_layout = QHBoxLayout()
+        self.light_max_size_label = QLabel("Max Light Size:")
+        self.light_max_size_layout.addWidget(self.light_max_size_label)
+        
+        self.light_max_size_slider = QSlider(Qt.Orientation.Horizontal)
+        self.light_max_size_slider.setMinimum(50)
+        self.light_max_size_slider.setMaximum(2000)
+        self.light_max_size_slider.setValue(500)
+        self.light_max_size_slider.valueChanged.connect(self.detection_panel.update_light_max_size)
+        self.light_max_size_layout.addWidget(self.light_max_size_slider)
+        
+        self.light_max_size_value = QLabel("500")
+        self.light_max_size_layout.addWidget(self.light_max_size_value)
+        self.light_options_layout.addLayout(self.light_max_size_layout)
+        
+        # Light merge distance
+        self.light_merge_distance_layout = QHBoxLayout()
+        self.light_merge_distance_label = QLabel("Merge Distance:")
+        self.light_merge_distance_layout.addWidget(self.light_merge_distance_label)
+        
+        self.light_merge_distance_slider = QSlider(Qt.Orientation.Horizontal)
+        self.light_merge_distance_slider.setMinimum(0)   # 0 pixels
+        self.light_merge_distance_slider.setMaximum(100) # 100 pixels
+        self.light_merge_distance_slider.setValue(20)    # 20 pixels default
+        self.light_merge_distance_slider.valueChanged.connect(self.detection_panel.update_light_merge_distance)
+        self.light_merge_distance_layout.addWidget(self.light_merge_distance_slider)
+        
+        self.light_merge_distance_value = QLabel("20")
+        self.light_merge_distance_layout.addWidget(self.light_merge_distance_value)
+        self.light_options_layout.addLayout(self.light_merge_distance_layout)
+        
+        # Light color selection
+        self.light_colors_layout = QVBoxLayout()
+        self.light_options_layout.addLayout(self.light_colors_layout)
+        
+        self.light_colors_label = QLabel("Light Colors:")
+        self.light_colors_layout.addWidget(self.light_colors_label)
+        
+        # List widget to display selected light colors
+        self.light_colors_list = QListWidget()
+        self.light_colors_list.setMaximumHeight(80)
+        self.light_colors_list.itemClicked.connect(self.detection_panel.select_light_color)
+        self.light_colors_list.itemDoubleClicked.connect(self.detection_panel.edit_light_color)
+        self.light_colors_layout.addWidget(self.light_colors_list)
+        
+        # Buttons for light color management
+        self.light_color_buttons_layout = QHBoxLayout()
+        self.light_colors_layout.addLayout(self.light_color_buttons_layout)
+        
+        self.add_light_color_button = QPushButton("Add Light Color")
+        self.add_light_color_button.clicked.connect(self.detection_panel.add_light_color)
+        self.light_color_buttons_layout.addWidget(self.add_light_color_button)
+        
+        self.remove_light_color_button = QPushButton("Remove Color")
+        self.remove_light_color_button.clicked.connect(self.detection_panel.remove_light_color)
+        self.light_color_buttons_layout.addWidget(self.remove_light_color_button)
+        
+        # Light color threshold controls
+        self.light_threshold_container = QWidget()
+        self.light_threshold_layout = QVBoxLayout(self.light_threshold_container)
+        self.light_threshold_layout.setContentsMargins(0, 0, 0, 0)
+        
+        # Add a header for the threshold section
+        self.light_threshold_header = QLabel("Selected Light Color Threshold:")
+        self.light_threshold_header.setStyleSheet("font-weight: bold;")
+        self.light_threshold_layout.addWidget(self.light_threshold_header)
+        
+        # Create the threshold slider
+        self.light_current_threshold_layout = QHBoxLayout()
+        self.light_threshold_layout.addLayout(self.light_current_threshold_layout)
+        
+        self.light_threshold_label = QLabel("Threshold: 15.0")
+        self.light_current_threshold_layout.addWidget(self.light_threshold_label)
+        
+        self.light_threshold_slider = QSlider(Qt.Orientation.Horizontal)
+        self.light_threshold_slider.setMinimum(50)   # 5.0
+        self.light_threshold_slider.setMaximum(500)  # 50.0
+        self.light_threshold_slider.setValue(150)    # Default value 15.0
+        self.light_threshold_slider.valueChanged.connect(self.detection_panel.update_selected_light_threshold)
+        self.light_current_threshold_layout.addWidget(self.light_threshold_slider)
+        
+        self.light_colors_layout.addWidget(self.light_threshold_container)
+        
+        # Initially hide the threshold controls until a color is selected
+        self.light_threshold_container.setVisible(False)
+        
+        # Add a separator
+        separator = QFrame()
+        separator.setFrameShape(QFrame.Shape.HLine)
+        separator.setFrameShadow(QFrame.Shadow.Sunken)
+        self.light_options_layout.addWidget(separator)
+        
+        self.light_section_layout.addWidget(self.light_options)
+        
+        # Initially hide the light options until enabled
+        self.light_options.setVisible(False)
+        
+        # Add the light section to the main controls layout
+        self.controls_layout.addWidget(self.light_section)
+        
+        # Add a default bright white color for light detection
+        self.detection_panel.add_light_color_to_list(QColor(255, 255, 200), 15.0)
         
         # Buttons
         self.buttons_layout = QHBoxLayout()

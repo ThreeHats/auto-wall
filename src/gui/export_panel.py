@@ -347,7 +347,8 @@ class ExportPanel:
                 angle_tolerance=params['angle_tolerance'],
                 max_gap=params['max_gap'],
                 grid_size=params['grid_size'],
-                allow_half_grid=params['allow_half_grid']
+                allow_half_grid=params['allow_half_grid'],
+                lights=self.app.current_lights
             )
         else:  # It's a mask
             # Extract contours from the mask - use RETR_CCOMP instead of RETR_EXTERNAL to get inner contours
@@ -369,7 +370,8 @@ class ExportPanel:
                 angle_tolerance=params['angle_tolerance'],
                 max_gap=params['max_gap'],
                 grid_size=params['grid_size'],
-                allow_half_grid=params['allow_half_grid']
+                allow_half_grid=params['allow_half_grid'],
+                lights=self.app.current_lights
             )
         
         # Store the generated walls for later use
@@ -592,6 +594,20 @@ class ExportPanel:
                     center_y = (start_y + end_y) / 2
                     cv2.circle(preview_image, (int(center_x), int(center_y)), 3, (255, 255, 255), -1)  # White center dot
         
+        # Draw lights if they exist
+        if 'lights' in self.app.uvtt_walls_preview and self.app.uvtt_walls_preview['lights']:
+            from src.wall_detection.light_detector import draw_lights_on_image
+            pixels_per_grid = self.app.uvtt_walls_preview.get('resolution', {}).get('pixels_per_grid', 70)
+            
+            # Draw lights on the preview
+            preview_image = draw_lights_on_image(
+                preview_image, 
+                self.app.uvtt_walls_preview['lights'], 
+                grid_size=pixels_per_grid,
+                show_range=True,  # Show light range circles in preview
+                alpha=0.3
+            )
+        
         # If we're showing a selection box for walls, draw it
         if self.app.selecting_walls and self.app.wall_selection_start and self.app.wall_selection_current:
             start_x, start_y = self.app.wall_selection_start
@@ -772,6 +788,280 @@ class ExportPanel:
                     # Draw small dots at both ends
                     cv2.circle(preview_image, (int(last_x), int(last_y)), 4, (0, 255, 255), -1)  # Start point
                     cv2.circle(preview_image, (int(mouse_x), int(mouse_y)), 4, (0, 255, 255), -1)  # End point
+        
+        # Draw lights if they exist
+        if 'lights' in self.app.uvtt_walls_preview and self.app.uvtt_walls_preview['lights']:
+            from src.wall_detection.light_detector import draw_lights_on_image
+            pixels_per_grid = self.app.uvtt_walls_preview.get('resolution', {}).get('pixels_per_grid', 70)
+            
+            # Draw lights on the preview
+            preview_image = draw_lights_on_image(
+                preview_image, 
+                self.app.uvtt_walls_preview['lights'], 
+                grid_size=pixels_per_grid,
+                show_range=True,  # Show light range circles in preview
+                alpha=0.3
+            )
+        
+        # If we're showing a selection box for walls, draw it
+        if self.app.selecting_walls and self.app.wall_selection_start and self.app.wall_selection_current:
+            start_x, start_y = self.app.wall_selection_start
+            current_x, current_y = self.app.wall_selection_current
+            
+            x1 = min(start_x, current_x)
+            y1 = min(start_y, current_y)
+            x2 = max(start_x, current_x)
+            y2 = max(start_y, current_y)
+            
+            # Draw semi-transparent selection rectangle
+            selection_overlay = preview_image.copy()
+            cv2.rectangle(selection_overlay, (int(x1), int(y1)), (int(x2), int(y2)), (0, 150, 255), 2)  # Orange outline
+            cv2.rectangle(selection_overlay, (int(x1), int(y1)), (int(x2), int(y2)), (0, 150, 255), -1)  # Filled rectangle
+            cv2.addWeighted(selection_overlay, 0.25, preview_image, 0.75, 0, preview_image)  # 25% opacity
+            
+            # Add selection count if any walls are selected
+            if self.app.selected_wall_indices:
+                count_text = f"{len(self.app.selected_wall_indices)} walls selected"
+                cv2.putText(
+                    preview_image,
+                    count_text,
+                    (int(x1), int(y1) - 10),  # Position above the selection box
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.5,  # Font scale
+                    (0, 150, 255),  # Orange color
+                    1,  # Thickness
+                    cv2.LINE_AA  # Anti-aliasing
+                )
+        
+        # Display the total wall and portal count
+        if 'line_of_sight' in self.app.uvtt_walls_preview:
+            wall_count = len(self.app.uvtt_walls_preview['line_of_sight'])
+        else:
+            wall_count = 0
+            
+        if 'portals' in self.app.uvtt_walls_preview:
+            portal_count = len(self.app.uvtt_walls_preview['portals'])
+        else:
+            portal_count = 0
+        
+        # Add text showing the number of walls and portals
+        if portal_count > 0:
+            text = f"Walls: {wall_count}, Portals: {portal_count}"
+        else:
+            text = f"Walls: {wall_count}"
+        # Position in top-left corner with padding
+        x_pos, y_pos = 20, 40
+        font_scale = 1.2
+        font_thickness = 2
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        
+        # Add a dark background for better visibility
+        (text_width, text_height), _ = cv2.getTextSize(text, font, font_scale, font_thickness)
+        cv2.rectangle(
+            preview_image, 
+            (x_pos - 10, y_pos - text_height - 10), 
+            (x_pos + text_width + 10, y_pos + 10), 
+            (0, 0, 0), 
+            -1
+        )
+        
+        # Draw the text
+        cv2.putText(
+            preview_image,
+            text,
+            (x_pos, y_pos),
+            font, 
+            font_scale,
+            (255, 255, 255),  # White text
+            font_thickness
+        )
+        
+        # If currently drawing a new wall, show it
+        if self.app.drawing_new_wall and self.app.new_wall_start is not None and self.app.new_wall_end is not None:
+            start_x, start_y = self.app.new_wall_start
+            end_x, end_y = self.app.new_wall_end
+            
+            # Draw the new wall in a different color
+            cv2.line(
+                preview_image,
+                (int(start_x), int(start_y)),
+                (int(end_x), int(end_y)),
+                (0, 0, 255),  # Red for new wall being drawn
+                2,  # Thickness
+                cv2.LINE_AA  # Anti-aliased line
+            )
+            
+            # Draw dots at the endpoints
+            cv2.circle(preview_image, (int(start_x), int(start_y)), 4, (0, 255, 255), -1)  # Start point
+            cv2.circle(preview_image, (int(end_x), int(end_y)), 4, (0, 255, 255), -1)  # End point
+        
+        # If currently drawing a new portal, show it
+        elif self.app.drawing_new_portal and self.app.new_portal_start is not None and self.app.new_portal_end is not None:
+            start_x, start_y = self.app.new_portal_start
+            end_x, end_y = self.app.new_portal_end
+            
+            # Draw the new portal in a different color and style
+            cv2.line(
+                preview_image,
+                (int(start_x), int(start_y)),
+                (int(end_x), int(end_y)),
+                (255, 0, 255),  # Magenta for new portal being drawn
+                4,  # Thicker than walls
+                cv2.LINE_AA  # Anti-aliased line
+            )
+            
+            # Draw dots at the endpoints
+            cv2.circle(preview_image, (int(start_x), int(start_y)), 5, (255, 0, 255), -1)  # Start point
+            cv2.circle(preview_image, (int(end_x), int(end_y)), 5, (255, 0, 255), -1)  # End point
+            
+            # Draw center indicator
+            center_x = (start_x + end_x) / 2
+            center_y = (start_y + end_y) / 2
+            cv2.circle(preview_image, (int(center_x), int(center_y)), 3, (255, 255, 255), -1)  # White center
+        
+        # Draw lights if they exist
+        if 'lights' in self.app.uvtt_walls_preview and self.app.uvtt_walls_preview['lights']:
+            from src.wall_detection.light_detector import draw_lights_on_image
+            pixels_per_grid = self.app.uvtt_walls_preview.get('resolution', {}).get('pixels_per_grid', 70)
+            
+            # Draw lights on the preview
+            preview_image = draw_lights_on_image(
+                preview_image, 
+                self.app.uvtt_walls_preview['lights'], 
+                grid_size=pixels_per_grid,
+                show_range=True,  # Show light range circles in preview
+                alpha=0.3
+            )
+        
+        # If we're showing a selection box for walls, draw it
+        if self.app.selecting_walls and self.app.wall_selection_start and self.app.wall_selection_current:
+            start_x, start_y = self.app.wall_selection_start
+            current_x, current_y = self.app.wall_selection_current
+            
+            x1 = min(start_x, current_x)
+            y1 = min(start_y, current_y)
+            x2 = max(start_x, current_x)
+            y2 = max(start_y, current_y)
+            
+            # Draw semi-transparent selection rectangle
+            selection_overlay = preview_image.copy()
+            cv2.rectangle(selection_overlay, (int(x1), int(y1)), (int(x2), int(y2)), (0, 150, 255), 2)  # Orange outline
+            cv2.rectangle(selection_overlay, (int(x1), int(y1)), (int(x2), int(y2)), (0, 150, 255), -1)  # Filled rectangle
+            cv2.addWeighted(selection_overlay, 0.25, preview_image, 0.75, 0, preview_image)  # 25% opacity
+            
+            # Add selection count if any walls are selected
+            if self.app.selected_wall_indices:
+                count_text = f"{len(self.app.selected_wall_indices)} walls selected"
+                cv2.putText(
+                    preview_image,
+                    count_text,
+                    (int(x1), int(y1) - 10),  # Position above the selection box
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.5,  # Font scale
+                    (0, 150, 255),  # Orange color
+                    1,  # Thickness
+                    cv2.LINE_AA  # Anti-aliasing
+                )
+        
+        # Display the total wall and portal count
+        if 'line_of_sight' in self.app.uvtt_walls_preview:
+            wall_count = len(self.app.uvtt_walls_preview['line_of_sight'])
+        else:
+            wall_count = 0
+            
+        if 'portals' in self.app.uvtt_walls_preview:
+            portal_count = len(self.app.uvtt_walls_preview['portals'])
+        else:
+            portal_count = 0
+        
+        # Add text showing the number of walls and portals
+        if portal_count > 0:
+            text = f"Walls: {wall_count}, Portals: {portal_count}"
+        else:
+            text = f"Walls: {wall_count}"
+        # Position in top-left corner with padding
+        x_pos, y_pos = 20, 40
+        font_scale = 1.2
+        font_thickness = 2
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        
+        # Add a dark background for better visibility
+        (text_width, text_height), _ = cv2.getTextSize(text, font, font_scale, font_thickness)
+        cv2.rectangle(
+            preview_image, 
+            (x_pos - 10, y_pos - text_height - 10), 
+            (x_pos + text_width + 10, y_pos + 10), 
+            (0, 0, 0), 
+            -1
+        )
+        
+        # Draw the text
+        cv2.putText(
+            preview_image,
+            text,
+            (x_pos, y_pos),
+            font, 
+            font_scale,
+            (255, 255, 255),  # White text
+            font_thickness
+        )
+        
+        # If currently drawing a new wall, show it
+        if self.app.drawing_new_wall and self.app.new_wall_start is not None and self.app.new_wall_end is not None:
+            start_x, start_y = self.app.new_wall_start
+            end_x, end_y = self.app.new_wall_end
+            
+            # Draw the new wall in a different color
+            cv2.line(
+                preview_image,
+                (int(start_x), int(start_y)),
+                (int(end_x), int(end_y)),
+                (0, 0, 255),  # Red for new wall being drawn
+                2,  # Thickness
+                cv2.LINE_AA  # Anti-aliased line
+            )
+            
+            # Draw dots at the endpoints
+            cv2.circle(preview_image, (int(start_x), int(start_y)), 4, (0, 255, 255), -1)  # Start point
+            cv2.circle(preview_image, (int(end_x), int(end_y)), 4, (0, 255, 255), -1)  # End point
+        
+        # If currently drawing a new portal, show it
+        elif self.app.drawing_new_portal and self.app.new_portal_start is not None and self.app.new_portal_end is not None:
+            start_x, start_y = self.app.new_portal_start
+            end_x, end_y = self.app.new_portal_end
+            
+            # Draw the new portal in a different color and style
+            cv2.line(
+                preview_image,
+                (int(start_x), int(start_y)),
+                (int(end_x), int(end_y)),
+                (255, 0, 255),  # Magenta for new portal being drawn
+                4,  # Thicker than walls
+                cv2.LINE_AA  # Anti-aliased line
+            )
+            
+            # Draw dots at the endpoints
+            cv2.circle(preview_image, (int(start_x), int(start_y)), 5, (255, 0, 255), -1)  # Start point
+            cv2.circle(preview_image, (int(end_x), int(end_y)), 5, (255, 0, 255), -1)  # End point
+            
+            # Draw center indicator
+            center_x = (start_x + end_x) / 2
+            center_y = (start_y + end_y) / 2
+            cv2.circle(preview_image, (int(center_x), int(center_y)), 3, (255, 255, 255), -1)  # White center
+        
+        # Draw lights if they exist
+        if 'lights' in self.app.uvtt_walls_preview and self.app.uvtt_walls_preview['lights']:
+            from src.wall_detection.light_detector import draw_lights_on_image
+            pixels_per_grid = self.app.uvtt_walls_preview.get('resolution', {}).get('pixels_per_grid', 70)
+            
+            # Draw lights on the preview
+            preview_image = draw_lights_on_image(
+                preview_image, 
+                self.app.uvtt_walls_preview['lights'], 
+                grid_size=pixels_per_grid,
+                show_range=True,  # Show light range circles in preview
+                alpha=0.3
+            )
         
         # Add mode indicator text in the top-right
         mode_text = ""

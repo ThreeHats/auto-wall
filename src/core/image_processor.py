@@ -7,7 +7,8 @@ import numpy as np
 
 from PyQt6.QtWidgets import QFileDialog, QMessageBox, QApplication
 from src.wall_detection.image_utils import load_image, convert_to_rgb, save_image
-from src.wall_detection.detector import detect_walls, draw_walls, merge_contours, split_edge_contours, remove_hatching_lines
+from src.wall_detection.detector import detect_walls, draw_walls, merge_contours, split_edge_contours, remove_hatching_lines, detect_lights_in_image
+from src.wall_detection.light_detector import draw_lights_on_image
 from src.wall_detection.mask_editor import blend_image_with_mask
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QPixmap, QImage, QColor
@@ -206,6 +207,45 @@ class ImageProcessor:
             print(f"After edge splitting: kept {kept_count}, filtered {filtered_count} tiny fragments")        # Save the current contours for interactive editing (these are at working resolution)
         self.app.current_contours = contours
 
+        # Light detection - only perform if enabled and in appropriate detection mode  
+        current_lights = []
+        if hasattr(self.app, 'enable_light_detection') and self.app.enable_light_detection.isChecked():
+            # Get light detection parameters from the UI sliders
+            brightness_threshold = self.app.light_brightness_slider.value() / 100.0
+            light_min_area = self.app.light_min_size_slider.value()
+            light_max_area = self.app.light_max_size_slider.value()
+            light_merge_distance = self.app.light_merge_distance_slider.value()
+            
+            # Collect light colors from the UI if any are specified
+            light_colors = []
+            if hasattr(self.app, 'light_colors_list') and self.app.light_colors_list.count() > 0:
+                for i in range(self.app.light_colors_list.count()):
+                    item = self.app.light_colors_list.item(i)
+                    color_data = item.data(Qt.ItemDataRole.UserRole)
+                    if color_data:
+                        color = color_data["color"]
+                        threshold = color_data["threshold"]
+                        # Convert QColor to BGR tuple for detection
+                        bgr_color = (color.blue(), color.green(), color.red())
+                        light_colors.append((bgr_color, threshold))
+            
+            # Detect lights in the working image
+            with PerformanceTimer("Light detection"):
+                current_lights = detect_lights_in_image(
+                    processed_image,
+                    brightness_threshold=brightness_threshold,
+                    min_area=light_min_area,
+                    max_area=light_max_area,
+                    enable_lights=True,
+                    grid_size=70.0,
+                    light_colors=light_colors if light_colors else None,
+                    merge_distance=light_merge_distance,
+                    scale_factor=self.app.scale_factor
+                )
+        
+        # Store detected lights for interactive editing
+        self.app.current_lights = current_lights
+
         # Ensure contours are not empty
         if not contours:
             print("No contours found after processing.")
@@ -228,6 +268,37 @@ class ImageProcessor:
                 display_image = draw_walls(processed_image, contours)
             
             self.app.processed_image = display_image
+
+        # Draw lights on the processed image if light detection is enabled and lights were detected
+        if current_lights and len(current_lights) > 0:
+            from src.wall_detection.light_detector import draw_lights_on_image
+            
+            # Scale lights to match the display image if necessary
+            lights_to_draw = current_lights.copy()
+            if self.app.scale_factor != 1.0 and self.app.original_image is not None:
+                # Scale light positions to match the original image size
+                for light in lights_to_draw:
+                    if "position" in light:
+                        # Convert from grid coordinates back to pixels in working image
+                        pixel_x = light["position"]["x"] * 70.0  # Convert grid to pixels
+                        pixel_y = light["position"]["y"] * 70.0
+                        
+                        # Scale to original image size
+                        scaled_x = pixel_x * self.app.scale_factor
+                        scaled_y = pixel_y * self.app.scale_factor
+                        
+                        # Convert back to grid coordinates for drawing
+                        light["position"]["x"] = scaled_x / 70.0
+                        light["position"]["y"] = scaled_y / 70.0
+            
+            # Draw the lights on the processed image
+            self.app.processed_image = draw_lights_on_image(
+                self.app.processed_image,
+                lights_to_draw,
+                grid_size=70.0,
+                show_range=False,  # Don't show range circles in detection mode
+                alpha=0.8  # More visible in detection mode
+            )
 
         # Save the original image for highlighting
         if self.app.processed_image is not None:
@@ -478,3 +549,57 @@ class ImageProcessor:
         
         # Update the image with new resolution
         self.update_image()
+
+    def update_lights_only(self):
+        """Update only the light detection without affecting contours."""
+        if self.app.current_image is None:
+            return
+            
+        # Only proceed if light detection is enabled
+        if not (hasattr(self.app, 'enable_light_detection') and self.app.enable_light_detection.isChecked()):
+            # If light detection is disabled, clear lights and redraw without them
+            self.app.current_lights = []
+            self.app.contour_processor.update_display_from_contours()
+            return
+            
+        # Detect lights only
+        brightness_threshold = self.app.light_brightness_slider.value() / 100.0
+        light_min_area = self.app.light_min_size_slider.value()
+        light_max_area = self.app.light_max_size_slider.value()
+        light_merge_distance = self.app.light_merge_distance_slider.value()
+        
+        # Collect light colors from the UI if any are specified
+        light_colors = []
+        if hasattr(self.app, 'light_colors_list') and self.app.light_colors_list.count() > 0:
+            for i in range(self.app.light_colors_list.count()):
+                item = self.app.light_colors_list.item(i)
+                color_data = item.data(Qt.ItemDataRole.UserRole)
+                if color_data:
+                    color = color_data["color"]
+                    threshold = color_data["threshold"]
+                    # Convert QColor to BGR tuple for detection
+                    bgr_color = (color.blue(), color.green(), color.red())
+                    light_colors.append((bgr_color, threshold))
+        
+        # Use the working image for light detection
+        working_image = self.app.current_image
+        
+        # Detect lights in the working image
+        from src.wall_detection.detector import detect_lights_in_image
+        current_lights = detect_lights_in_image(
+            working_image,
+            brightness_threshold=brightness_threshold,
+            min_area=light_min_area,
+            max_area=light_max_area,
+            enable_lights=True,
+            grid_size=70.0,
+            light_colors=light_colors if light_colors else None,
+            merge_distance=light_merge_distance,
+            scale_factor=self.app.scale_factor
+        )
+        
+        # Store the updated lights
+        self.app.current_lights = current_lights
+        
+        # Update the display with existing contours and new lights
+        self.app.contour_processor.update_display_from_contours()

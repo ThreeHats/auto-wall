@@ -52,12 +52,77 @@ class ContourProcessor:
                 # No scaling needed or no original image available
                 self.app.processed_image = draw_walls(self.app.current_image, self.app.current_contours)
             
+            # Re-draw lights if they exist and light detection is enabled
+            if (hasattr(self.app, 'current_lights') and self.app.current_lights and 
+                hasattr(self.app, 'enable_light_detection') and self.app.enable_light_detection.isChecked()):
+                from src.wall_detection.light_detector import draw_lights_on_image
+                
+                # Scale lights to match the display image if necessary
+                lights_to_draw = self.app.current_lights.copy()
+                if self.app.scale_factor != 1.0 and self.app.original_image is not None:
+                    # Scale light positions to match the original image size
+                    for light in lights_to_draw:
+                        if "position" in light:
+                            # Convert from grid coordinates back to pixels in working image
+                            pixel_x = light["position"]["x"] * 70.0  # Convert grid to pixels
+                            pixel_y = light["position"]["y"] * 70.0
+                            
+                            # Scale to original image size
+                            scaled_x = pixel_x * self.app.scale_factor
+                            scaled_y = pixel_y * self.app.scale_factor
+                            
+                            # Convert back to grid coordinates for drawing
+                            light["position"]["x"] = scaled_x / 70.0
+                            light["position"]["y"] = scaled_y / 70.0
+                
+                # Draw the lights on the processed image
+                self.app.processed_image = draw_lights_on_image(
+                    self.app.processed_image,
+                    lights_to_draw,
+                    grid_size=70.0,
+                    show_range=False,  # Don't show range circles in detection mode
+                    alpha=0.8  # More visible in detection mode
+                )
+            
             self.app.original_processed_image = self.app.processed_image.copy()
             self.app.refresh_display()
         elif self.app.current_image is not None:
             # Display the original full-resolution image if available, otherwise the working image
             display_image = self.app.original_image.copy() if self.app.original_image is not None else self.app.current_image
             self.app.processed_image = display_image
+            
+            # Re-draw lights even when no contours exist
+            if (hasattr(self.app, 'current_lights') and self.app.current_lights and 
+                hasattr(self.app, 'enable_light_detection') and self.app.enable_light_detection.isChecked()):
+                from src.wall_detection.light_detector import draw_lights_on_image
+                
+                # Scale lights to match the display image if necessary
+                lights_to_draw = self.app.current_lights.copy()
+                if self.app.scale_factor != 1.0 and self.app.original_image is not None:
+                    # Scale light positions to match the original image size
+                    for light in lights_to_draw:
+                        if "position" in light:
+                            # Convert from grid coordinates back to pixels in working image
+                            pixel_x = light["position"]["x"] * 70.0  # Convert grid to pixels
+                            pixel_y = light["position"]["y"] * 70.0
+                            
+                            # Scale to original image size
+                            scaled_x = pixel_x * self.app.scale_factor
+                            scaled_y = pixel_y * self.app.scale_factor
+                            
+                            # Convert back to grid coordinates for drawing
+                            light["position"]["x"] = scaled_x / 70.0
+                            light["position"]["y"] = scaled_y / 70.0
+                
+                # Draw the lights on the processed image
+                self.app.processed_image = draw_lights_on_image(
+                    self.app.processed_image,
+                    lights_to_draw,
+                    grid_size=70.0,
+                    show_range=False,  # Don't show range circles in detection mode
+                    alpha=0.8  # More visible in detection mode
+                )
+            
             self.app.original_processed_image = self.app.processed_image.copy()
             self.app.refresh_display()
 

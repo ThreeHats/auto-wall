@@ -1,5 +1,6 @@
 import cv2
 import numpy as np
+from .light_detector import detect_lights, scale_lights_to_grid
 
 def detect_walls(image, min_contour_area=100, max_contour_area=None, blur_kernel_size=5, 
                 canny_threshold1=50, canny_threshold2=150, edge_margin=0,
@@ -779,3 +780,38 @@ def remove_hatching_lines(image, color, threshold, max_width):
         print("No hatching lines detected that match the criteria")
     
     return result
+
+def detect_lights_in_image(image, brightness_threshold=0.8, min_area=5, max_area=500, 
+                          enable_lights=True, grid_size=72, light_colors=None, merge_distance=20.0, scale_factor=1.0):
+    """
+    Detect bright spots (lights) in an image for UVTT export.
+    
+    Parameters:
+    - image: Input image
+    - brightness_threshold: Threshold for brightness detection (0.0 to 1.0)
+    - min_area: Minimum area in pixels for a light spot
+    - max_area: Maximum area in pixels for a light spot
+    - enable_lights: Whether light detection is enabled
+    - grid_size: Size of one grid square in pixels for coordinate scaling
+    - light_colors: Optional list of (BGR_color_tuple, threshold) pairs for color-based detection
+    - merge_distance: Distance in pixels to merge nearby lights (0 to disable merging)
+    - scale_factor: Scale factor from working image to original image (1/app.scale_factor)
+    
+    Returns:
+    - List of light dictionaries with UVTT format
+    """
+    if not enable_lights or image is None:
+        return []
+    
+    # Detect lights using the light detector module
+    lights = detect_lights(image, brightness_threshold, min_area, max_area, light_colors, merge_distance)
+    
+    # Scale light coordinates to grid units, accounting for image scaling
+    scaled_lights = scale_lights_to_grid(lights, image.shape, grid_size, scale_factor)
+    
+    if light_colors:
+        print(f"Detected {len(scaled_lights)} lights using {len(light_colors)} specified colors (merged within {merge_distance}px)")
+    else:
+        print(f"Detected {len(scaled_lights)} lights with brightness threshold {brightness_threshold} (merged within {merge_distance}px)")
+    
+    return scaled_lights
