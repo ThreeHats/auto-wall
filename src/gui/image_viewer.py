@@ -255,13 +255,15 @@ class InteractiveImageLabel(QLabel):
                             self.parent_app.setStatusTip("Drawing new portal/door")
                         
                     elif self.parent_app.uvtt_edit_mode:
-                        # First check if we're clicking on a wall point
+                        # First check if we're clicking on a wall point, portal point, or light
                         wall_idx, point_idx = self.find_closest_wall_point(img_x, img_y)
                         portal_idx, portal_point_idx = self.find_closest_portal_point(img_x, img_y)
+                        light_idx = self.find_closest_light(img_x, img_y)
                         
-                        # Determine which is closer - wall point or portal point
+                        # Determine which is closer - wall point, portal point, or light
                         wall_distance = float('inf')
                         portal_distance = float('inf')
+                        light_distance = float('inf')
                         
                         if wall_idx != -1:
                             # Calculate distance to wall point
@@ -282,8 +284,91 @@ class InteractiveImageLabel(QLabel):
                                     portal_y = portal['bounds'][portal_point_idx]['y'] * grid_size
                                     portal_distance = ((img_x - portal_x) ** 2 + (img_y - portal_y) ** 2) ** 0.5
                         
-                        # Choose the closer point (wall or portal)
-                        if portal_distance < wall_distance and portal_idx != -1:
+                        if light_idx != -1:
+                            # Calculate distance to light
+                            if hasattr(self.parent_app, 'current_lights') and light_idx < len(self.parent_app.current_lights):
+                                light = self.parent_app.current_lights[light_idx]
+                                # Get the light's position in original image coordinates
+                                light_x = light.get('_original_pixel_x')
+                                light_y = light.get('_original_pixel_y')
+                                
+                                # Fallback to position dict if original pixel coordinates not available
+                                if light_x is None or light_y is None:
+                                    position = light.get('position', {})
+                                    light_x = position.get('x', 0)
+                                    light_y = position.get('y', 0)
+                                    # If position is in grid coordinates, convert to pixels
+                                    if light_x < 100:  # Likely grid coordinates
+                                        grid_size = self.parent_app.uvtt_walls_preview.get('resolution', {}).get('pixels_per_grid', 70)
+                                        light_x = light_x * grid_size
+                                        light_y = light_y * grid_size
+                                
+                                light_distance = ((img_x - light_x) ** 2 + (img_y - light_y) ** 2) ** 0.5
+                        
+                        # Choose the closest element - light, portal point, or wall point
+                        if light_distance < portal_distance and light_distance < wall_distance and light_idx != -1:
+                            # Light is closest - handle light editing
+                            if not hasattr(self.parent_app, 'selected_light_indices'):
+                                self.parent_app.selected_light_indices = []
+                            
+                            light_is_selected = light_idx in self.parent_app.selected_light_indices
+                            
+                            if light_is_selected:
+                                # This light is already selected - start moving all selected items (lights and any selected walls/portals)
+                                self.parent_app.export_panel.save_wall_state_for_undo()
+                                self.store_initial_positions_for_lights()
+                                # Also store other positions if we have other selections
+                                if hasattr(self.parent_app, 'selected_wall_indices') and self.parent_app.selected_wall_indices:
+                                    self.store_initial_positions_for_walls()
+                                if hasattr(self.parent_app, 'selected_points') and self.parent_app.selected_points:
+                                    self.store_initial_positions_for_points()
+                                if hasattr(self.parent_app, 'selected_portal_indices') and self.parent_app.selected_portal_indices:
+                                    self.store_initial_positions_for_portals()
+                                if hasattr(self.parent_app, 'selected_portal_points') and self.parent_app.selected_portal_points:
+                                    self.store_initial_positions_for_portal_points()
+                                
+                                # Enable light drag system and others if needed
+                                self.parent_app.multi_light_drag = True
+                                self.parent_app.multi_light_drag_start = (img_x, img_y)
+                                if hasattr(self.parent_app, 'selected_wall_indices') and (self.parent_app.selected_wall_indices or (hasattr(self.parent_app, 'selected_points') and self.parent_app.selected_points)):
+                                    self.parent_app.multi_wall_drag = True
+                                    self.parent_app.multi_wall_drag_start = (img_x, img_y)
+                                if hasattr(self.parent_app, 'selected_portal_indices') and (self.parent_app.selected_portal_indices or (hasattr(self.parent_app, 'selected_portal_points') and self.parent_app.selected_portal_points)):
+                                    self.parent_app.multi_portal_drag = True
+                                    self.parent_app.multi_portal_drag_start = (img_x, img_y)
+                                
+                                total_selected = len(self.parent_app.selected_light_indices)
+                                if hasattr(self.parent_app, 'selected_points') and self.parent_app.selected_points:
+                                    total_selected += len(self.parent_app.selected_points)
+                                if hasattr(self.parent_app, 'selected_wall_indices') and self.parent_app.selected_wall_indices:
+                                    total_selected += len(self.parent_app.selected_wall_indices)
+                                if hasattr(self.parent_app, 'selected_portal_points') and self.parent_app.selected_portal_points:
+                                    total_selected += len(self.parent_app.selected_portal_points)
+                                if hasattr(self.parent_app, 'selected_portal_indices') and self.parent_app.selected_portal_indices:
+                                    total_selected += len(self.parent_app.selected_portal_indices)
+                                    
+                                self.parent_app.setStatusTip(f"Moving {total_selected} selected items")
+                                print(f"Starting unified drag of {len(self.parent_app.selected_light_indices)} lights and other selected items")
+                            else:
+                                # Clear other selections and select this light
+                                self.parent_app.selected_wall_indices = []
+                                self.parent_app.selected_points = []
+                                if hasattr(self.parent_app, 'selected_portal_points'):
+                                    self.parent_app.selected_portal_points = []
+                                if hasattr(self.parent_app, 'selected_portal_indices'):
+                                    self.parent_app.selected_portal_indices = []
+                                self.parent_app.selected_light_indices = [light_idx]
+                                self.parent_app.selected_light_index = light_idx
+                                
+                                self.parent_app.export_panel.save_wall_state_for_undo()
+                                self.store_initial_positions_for_lights()
+                                self.parent_app.multi_light_drag = True
+                                self.parent_app.multi_light_drag_start = (img_x, img_y)
+                                self.parent_app.setStatusTip(f"Moving light")
+                                print(f"Starting drag of light {light_idx}")
+                            return
+                            
+                        elif portal_distance < wall_distance and portal_idx != -1:
                             # Portal point is closer - handle portal editing
                             if not hasattr(self.parent_app, 'selected_portal_points'):
                                 self.parent_app.selected_portal_points = []
@@ -434,21 +519,15 @@ class InteractiveImageLabel(QLabel):
                                 # Enable both drag systems for unified movement
                                 self.parent_app.multi_portal_drag = True
                                 self.parent_app.multi_portal_drag_start = (img_x, img_y)
-                                self.parent_app.dragging_from_portal_line = True
                                 if hasattr(self.parent_app, 'selected_wall_indices') and (self.parent_app.selected_wall_indices or (hasattr(self.parent_app, 'selected_points') and self.parent_app.selected_points)):
                                     self.parent_app.multi_wall_drag = True
                                     self.parent_app.multi_wall_drag_start = (img_x, img_y)
-                                    # Set appropriate wall drag type
-                                    if self.parent_app.selected_wall_indices:
-                                        self.parent_app.dragging_from_line = True
-                                    else:
-                                        self.parent_app.dragging_from_line = False
                                 
                                 total_selected = len(self.parent_app.selected_portal_indices)
-                                if hasattr(self.parent_app, 'selected_wall_indices') and self.parent_app.selected_wall_indices:
-                                    total_selected += len(self.parent_app.selected_wall_indices)
                                 if hasattr(self.parent_app, 'selected_points') and self.parent_app.selected_points:
                                     total_selected += len(self.parent_app.selected_points)
+                                if hasattr(self.parent_app, 'selected_wall_indices') and self.parent_app.selected_wall_indices:
+                                    total_selected += len(self.parent_app.selected_wall_indices)
                                     
                                 self.parent_app.setStatusTip(f"Moving {total_selected} selected items")
                                 print(f"Starting unified drag of {len(self.parent_app.selected_portal_indices)} portals and {len(getattr(self.parent_app, 'selected_wall_indices', []))} walls")
@@ -537,6 +616,9 @@ class InteractiveImageLabel(QLabel):
                         self.parent_app.selected_points = []
                         self.parent_app.selected_wall_index = -1
                         self.parent_app.selected_point_index = -1
+                        self.parent_app.selected_light_index = -1
+                        self.parent_app.selected_light_indices = []
+                        self.parent_app.dragging_light = False
                         
                         # Clear portal selections as well
                         if hasattr(self.parent_app, 'selected_portal_indices'):
@@ -551,6 +633,7 @@ class InteractiveImageLabel(QLabel):
                         # Clear any previous drag operations
                         self.parent_app.multi_wall_drag = False
                         self.parent_app.multi_wall_drag_start = None
+                        self.parent_app.drag_start = False
                         self.parent_app.dragging_from_line = False
                         
                         # Clear portal drag operations as well
@@ -561,19 +644,27 @@ class InteractiveImageLabel(QLabel):
                         if hasattr(self.parent_app, 'dragging_from_portal_line'):
                             self.parent_app.dragging_from_portal_line = False
                         
+                        # Clear light drag operations as well
+                        if hasattr(self.parent_app, 'multi_light_drag'):
+                            self.parent_app.multi_light_drag = False
+                        if hasattr(self.parent_app, 'multi_light_drag_start'):
+                            self.parent_app.multi_light_drag_start = None
+                        
                         self.parent_app.selecting_walls = True
                         self.parent_app.wall_selection_start = (img_x, img_y)
                         self.parent_app.wall_selection_current = (img_x, img_y)
                         print(f"Starting selection box at ({img_x}, {img_y})")
                             
                     elif self.parent_app.uvtt_delete_mode:
-                        # Check if we're clicking on a wall or portal for immediate deletion
+                        # Check if we're clicking on a wall, portal, or light for immediate deletion
                         wall_idx = self.find_wall_under_cursor(img_x, img_y)
                         portal_idx = self.find_portal_under_cursor(img_x, img_y)
+                        light_idx = self.find_closest_light(img_x, img_y)
                         
-                        # Determine which is closer - wall or portal
+                        # Determine which is closer - wall, portal, or light
                         wall_distance = float('inf')
                         portal_distance = float('inf')
+                        light_distance = float('inf')
                         
                         if wall_idx != -1:
                             # Calculate distance to wall
@@ -596,8 +687,46 @@ class InteractiveImageLabel(QLabel):
                                     y2 = portal['bounds'][1]['y'] * grid_size
                                     portal_distance = self.calculate_point_to_line_distance(img_x, img_y, x1, y1, x2, y2)
                         
-                        # Delete the closer item (portal or wall)
-                        if portal_distance < wall_distance and portal_idx != -1:
+                        if light_idx != -1:
+                            # Calculate distance to light (same as in find_closest_light)
+                            if 'lights' in self.parent_app.uvtt_walls_preview and light_idx < len(self.parent_app.uvtt_walls_preview['lights']):
+                                light = self.parent_app.uvtt_walls_preview['lights'][light_idx]
+                                if "_original_pixel_x" in light and "_original_pixel_y" in light:
+                                    light_x = float(light["_original_pixel_x"])
+                                    light_y = float(light["_original_pixel_y"])
+                                else:
+                                    # Fallback to grid coordinates
+                                    grid_size = self.parent_app.uvtt_walls_preview.get('resolution', {}).get('pixels_per_grid', 70)
+                                    light_x = float(light["position"]["x"]) * grid_size
+                                    light_y = float(light["position"]["y"]) * grid_size
+                                light_distance = ((img_x - light_x) ** 2 + (img_y - light_y) ** 2) ** 0.5
+                        
+                        # Delete the closest item (light, portal, or wall)
+                        if light_distance < portal_distance and light_distance < wall_distance and light_idx != -1:
+                            # Delete the light
+                            self.parent_app.export_panel.save_wall_state_for_undo(force=True)
+                            
+                            if self.parent_app.uvtt_walls_preview and 'lights' in self.parent_app.uvtt_walls_preview:
+                                if light_idx < len(self.parent_app.uvtt_walls_preview['lights']):
+                                    del self.parent_app.uvtt_walls_preview['lights'][light_idx]
+                                
+                                # Reset light selection
+                                if hasattr(self.parent_app, 'selected_light_index'):
+                                    self.parent_app.selected_light_index = -1
+                                if hasattr(self.parent_app, 'selected_light_indices'):
+                                    self.parent_app.selected_light_indices = []
+                                
+                                # Ensure we stay in delete mode
+                                self.parent_app.uvtt_delete_mode = True
+                                
+                                # Update the display
+                                self.parent_app.export_panel.display_uvtt_preview()
+                                self.parent_app.setStatusTip(f"Deleted light {light_idx}")
+                                
+                                # Save the final state for undo
+                                self.parent_app.export_panel.save_wall_state_for_undo(force=True)
+                                
+                        elif portal_distance < wall_distance and portal_idx != -1:
                             # Delete the portal
                             self.parent_app.export_panel.save_wall_state_for_undo(force=True)
                             
@@ -657,6 +786,10 @@ class InteractiveImageLabel(QLabel):
                                 self.parent_app.selected_points = []
                             if hasattr(self.parent_app, 'selected_portal_points'):
                                 self.parent_app.selected_portal_points = []
+                            if hasattr(self.parent_app, 'selected_light_indices'):
+                                self.parent_app.selected_light_indices = []
+                            if hasattr(self.parent_app, 'selected_light_index'):
+                                self.parent_app.selected_light_index = -1
                     
                     # Update the preview
                     self.parent_app.export_panel.display_uvtt_preview()
@@ -766,16 +899,19 @@ class InteractiveImageLabel(QLabel):
                         return
                         
                     elif self.parent_app.uvtt_edit_mode:
-                        # Check if we're doing a unified multi-drag operation (walls and/or portals)
+                        # Check if we're doing a unified multi-drag operation (walls, portals, and/or lights)
                         if ((hasattr(self.parent_app, 'multi_wall_drag') and self.parent_app.multi_wall_drag and hasattr(self.parent_app, 'multi_wall_drag_start')) or
-                            (hasattr(self.parent_app, 'multi_portal_drag') and self.parent_app.multi_portal_drag and hasattr(self.parent_app, 'multi_portal_drag_start'))):
+                            (hasattr(self.parent_app, 'multi_portal_drag') and self.parent_app.multi_portal_drag and hasattr(self.parent_app, 'multi_portal_drag_start')) or
+                            (hasattr(self.parent_app, 'multi_light_drag') and self.parent_app.multi_light_drag and hasattr(self.parent_app, 'multi_light_drag_start'))):
                             
-                            # Use wall drag start if available, otherwise portal drag start
+                            # Use the appropriate drag start position
                             drag_start = None
                             if hasattr(self.parent_app, 'multi_wall_drag_start') and self.parent_app.multi_wall_drag_start:
                                 drag_start = self.parent_app.multi_wall_drag_start
                             elif hasattr(self.parent_app, 'multi_portal_drag_start') and self.parent_app.multi_portal_drag_start:
                                 drag_start = self.parent_app.multi_portal_drag_start
+                            elif hasattr(self.parent_app, 'multi_light_drag_start') and self.parent_app.multi_light_drag_start:
+                                drag_start = self.parent_app.multi_light_drag_start
                                 
                             if drag_start:
                                 print(f"MouseMove: Unified multi-drag active")
@@ -816,6 +952,14 @@ class InteractiveImageLabel(QLabel):
                                         print(f"MouseMove: Dragging portal points, selected_portal_points={getattr(self.parent_app, 'selected_portal_points', 'NOT_SET')}")
                                         # We're dragging from selected portal points, move only those points
                                         if self.move_selected_portal_points_absolute(img_x, img_y):
+                                            moved_something = True
+                                
+                                # Handle light dragging
+                                if hasattr(self.parent_app, 'multi_light_drag') and self.parent_app.multi_light_drag:
+                                    if hasattr(self.parent_app, 'selected_light_indices') and self.parent_app.selected_light_indices:
+                                        print(f"MouseMove: Dragging lights, selected_light_indices={getattr(self.parent_app, 'selected_light_indices', 'NOT_SET')}")
+                                        # Move selected lights
+                                        if self.move_selected_lights_absolute(img_x, img_y):
                                             moved_something = True
                                 
                                 # Update display if anything moved
@@ -1094,6 +1238,18 @@ class InteractiveImageLabel(QLabel):
                                     if hasattr(self.parent_app, 'dragging_from_portal_line'):
                                         self.parent_app.dragging_from_portal_line = False
                                 
+                                # Handle light dragging
+                                light_drag_active = hasattr(self.parent_app, 'multi_light_drag') and self.parent_app.multi_light_drag
+                                if light_drag_active:
+                                    self.parent_app.multi_light_drag = False
+                                    self.parent_app.multi_light_drag_start = None
+                                    
+                                    if hasattr(self.parent_app, 'selected_light_indices') and self.parent_app.selected_light_indices:
+                                        # Dragging lights
+                                        light_count = len(self.parent_app.selected_light_indices)
+                                        moved_items.append(f"{light_count} light{'s' if light_count > 1 else ''}")
+                                        print(f"Light dragging completed: Moved {light_count} light(s)")
+                                
                                 # Update status with unified message
                                 if moved_items:
                                     self.parent_app.setStatusTip(f"Moved {', '.join(moved_items)}")
@@ -1101,7 +1257,7 @@ class InteractiveImageLabel(QLabel):
                                     self.parent_app.setStatusTip("Moved selected items")
                                 
                                 # Clean up all initial position data
-                                for attr in ['initial_wall_positions', 'initial_point_positions', 'initial_portal_positions', 'initial_portal_point_positions']:
+                                for attr in ['initial_wall_positions', 'initial_point_positions', 'initial_portal_positions', 'initial_portal_point_positions', 'initial_light_positions']:
                                     if hasattr(self.parent_app, attr):
                                         delattr(self.parent_app, attr)
                                 
@@ -1113,7 +1269,7 @@ class InteractiveImageLabel(QLabel):
                                 print(f"Dragging completed: Moved single item")
                                 
                                 # Clean up all initial position data
-                                for attr in ['initial_wall_positions', 'initial_point_positions', 'initial_portal_positions', 'initial_portal_point_positions']:
+                                for attr in ['initial_wall_positions', 'initial_point_positions', 'initial_portal_positions', 'initial_portal_point_positions', 'initial_light_positions']:
                                     if hasattr(self.parent_app, attr):
                                         delattr(self.parent_app, attr)
                                 
@@ -1142,8 +1298,11 @@ class InteractiveImageLabel(QLabel):
                             # Finalize the selection
                             self.parent_app.selecting_walls = False
                             
-                            # If in delete mode with points selected, delete the walls that have selected points
-                            if self.parent_app.uvtt_delete_mode and self.parent_app.selected_wall_indices:
+                            # If in delete mode with any items selected, delete them
+                            if (self.parent_app.uvtt_delete_mode and 
+                                (self.parent_app.selected_wall_indices or 
+                                 (hasattr(self.parent_app, 'selected_portal_indices') and self.parent_app.selected_portal_indices) or
+                                 (hasattr(self.parent_app, 'selected_light_indices') and self.parent_app.selected_light_indices))):
                                 self.handle_selected_walls_deletion()
                             
                             # If in edit mode with points selected, provide feedback
@@ -1853,6 +2012,12 @@ class InteractiveImageLabel(QLabel):
         else:
             self.parent_app.selected_portal_points = []
         
+        # Reset light selections
+        if not hasattr(self.parent_app, 'selected_light_indices'):
+            self.parent_app.selected_light_indices = []
+        else:
+            self.parent_app.selected_light_indices = []
+        
         # Check each wall point to see if it's within the selection rectangle
         if '_preview_pixels' in self.parent_app.uvtt_walls_preview:
             wall_points_list = self.parent_app.uvtt_walls_preview['_preview_pixels']
@@ -1896,18 +2061,38 @@ class InteractiveImageLabel(QLabel):
             
             # Update selected_portal_indices to include all portals that have selected points
             self.parent_app.selected_portal_indices = list(selected_portals_set)
+        
+        # Check each light to see if it's within the selection rectangle
+        if 'lights' in self.parent_app.uvtt_walls_preview:
+            for light_idx, light in enumerate(self.parent_app.uvtt_walls_preview['lights']):
+                # Get light position in pixel coordinates
+                if "_original_pixel_x" in light and "_original_pixel_y" in light:
+                    light_x = float(light["_original_pixel_x"])
+                    light_y = float(light["_original_pixel_y"])
+                else:
+                    # Fallback to grid coordinates
+                    grid_size = self.parent_app.uvtt_walls_preview.get('resolution', {}).get('pixels_per_grid', 70)
+                    light_x = float(light["position"]["x"]) * grid_size
+                    light_y = float(light["position"]["y"]) * grid_size
+                
+                # Check if this light is within the selection rectangle
+                if x1 <= light_x <= x2 and y1 <= light_y <= y2:
+                    # Add this light to the selected lights list
+                    self.parent_app.selected_light_indices.append(light_idx)
             
         print(f"Selection box: ({x1:.1f}, {y1:.1f}) to ({x2:.1f}, {y2:.1f})")
         print(f"Selected {len(self.parent_app.selected_points)} wall points from {len(self.parent_app.selected_wall_indices)} walls")
         print(f"Selected {len(getattr(self.parent_app, 'selected_portal_points', []))} portal points from {len(getattr(self.parent_app, 'selected_portal_indices', []))} portals")
+        print(f"Selected {len(getattr(self.parent_app, 'selected_light_indices', []))} lights")
     
     def handle_selected_walls_deletion(self):
-        """Delete all walls and portals that are currently selected."""
+        """Delete all walls, portals, and lights that are currently selected."""
         if not self.parent_app.uvtt_walls_preview:
             return
             
         walls_deleted = 0
         portals_deleted = 0
+        lights_deleted = 0
         
         # Delete selected walls
         if hasattr(self.parent_app, 'selected_wall_indices') and self.parent_app.selected_wall_indices:
@@ -1962,18 +2147,44 @@ class InteractiveImageLabel(QLabel):
             if hasattr(self.parent_app, 'selected_portal_points'):
                 self.parent_app.selected_portal_points = []
         
+        # Delete selected lights
+        if hasattr(self.parent_app, 'selected_light_indices') and self.parent_app.selected_light_indices:
+            # Count the selected lights
+            lights_deleted = len(self.parent_app.selected_light_indices)
+            
+            # Save current state for undo if we haven't already (for walls or portals)
+            if walls_deleted == 0 and portals_deleted == 0:
+                self.parent_app.export_panel.save_wall_state_for_undo(force=True)
+            
+            # Sort indices in descending order to avoid index shifting problems when deleting
+            sorted_light_indices = sorted(self.parent_app.selected_light_indices, reverse=True)
+            
+            # Delete lights
+            for idx in sorted_light_indices:
+                if 'lights' in self.parent_app.uvtt_walls_preview and idx < len(self.parent_app.uvtt_walls_preview['lights']):
+                    del self.parent_app.uvtt_walls_preview['lights'][idx]
+            
+            # Clear the light selection
+            self.parent_app.selected_light_indices = []
+            if hasattr(self.parent_app, 'selected_light_index'):
+                self.parent_app.selected_light_index = -1
+        
         # Update status and display if anything was deleted
-        if walls_deleted > 0 or portals_deleted > 0:
+        if walls_deleted > 0 or portals_deleted > 0 or lights_deleted > 0:
             # Ensure we stay in delete mode
             self.parent_app.uvtt_delete_mode = True
             
             # Update status
-            if walls_deleted > 0 and portals_deleted > 0:
-                self.parent_app.setStatusTip(f"Deleted {walls_deleted} walls and {portals_deleted} portals")
-            elif walls_deleted > 0:
-                self.parent_app.setStatusTip(f"Deleted {walls_deleted} walls")
-            elif portals_deleted > 0:
-                self.parent_app.setStatusTip(f"Deleted {portals_deleted} portals")
+            status_parts = []
+            if walls_deleted > 0:
+                status_parts.append(f"{walls_deleted} walls")
+            if portals_deleted > 0:
+                status_parts.append(f"{portals_deleted} portals")
+            if lights_deleted > 0:
+                status_parts.append(f"{lights_deleted} lights")
+            
+            if status_parts:
+                self.parent_app.setStatusTip(f"Deleted {', '.join(status_parts)}")
             
             # Update display
             self.parent_app.export_panel.display_uvtt_preview()
@@ -2021,57 +2232,58 @@ class InteractiveImageLabel(QLabel):
                     
         return walls_moved
         
-    def move_selected_wall_points(self, dx, dy):
-        """Move only specific wall points by the given delta amounts, keeping other points in place.
+    # TODO: remove dead code
+    # def move_selected_wall_points(self, dx, dy):
+    #     """Move only specific wall points by the given delta amounts, keeping other points in place.
         
-        This implements the constrained movement feature for Ctrl+click and drag operations.
-        In this mode, only the points that were within the radius of the initial click will move.
-        """
-        if not hasattr(self.parent_app, 'selected_points') or not self.parent_app.selected_points or not self.parent_app.uvtt_walls_preview:
-            return False
+    #     This implements the constrained movement feature for Ctrl+click and drag operations.
+    #     In this mode, only the points that were within the radius of the initial click will move.
+    #     """
+    #     if not hasattr(self.parent_app, 'selected_points') or not self.parent_app.selected_points or not self.parent_app.uvtt_walls_preview:
+    #         return False
             
-        # Track if any points were actually moved
-        points_moved = False
+    #     # Track if any points were actually moved
+    #     points_moved = False
             
-        # Get the grid size for updating grid coordinates
-        grid_size = self.parent_app.uvtt_walls_preview['resolution']['pixels_per_grid']
-        if grid_size <= 0:
-            grid_size = 70  # Default
+    #     # Get the grid size for updating grid coordinates
+    #     grid_size = self.parent_app.uvtt_walls_preview['resolution']['pixels_per_grid']
+    #     if grid_size <= 0:
+    #         grid_size = 70  # Default
         
-        # Create a set of coordinates that were explicitly selected 
-        # (these are the only points we want to move in Ctrl+drag mode)
-        selected_coords = set()
-        for wall_idx, point_idx in self.parent_app.selected_points:
-            if (wall_idx < len(self.parent_app.uvtt_walls_preview['_preview_pixels']) and
-                point_idx < len(self.parent_app.uvtt_walls_preview['_preview_pixels'][wall_idx])):
+    #     # Create a set of coordinates that were explicitly selected 
+    #     # (these are the only points we want to move in Ctrl+drag mode)
+    #     selected_coords = set()
+    #     for wall_idx, point_idx in self.parent_app.selected_points:
+    #         if (wall_idx < len(self.parent_app.uvtt_walls_preview['_preview_pixels']) and
+    #             point_idx < len(self.parent_app.uvtt_walls_preview['_preview_pixels'][wall_idx])):
                 
-                point = self.parent_app.uvtt_walls_preview['_preview_pixels'][wall_idx][point_idx]
-                coord_key = (round(point["x"], 4), round(point["y"], 4))
-                selected_coords.add(coord_key)
+    #             point = self.parent_app.uvtt_walls_preview['_preview_pixels'][wall_idx][point_idx]
+    #             coord_key = (round(point["x"], 4), round(point["y"], 4))
+    #             selected_coords.add(coord_key)
         
-        # Move only the selected points
-        for wall_idx, point_idx in self.parent_app.selected_points:
-            # Get the point's coordinates
-            if ('_preview_pixels' in self.parent_app.uvtt_walls_preview and 
-                wall_idx < len(self.parent_app.uvtt_walls_preview['_preview_pixels']) and
-                point_idx < len(self.parent_app.uvtt_walls_preview['_preview_pixels'][wall_idx])):
+    #     # Move only the selected points
+    #     for wall_idx, point_idx in self.parent_app.selected_points:
+    #         # Get the point's coordinates
+    #         if ('_preview_pixels' in self.parent_app.uvtt_walls_preview and 
+    #             wall_idx < len(self.parent_app.uvtt_walls_preview['_preview_pixels']) and
+    #             point_idx < len(self.parent_app.uvtt_walls_preview['_preview_pixels'][wall_idx])):
                 
-                # Update pixel coordinates
-                point = self.parent_app.uvtt_walls_preview['_preview_pixels'][wall_idx][point_idx]
-                point["x"] = float(point["x"] + dx)
-                point["y"] = float(point["y"] + dy)
-                points_moved = True
+    #             # Update pixel coordinates
+    #             point = self.parent_app.uvtt_walls_preview['_preview_pixels'][wall_idx][point_idx]
+    #             point["x"] = float(point["x"] + dx)
+    #             point["y"] = float(point["y"] + dy)
+    #             points_moved = True
                 
-                # Update grid coordinates
-                if ('line_of_sight' in self.parent_app.uvtt_walls_preview and 
-                    wall_idx < len(self.parent_app.uvtt_walls_preview['line_of_sight']) and
-                    point_idx < len(self.parent_app.uvtt_walls_preview['line_of_sight'][wall_idx])):
+    #             # Update grid coordinates
+    #             if ('line_of_sight' in self.parent_app.uvtt_walls_preview and 
+    #                 wall_idx < len(self.parent_app.uvtt_walls_preview['line_of_sight']) and
+    #                 point_idx < len(self.parent_app.uvtt_walls_preview['line_of_sight'][wall_idx])):
                     
-                    grid_point = self.parent_app.uvtt_walls_preview['line_of_sight'][wall_idx][point_idx]
-                    grid_point["x"] = float(grid_point["x"] + (dx / grid_size))
-                    grid_point["y"] = float(grid_point["y"] + (dy / grid_size))
+    #                 grid_point = self.parent_app.uvtt_walls_preview['line_of_sight'][wall_idx][point_idx]
+    #                 grid_point["x"] = float(grid_point["x"] + (dx / grid_size))
+    #                 grid_point["y"] = float(grid_point["y"] + (dy / grid_size))
                     
-        return points_moved
+    #     return points_moved
 
     def store_initial_positions_for_walls(self):
         """Store the initial positions of all selected walls before starting a drag operation."""
@@ -2489,3 +2701,150 @@ class InteractiveImageLabel(QLabel):
                     'x': float(bound['x']),
                     'y': float(bound['y'])
                 }
+
+    def find_closest_light(self, x, y, max_distance=10):
+        """Find the closest light to the given coordinates.
+        
+        Args:
+            x, y: Image coordinates to check
+            max_distance: Maximum distance to consider a light close enough
+            
+        Returns:
+            Index of the closest light or -1 if none found within distance
+        """
+        if not hasattr(self.parent_app, 'current_lights') or not self.parent_app.current_lights:
+            return -1
+        
+        closest_light_index = -1
+        min_distance = max_distance
+        min_dist_sq = min_distance ** 2  # Use squared distance to avoid sqrt for performance
+        for i, light in enumerate(self.parent_app.current_lights):
+            # Get the light's position in original image coordinates
+            light_x = light.get('_original_pixel_x')
+            light_y = light.get('_original_pixel_y')
+            
+            # Fallback to position dict if original pixel coordinates not available
+            if light_x is None or light_y is None:
+                position = light.get('position', {})
+                light_x = position.get('x', 0)
+                light_y = position.get('y', 0)
+            
+            dist_sq = (x - light_x)**2 + (y - light_y)**2
+            
+            # Check if the click is within the light's radius (using original_radius) or the max_distance tolerance
+            radius = light.get('original_radius', 10)
+            effective_radius = max(radius, max_distance / self.zoom_factor)
+            if dist_sq < effective_radius**2 and dist_sq < min_dist_sq:
+                min_dist_sq = dist_sq
+                closest_light_index = i
+
+        return closest_light_index
+
+    def find_light_under_cursor(self, x, y, max_distance=10):
+        """Find the index of the light under the cursor."""
+        if not hasattr(self.parent_app, 'current_lights') or not self.parent_app.current_lights:
+            return -1
+
+        closest_light_index = -1
+        min_dist_sq = float('inf')
+
+        for i, light in enumerate(self.parent_app.current_lights):
+            # Get the light's position in original image coordinates
+            light_x = light.get('_original_pixel_x')
+            light_y = light.get('_original_pixel_y')
+            
+            # Fallback to position dict if original pixel coordinates not available
+            if light_x is None or light_y is None:
+                position = light.get('position', {})
+                light_x = position.get('x', 0)
+                light_y = position.get('y', 0)
+            
+            dist_sq = (x - light_x)**2 + (y - light_y)**2
+            
+            # Check if the click is within the light's radius (using original_radius) or the max_distance tolerance
+            radius = light.get('original_radius', 10)  # Use original_radius if available
+            effective_radius = max(radius, max_distance / self.zoom_factor)
+
+            if dist_sq < effective_radius**2 and dist_sq < min_dist_sq:
+                min_dist_sq = dist_sq
+                closest_light_index = i
+        
+        return closest_light_index
+
+    def store_initial_positions_for_lights(self):
+        """Store the initial positions of selected lights before moving."""
+        if not hasattr(self.parent_app, 'selected_light_indices') or not self.parent_app.selected_light_indices:
+            return
+        
+        self.parent_app.initial_light_positions = {}
+        for light_index in self.parent_app.selected_light_indices:
+            if 0 <= light_index < len(self.parent_app.current_lights):
+                light = self.parent_app.current_lights[light_index]
+                # Get the light's position in original image coordinates
+                light_x = light.get('_original_pixel_x')
+                light_y = light.get('_original_pixel_y')
+                
+                # Fallback to position dict if original pixel coordinates not available
+                if light_x is None or light_y is None:
+                    position = light.get('position', {})
+                    light_x = position.get('x', 0)
+                    light_y = position.get('y', 0)
+                    # If position is in grid coordinates, convert to pixels
+                    if light_x < 100:  # Likely grid coordinates
+                        grid_size = self.parent_app.uvtt_walls_preview.get('resolution', {}).get('pixels_per_grid', 70)
+                        light_x = light_x * grid_size
+                        light_y = light_y * grid_size
+                
+                self.parent_app.initial_light_positions[light_index] = (light_x, light_y)
+        
+        print(f"Stored initial positions for {len(self.parent_app.initial_light_positions)} lights")
+
+    def move_selected_lights_absolute(self, mouse_x, mouse_y):
+        """Move selected lights to a new position based on the initial drag start and current mouse position."""
+        if not hasattr(self.parent_app, 'multi_light_drag_start') or self.parent_app.multi_light_drag_start is None:
+            return False
+        if not hasattr(self.parent_app, 'initial_light_positions') or not self.parent_app.initial_light_positions:
+            return False
+
+        # Calculate the total displacement from the initial drag start position
+        start_x, start_y = self.parent_app.multi_light_drag_start
+        dx = mouse_x - start_x
+        dy = mouse_y - start_y
+        
+        print(f"move_selected_lights_absolute: Moving {len(self.parent_app.initial_light_positions)} lights")
+        print(f"  Start pos: ({start_x}, {start_y}), Current pos: ({mouse_x}, {mouse_y})")
+        print(f"  Delta: ({dx}, {dy})")
+
+        lights_moved = False
+        for light_index, initial_pos in self.parent_app.initial_light_positions.items():
+            if 0 <= light_index < len(self.parent_app.current_lights):
+                new_x = initial_pos[0] + dx
+                new_y = initial_pos[1] + dy
+                
+                # Update the light's position in original image coordinates
+                light = self.parent_app.current_lights[light_index]
+                light['_original_pixel_x'] = new_x
+                light['_original_pixel_y'] = new_y
+                
+                # Also update the position dict if it exists (for grid coordinates)
+                if 'position' in light:
+                    # Convert pixel coordinates to grid coordinates
+                    grid_size = self.parent_app.uvtt_walls_preview.get('resolution', {}).get('pixels_per_grid', 70)
+                    light['position']['x'] = new_x / grid_size
+                    light['position']['y'] = new_y / grid_size
+                
+                # Also update in UVTT preview data if it exists
+                if ('lights' in self.parent_app.uvtt_walls_preview and 
+                    light_index < len(self.parent_app.uvtt_walls_preview['lights'])):
+                    uvtt_light = self.parent_app.uvtt_walls_preview['lights'][light_index]
+                    uvtt_light['_original_pixel_x'] = new_x
+                    uvtt_light['_original_pixel_y'] = new_y
+                    if 'position' in uvtt_light:
+                        uvtt_light['position']['x'] = new_x / grid_size
+                        uvtt_light['position']['y'] = new_y / grid_size
+                
+                lights_moved = True
+                print(f"  Moved light {light_index} to ({new_x:.1f}, {new_y:.1f})")
+        
+        print(f"move_selected_lights_absolute: Moved {len(self.parent_app.initial_light_positions)} lights, result={lights_moved}")
+        return lights_moved

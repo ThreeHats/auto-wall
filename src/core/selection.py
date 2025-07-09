@@ -7,25 +7,36 @@ from src.utils.geometry import convert_to_image_coordinates, point_to_line_dista
 class SelectionManager:
     def __init__(self, app):
         self.app = app
-    
+        self.selected_contour_indices = []
+        self.selected_light_indices = []
+
+    def has_selection(self):
+        """Check if there are any selected contours or lights."""
+        return bool(self.selected_contour_indices or self.selected_light_indices)
+
+    def get_selected_lights(self):
+        """Get the indices of selected lights."""
+        return self.selected_light_indices
+
     def clear_selection(self):
-        """Clear the current selection."""
-        # Check if we're in UVTT preview mode
-        if hasattr(self.app, 'uvtt_preview_active') and self.app.uvtt_preview_active and self.app.uvtt_walls_preview:
-            # If in preview mode, redraw the preview instead
+        """Clear the current selection of contours and lights."""
+        self.selected_contour_indices = []
+        self.selected_light_indices = []
+        
+        # If in UVTT preview mode, redraw to remove selection highlights
+        if hasattr(self.app, 'uvtt_preview_active') and self.app.uvtt_preview_active:
             self.app.export_panel.display_uvtt_preview()
             return
-        
-        # Original code for normal mode
+
+        # Original logic for non-preview mode
         self.app.selecting = False
         self.app.selection_start_img = None
         self.app.selection_current_img = None
-        self.app.selected_contour_indices = []
         
         self.app.selecting_colors = False
         self.app.color_selection_start = None
         self.app.color_selection_current = None
-          # Redraw without selection rectangle
+        
         if self.app.processed_image is not None and self.app.original_processed_image is not None:
             self.app.processed_image = self.app.original_processed_image.copy()
             self.app.refresh_display()

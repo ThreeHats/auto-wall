@@ -157,10 +157,20 @@ class WallDetectionApp(QMainWindow):
         self.multi_wall_drag_start = None # Start position for multi-wall drag
         self.dragging_from_line = False  # Flag for dragging from wall line rather than endpoints
         
+        # Portal editing states  
+        self.selected_portal_index = -1  # Currently selected portal
+        self.selected_portal_indices = [] # List of selected portal indices for multi-selection
+        self.selected_portal_points = []  # List of selected portal points (portal_idx, point_idx) tuples
+        self.multi_portal_drag = False    # Flag for multi-portal drag operation
+        self.multi_portal_drag_start = None # Start position for multi-portal drag
+        self.dragging_from_portal_line = False # Flag for dragging from portal line rather than endpoints
+        
         # Light editing states
         self.selected_light_index = -1   # Currently selected light
         self.selected_light_indices = [] # List of selected light indices for multi-selection
         self.dragging_light = False      # Flag for light dragging operation
+        self.multi_light_drag = False    # Flag for multi-light drag operation
+        self.multi_light_drag_start = None # Start position for multi-light drag
         
         # Grid overlay
         self.grid_overlay_enabled = False

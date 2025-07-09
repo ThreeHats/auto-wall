@@ -420,6 +420,23 @@ class ExportPanel:
         if hasattr(self.app, 'selected_points'):
             self.app.selected_points = []
         
+        # Reset portal selection flags
+        if not hasattr(self.app, 'selected_portal_indices'):
+            self.app.selected_portal_indices = []
+        else:
+            self.app.selected_portal_indices = []
+        if not hasattr(self.app, 'selected_portal_points'):
+            self.app.selected_portal_points = []
+        else:
+            self.app.selected_portal_points = []
+        
+        # Reset light selection flags
+        if not hasattr(self.app, 'selected_light_indices'):
+            self.app.selected_light_indices = []
+        else:
+            self.app.selected_light_indices = []
+            self.app.selected_points = []
+        
         # Disable detection controls while in preview mode
         self.set_controls_enabled(False)
         
@@ -596,17 +613,38 @@ class ExportPanel:
         
         # Draw lights if they exist
         if 'lights' in self.app.uvtt_walls_preview and self.app.uvtt_walls_preview['lights']:
-            from src.wall_detection.light_detector import draw_lights_on_image
             pixels_per_grid = self.app.uvtt_walls_preview.get('resolution', {}).get('pixels_per_grid', 70)
             
-            # Draw lights on the preview
-            preview_image = draw_lights_on_image(
-                preview_image, 
-                self.app.uvtt_walls_preview['lights'], 
-                grid_size=pixels_per_grid,
-                show_range=True,  # Show light range circles in preview
-                alpha=0.3
-            )
+            # Draw each light individually to handle selection highlighting
+            for light_idx, light in enumerate(self.app.uvtt_walls_preview['lights']):
+                # Get light position in pixel coordinates
+                if "_original_pixel_x" in light and "_original_pixel_y" in light:
+                    light_x = int(light["_original_pixel_x"])
+                    light_y = int(light["_original_pixel_y"])
+                else:
+                    # Fallback to grid coordinates
+                    light_x = int(float(light["position"]["x"]) * pixels_per_grid)
+                    light_y = int(float(light["position"]["y"]) * pixels_per_grid)
+                
+                # Determine if this light is selected
+                is_selected = (hasattr(self.app, 'selected_light_indices') and 
+                              light_idx in self.app.selected_light_indices)
+                
+                # Draw light range circle (optional, for preview)
+                if self.app.uvtt_edit_mode or self.app.uvtt_delete_mode:
+                    range_radius = int(float(light.get("range", 2.0)) * pixels_per_grid)
+                    range_color = (100, 255, 100) if is_selected else (50, 50, 50)  # Bright green if selected
+                    cv2.circle(preview_image, (light_x, light_y), range_radius, range_color, 1)
+                
+                # Draw light center point
+                if is_selected:
+                    # Selected light: larger, brighter circle
+                    cv2.circle(preview_image, (light_x, light_y), 8, (0, 255, 0), -1)  # Bright green
+                    cv2.circle(preview_image, (light_x, light_y), 8, (255, 255, 255), 2)  # White outline
+                else:
+                    # Normal light: smaller yellow circle
+                    cv2.circle(preview_image, (light_x, light_y), 5, (0, 255, 255), -1)  # Yellow
+                    cv2.circle(preview_image, (light_x, light_y), 5, (255, 255, 255), 1)  # White outline
         
         # If we're showing a selection box for walls, draw it
         if self.app.selecting_walls and self.app.wall_selection_start and self.app.wall_selection_current:
