@@ -888,7 +888,7 @@ class WallDetectionApp(QMainWindow):
         self.mask_processor.undo_button = self.undo_button
         
         # Move the Export button
-        self.export_uvtt_button = QPushButton("Convert to walls")
+        self.export_uvtt_button = QPushButton("Generate walls")
         self.export_uvtt_button.clicked.connect(self.export_panel.export_to_uvtt)
         self.export_uvtt_button.setToolTip("Export walls as Universal VTT format")
         self.export_uvtt_button.setEnabled(False)  # Initially disabled
