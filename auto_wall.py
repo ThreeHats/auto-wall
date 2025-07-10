@@ -8,7 +8,7 @@ import atexit
 from src.utils.update_checker import check_for_updates, fetch_version
 
 # Version information - will be updated by GitHub workflow
-APP_VERSION = "0.9.9"
+APP_VERSION = "1.2.0"
 GITHUB_REPO = "ThreeHats/auto-wall"
 
 # Add the project root directory to the Python path
