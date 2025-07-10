@@ -875,7 +875,7 @@ class WallDetectionApp(QMainWindow):
         self.controls_layout.addLayout(self.wall_actions_layout)
 
         # Move the Bake button to the main sidebar
-        self.bake_button = QPushButton("Bake Contours to Mask")
+        self.bake_button = QPushButton("Start drawing")
         self.bake_button.clicked.connect(self.mask_processor.bake_contours_to_mask)
         self.wall_actions_layout.addWidget(self.bake_button)
         
@@ -888,7 +888,7 @@ class WallDetectionApp(QMainWindow):
         self.mask_processor.undo_button = self.undo_button
         
         # Move the Export button
-        self.export_uvtt_button = QPushButton("Export")
+        self.export_uvtt_button = QPushButton("Convert to walls")
         self.export_uvtt_button.clicked.connect(self.export_panel.export_to_uvtt)
         self.export_uvtt_button.setToolTip("Export walls as Universal VTT format")
         self.export_uvtt_button.setEnabled(False)  # Initially disabled
@@ -901,7 +901,7 @@ class WallDetectionApp(QMainWindow):
         self.save_uvtt_button.setEnabled(False)
         self.wall_actions_layout.addWidget(self.save_uvtt_button)
         
-        self.cancel_uvtt_button = QPushButton("Cancel Preview")
+        self.cancel_uvtt_button = QPushButton("Clear Walls")
         self.cancel_uvtt_button.clicked.connect(self.export_panel.cancel_uvtt_preview)
         self.cancel_uvtt_button.setToolTip("Return to normal view")
         self.cancel_uvtt_button.setEnabled(False)

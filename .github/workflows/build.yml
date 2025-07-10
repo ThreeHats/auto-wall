@@ -26,13 +26,18 @@ jobs:
     
     - name: Update version number
       run: |
-        # Get version from tag or use default for manual runs
-        if ("${{ github.ref }}" -like "refs/tags/v*") {
-          $VERSION = "${{ github.ref }}".Replace("refs/tags/v", "")
+        # Get version from tag
+        if ("${{ github.ref_type }}" -eq "tag") {
+          $VERSION = "${{ github.ref_name }}"
+          # Remove 'v' prefix if present
+          if ($VERSION.StartsWith("v")) {
+            $VERSION = $VERSION.Substring(1)
+          }
+          echo "Setting version to $VERSION"
         } else {
-          $VERSION = "1.0.0"
+          echo "::error::No valid tag found. Workflow must be triggered by a tag push."
+          exit 1
         }
-        echo "Setting version to $VERSION"
         
         # Update version in auto_wall.py
         $FILE = "auto_wall.py"
