@@ -8,15 +8,25 @@ import atexit
 from src.utils.update_checker import check_for_updates, fetch_version
 
 # Version information - will be updated by GitHub workflow
-APP_VERSION = "1.2.1"
+APP_VERSION = "1.2.0"
 GITHUB_REPO = "ThreeHats/auto-wall"
 
 # Add the project root directory to the Python path
 sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
 
 # Create log directory if it doesn't exist
-def setup_logging():
+def setup_logging(debug_mode=False):
     """Set up logging to files with proper cleanup."""
+    if debug_mode:
+        # In debug mode, keep console output visible and set up debug logger
+        print("=" * 50)
+        print("AUTO-WALL DEBUG MODE")
+        print("=" * 50)
+        from src.utils.debug_logger import log_info
+        log_info("Starting Auto-Wall in debug mode - console output enabled")
+        return None, None
+    
+    # Normal mode - redirect to log files
     log_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
     os.makedirs(log_dir, exist_ok=True)
     
@@ -83,10 +93,19 @@ sys.excepthook = excepthook
 def main():
     """Launch the Auto-Wall application with splash screen."""
     try:
+        # Check for debug mode argument
+        debug_mode = "--debug" in sys.argv or "-d" in sys.argv
+        
         # Setup logging early
-        stdout_path, stderr_path = setup_logging()
-        print(f"Auto-Wall version {APP_VERSION}")
-        print(f"Logging to {stdout_path} and {stderr_path}")
+        stdout_path, stderr_path = setup_logging(debug_mode)
+        
+        if debug_mode:
+            print(f"Auto-Wall version {APP_VERSION} (Debug Mode)")
+            print("Debug output will appear in this console.")
+            print("-" * 50)
+        else:
+            print(f"Auto-Wall version {APP_VERSION}")
+            print(f"Logging to {stdout_path} and {stderr_path}")
         
         print("Starting Auto-Wall application...")
         
@@ -149,13 +168,19 @@ def main():
         # Function to show the main window and close splash
         def show_window():
             try:
-                window = WallDetectionApp(version=APP_VERSION, github_repo=GITHUB_REPO)
+                version_string = f"{APP_VERSION}-debug" if debug_mode else APP_VERSION
+                window = WallDetectionApp(version=version_string, github_repo=GITHUB_REPO)
                 window.show()
                 splash.finish(window)
                 print("Window displayed successfully")
                 
-                # Start update check after window is shown
-                QTimer.singleShot(2000, lambda: check_for_updates(window))
+                if debug_mode:
+                    from src.utils.debug_logger import log_info
+                    log_info("Auto-Wall window displayed successfully in debug mode")
+                
+                # Start update check after window is shown (skip in debug mode)
+                if not debug_mode:
+                    QTimer.singleShot(2000, lambda: check_for_updates(window))
             except Exception as e:
                 print(f"Error creating or showing window: {e}")
                 traceback.print_exc()
@@ -174,4 +199,16 @@ def main():
         return 1
 
 if __name__ == "__main__":
+    # Check for help argument
+    if "--help" in sys.argv or "-h" in sys.argv:
+        print("Auto-Wall - Battle Map Wall Detection Tool")
+        print(f"Version: {APP_VERSION}")
+        print("")
+        print("Usage:")
+        print("  python auto_wall.py          # Normal mode (output to log files)")
+        print("  python auto_wall.py --debug  # Debug mode (console output visible)")
+        print("  python auto_wall.py -d       # Debug mode (short form)")
+        print("  python auto_wall.py --help   # Show this help message")
+        sys.exit(0)
+    
     sys.exit(main())

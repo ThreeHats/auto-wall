@@ -407,7 +407,7 @@ class DrawingTools:
                     affected_regions.append(affected_region)
             else:
                 # Calculate points for a continuous line
-                step_size = self.brush_size / 3
+                step_size = max(self.brush_size / 3, 1)  # Ensure step_size is at least 1 to avoid division by zero
                 num_steps = max(int(distance / step_size), 1)
                 
                 for i in range(num_steps + 1):
@@ -548,7 +548,7 @@ class DrawingTools:
                 (img_x1, img_y1),
                 (img_x2, img_y2),
                 color,
-                thickness=self.brush_size * 2 if self.brush_size > 1 else -1  # Filled if size is 1
+                thickness=-1 if self.brush_size == 0 else self.brush_size * 2  # Filled when size 0, outline otherwise
             )
         elif self.current_tool == "circle":
             # Calculate radius for circle based on distance
@@ -558,7 +558,7 @@ class DrawingTools:
                 (img_x1, img_y1),  # Center at start position
                 radius,
                 color,
-                thickness=self.brush_size * 2 if self.brush_size > 1 else -1  # Filled if size is 1
+                thickness=-1 if self.brush_size == 0 else self.brush_size * 2  # Filled when size 0, outline otherwise
             )
         elif self.current_tool == "ellipse":
             # Calculate width/height for ellipse
@@ -579,7 +579,7 @@ class DrawingTools:
                 0,  # Start angle
                 360,  # End angle
                 color,
-                thickness=self.brush_size * 2 if self.brush_size > 1 else -1  # Filled if size is 1
+                thickness=-1 if self.brush_size == 0 else self.brush_size * 2  # Filled when size 0, outline otherwise
             )
               # Save the previous mask to restore it later
         prev_mask = self.mask_layer
@@ -683,7 +683,7 @@ class DrawingTools:
                         (img_x1-region_x, img_y1-region_y),
                         (img_x2-region_x, img_y2-region_y),
                         (0, 255, 0) if self.app.draw_radio.isChecked() else (255, 0, 0),
-                        thickness=self.brush_size * 2 if self.brush_size > 1 else 1
+                        thickness=-1 if self.brush_size == 0 else self.brush_size * 2
                     )
                 # Add more shape handling here
                 
