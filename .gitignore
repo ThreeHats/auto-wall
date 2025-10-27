@@ -1,7 +1,39 @@
-build/
+# Build artifacts
 dist/
+build/pyinstaller_work/
+*.spec
+
+# AppImage build artifacts
+Auto-Wall.AppDir/
+appimagetool-x86_64.AppImage
+
+# Debian package build artifacts
+auto-wall_debian/
+
+# Python artifacts
 __init__.py
 __pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Development files
 wall_color_mask_debug.png
 *.log
-.venv/
+
+# OS specific
+.DS_Store
+Thumbs.db
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
