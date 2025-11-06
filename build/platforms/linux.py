@@ -74,6 +74,15 @@ class LinuxBuilder:
         # Copy executable
         shutil.copy2(executable_path, bin_dir / "Auto-Wall")
         
+        # Copy resources directory for the application
+        resources_src = Path("resources")
+        if resources_src.exists():
+            resources_dest = bin_dir / "resources"
+            shutil.copytree(resources_src, resources_dest)
+            print_status("Copied resources directory to AppImage")
+        else:
+            print_warning("Resources directory not found - splash screen and SVG icons may not work")
+        
         # Create desktop files
         desktop_file = create_desktop_file(appdir)
         if desktop_file:
@@ -158,6 +167,15 @@ exec "${HERE}/usr/bin/Auto-Wall" "$@"
         
         # Copy executable
         shutil.copy2(executable_path, bin_dir / "auto-wall")
+        
+        # Copy resources directory for the application
+        resources_src = Path("resources")
+        if resources_src.exists():
+            resources_dest = bin_dir / "resources"
+            shutil.copytree(resources_src, resources_dest)
+            print_status("Copied resources directory to Debian package")
+        else:
+            print_warning("Resources directory not found - splash screen and SVG icons may not work")
         
         # Create desktop file
         desktop_content = """[Desktop Entry]
