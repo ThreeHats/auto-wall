@@ -28,12 +28,31 @@ class DebugLogger:
         console_handler.setFormatter(formatter)
         self.logger.addHandler(console_handler)
         
-        # File handler - rotating log file
+                # File handler - rotating log file in proper user directory
         try:
-            log_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "logs")
-            os.makedirs(log_dir, exist_ok=True)
+            if getattr(sys, 'frozen', False):
+                # Running as PyInstaller bundle - use proper user directory
+                if sys.platform == "darwin":
+                    # macOS: ~/Library/Logs/Auto-Wall
+                    log_dir = os.path.join(os.path.expanduser("~"), "Library", "Logs", "Auto-Wall")
+                elif sys.platform == "win32":
+                    # Windows: %LOCALAPPDATA%/Auto-Wall/Logs
+                    localappdata = os.environ.get('LOCALAPPDATA', os.path.join(os.path.expanduser("~"), "AppData", "Local"))
+                    log_dir = os.path.join(localappdata, "Auto-Wall", "Logs")
+                else:
+                    # Linux: ~/.local/share/Auto-Wall/logs
+                    xdg_data = os.environ.get('XDG_DATA_HOME', os.path.join(os.path.expanduser("~"), ".local", "share"))
+                    log_dir = os.path.join(xdg_data, "Auto-Wall", "logs")
+            else:
+                # Running as script - use project directory
+                log_dir = "logs"
             
+            os.makedirs(log_dir, exist_ok=True)
             log_file = os.path.join(log_dir, "debug.log")
+        except (OSError, PermissionError):
+            # Fallback to temp directory
+            import tempfile
+            log_file = os.path.join(tempfile.gettempdir(), "auto_wall_debug.log")
             file_handler = RotatingFileHandler(
                 log_file, maxBytes=1024*1024, backupCount=5
             )

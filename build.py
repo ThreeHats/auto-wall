@@ -120,8 +120,10 @@ class AutoWallBuilder:
         
         print_status(f"Building for {platform_name}...")
         
-        # Build executable first
-        executable_path = build_pyinstaller_executable(platform_name)
+        # For all platforms, use the standard approach with platform-specific builders
+        # macOS doesn't need PyInstaller executable first - it handles PyInstaller internally
+        if platform_name not in ["darwin", "macos"]:
+            executable_path = build_pyinstaller_executable(platform_name)
         
         # Import platform-specific builder
         if platform_name == "linux":
@@ -139,7 +141,9 @@ class AutoWallBuilder:
         elif platform_name in ["darwin", "macos"]:
             from platforms.macos import MacOSBuilder
             builder = MacOSBuilder(self.version)
-            results = builder.build_all(executable_path)
+            results = builder.build_all()
+            # Set executable path for summary
+            executable_path = Path("dist/Auto-Wall.app/Contents/MacOS/Auto-Wall")
         else:
             raise BuildError(f"Unsupported platform: {platform_name}")
         

@@ -139,11 +139,10 @@ jobs:
           dist/*.deb
         retention-days: 30
   
-  # macOS build job (placeholder for future)
+  # macOS build job
   build-macos:
     needs: version
     runs-on: macos-latest
-    if: false  # Disabled until macOS build is implemented
     
     steps:
     - name: Checkout repository
@@ -173,14 +172,14 @@ jobs:
       with:
         name: Auto-Wall-macOS-${{ needs.version.outputs.version }}
         path: |
-          dist/*.app
-          dist/*.zip
+          dist/Auto-Wall.app
+          dist/*.dmg
         retention-days: 30
   
   # Release job - only runs on tag pushes
   release:
     if: needs.version.outputs.is_release == 'true'
-    needs: [version, build-windows, build-linux]
+    needs: [version, build-windows, build-linux, build-macos]
     runs-on: ubuntu-latest
     
     steps:
@@ -215,6 +214,10 @@ jobs:
           - `auto-wall_*_amd64.deb` - Debian/Ubuntu package
           - `Auto-Wall` - Standalone executable
           
+          **macOS:**
+          - `Auto-Wall-macOS.dmg` - macOS installer (recommended)
+          - `Auto-Wall.app` - Application bundle
+          
           ### 🚀 Installation
           
           **Windows:** Download and run `Auto-Wall.exe`
@@ -222,6 +225,8 @@ jobs:
           **Linux:** 
           - AppImage: `chmod +x Auto-Wall-*.AppImage && ./Auto-Wall-*.AppImage`
           - Debian: `sudo dpkg -i auto-wall_*.deb`
+          
+          **macOS:** Download and open `Auto-Wall-macOS.dmg`, then drag the app to Applications
           
           ### 📝 Changes
           

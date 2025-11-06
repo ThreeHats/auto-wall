@@ -301,7 +301,17 @@ class WallDetectionApp(QMainWindow):
         self.tool_group.setExclusive(True)
         
         # Get the resources directory path
-        resources_dir = os.path.join(os.path.dirname(__file__), '../../resources')
+        if getattr(sys, 'frozen', False):
+            # Running as PyInstaller bundle
+            if sys.platform == "darwin":
+                # macOS app bundle
+                resources_dir = os.path.join(os.path.dirname(sys.executable), '..', 'Resources', 'resources')
+            else:
+                # Other platforms
+                resources_dir = os.path.join(os.path.dirname(sys.executable), 'resources')
+        else:
+            # Running as script
+            resources_dir = os.path.join(os.path.dirname(__file__), '../../resources')
         
         # Detection tool
         self.detect_tool_btn = QPushButton(" Detect")

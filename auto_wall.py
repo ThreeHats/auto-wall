@@ -12,7 +12,21 @@ APP_VERSION = "1.2.0"
 GITHUB_REPO = "ThreeHats/auto-wall"
 
 # Add the project root directory to the Python path
-sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
+def get_base_path():
+    """Get the base path for the application, handling PyInstaller bundles."""
+    if getattr(sys, 'frozen', False):
+        # Running as PyInstaller bundle
+        if sys.platform == "darwin":
+            # macOS app bundle - resources are in Contents/Resources
+            return os.path.join(os.path.dirname(sys.executable), "..", "Resources")
+        else:
+            # Other platforms - resources are next to executable
+            return os.path.dirname(sys.executable)
+    else:
+        # Running as script
+        return os.path.abspath(os.path.dirname(__file__))
+
+sys.path.insert(0, get_base_path())
 
 # Create log directory if it doesn't exist
 def setup_logging(debug_mode=False):
@@ -27,8 +41,31 @@ def setup_logging(debug_mode=False):
         return None, None
     
     # Normal mode - redirect to log files
-    log_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
-    os.makedirs(log_dir, exist_ok=True)
+    # Use proper user directories for all platforms
+    if getattr(sys, 'frozen', False):
+        # Running as PyInstaller bundle - use proper user directory
+        if sys.platform == "darwin":
+            # macOS: ~/Library/Logs/Auto-Wall
+            log_dir = os.path.join(os.path.expanduser("~"), "Library", "Logs", "Auto-Wall")
+        elif sys.platform == "win32":
+            # Windows: %LOCALAPPDATA%/Auto-Wall/Logs
+            localappdata = os.environ.get('LOCALAPPDATA', os.path.join(os.path.expanduser("~"), "AppData", "Local"))
+            log_dir = os.path.join(localappdata, "Auto-Wall", "Logs")
+        else:
+            # Linux: ~/.local/share/Auto-Wall/logs
+            xdg_data = os.environ.get('XDG_DATA_HOME', os.path.join(os.path.expanduser("~"), ".local", "share"))
+            log_dir = os.path.join(xdg_data, "Auto-Wall", "logs")
+    else:
+        # Running as script - use project directory
+        log_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
+    
+    try:
+        os.makedirs(log_dir, exist_ok=True)
+    except (OSError, PermissionError) as e:
+        # Fallback to temp directory if we can't create in user directory
+        import tempfile
+        log_dir = os.path.join(tempfile.gettempdir(), "auto-wall-logs")
+        os.makedirs(log_dir, exist_ok=True)
     
     # Use fixed filenames instead of timestamps
     stdout_path = os.path.join(log_dir, "stdout.log")
@@ -118,7 +155,17 @@ def main():
         app = QApplication(sys.argv)
         
         # Create the splash screen
-        splash_path = os.path.join(os.path.dirname(__file__), "resources", "splash.png")
+        if getattr(sys, 'frozen', False):
+            # Running as PyInstaller bundle - resources are in proper location
+            if sys.platform == "darwin":
+                # macOS app bundle
+                splash_path = os.path.join(os.path.dirname(sys.executable), "..", "Resources", "resources", "splash.png")
+            else:
+                # Other platforms
+                splash_path = os.path.join(os.path.dirname(sys.executable), "resources", "splash.png")
+        else:
+            # Running as script
+            splash_path = os.path.join(os.path.dirname(__file__), "resources", "splash.png")
         
         # If splash image doesn't exist, create a simple one
         if not os.path.exists(splash_path):
