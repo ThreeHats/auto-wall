@@ -119,11 +119,14 @@ def install_python_deps() -> None:
 def get_pyinstaller_args(platform: str) -> Tuple[List[str], List[str]]:
     """Get PyInstaller arguments for the specified platform"""
     
+    # Use semicolon on Windows, colon on other platforms for --add-data
+    separator = ";" if platform.lower() == "windows" else ":"
+    
     base_args = [
         "auto_wall.py",
         "--name=Auto-Wall",
         "--onefile",
-        "--windowed" if platform == "windows" else "--windowed",
+        "--windowed",
         "--clean",
         "--distpath=dist",
         "--workpath=build/pyinstaller_work",
@@ -134,8 +137,8 @@ def get_pyinstaller_args(platform: str) -> Tuple[List[str], List[str]]:
         "--paths=src",
         "--noconfirm",
         "--noupx",
-        "--add-data=src/styles/style.qss:src/styles",
-        "--add-data=resources:resources",
+        f"--add-data=src/styles/style.qss{separator}src/styles",
+        f"--add-data=resources{separator}resources",
     ]
     
     hidden_imports = [

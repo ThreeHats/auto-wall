@@ -178,6 +178,25 @@ class WallDetectionApp(QMainWindow):
         self._last_tool_id = 0  # Track last tool for rollback on cancel
 
     def setup_ui(self):
+        # Set window icon for taskbar
+        if getattr(sys, 'frozen', False):
+            # Running as PyInstaller bundle
+            if hasattr(sys, '_MEIPASS') and sys.platform != "darwin":
+                # PyInstaller --onefile mode (Windows/Linux)
+                icon_path = os.path.join(sys._MEIPASS, 'resources', 'icon.ico')
+            elif sys.platform == "darwin":
+                # macOS app bundle
+                icon_path = os.path.join(os.path.dirname(sys.executable), '..', 'Resources', 'resources', 'icon.ico')
+            else:
+                # Other platforms
+                icon_path = os.path.join(os.path.dirname(sys.executable), 'resources', 'icon.ico')
+        else:
+            # Running as script
+            icon_path = os.path.join(os.path.dirname(__file__), '../../resources', 'icon.ico')
+        
+        if os.path.exists(icon_path):
+            self.setWindowIcon(QIcon(icon_path))
+        
         # Create menu bar
         self.setup_menu_bar()
         
@@ -303,7 +322,10 @@ class WallDetectionApp(QMainWindow):
         # Get the resources directory path
         if getattr(sys, 'frozen', False):
             # Running as PyInstaller bundle
-            if sys.platform == "darwin":
+            if hasattr(sys, '_MEIPASS'):
+                # PyInstaller --onefile mode (Windows/Linux)
+                resources_dir = os.path.join(sys._MEIPASS, 'resources')
+            elif sys.platform == "darwin":
                 # macOS app bundle
                 resources_dir = os.path.join(os.path.dirname(sys.executable), '..', 'Resources', 'resources')
             else:
