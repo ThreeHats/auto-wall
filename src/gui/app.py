@@ -1702,10 +1702,6 @@ class WallDetectionApp(QMainWindow):
             self.color_selection_mode_radio.setVisible(False)
             self.edit_mask_mode_radio.setVisible(False)
             
-            # Show presets container in UVTT mode too (for detection presets)
-            if hasattr(self, 'presets_container'):
-                self.presets_container.setVisible(True)
-            
             self.uvtt_preview_active = True
             # Show UVTT preview if walls exist, otherwise show grid overlay on main display
             if hasattr(self, 'export_panel') and hasattr(self, 'uvtt_walls_preview') and self.uvtt_walls_preview:
