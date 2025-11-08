@@ -35,7 +35,7 @@ def print_error(message: str) -> None:
     print(f"[ERROR] {message}")
 
 
-def run_command(cmd: List[str], check: bool = True, cwd: Optional[Path] = None) -> subprocess.CompletedProcess:
+def run_command(cmd: List[str], check: bool = True, cwd: Optional[Path] = None, env: Optional[dict] = None) -> subprocess.CompletedProcess:
     """Run a shell command and return the result"""
     print_status(f"Running: {' '.join(cmd)}")
     try:
@@ -44,7 +44,8 @@ def run_command(cmd: List[str], check: bool = True, cwd: Optional[Path] = None) 
             check=check,
             capture_output=True,
             text=True,
-            cwd=cwd
+            cwd=cwd,
+            env=env
         )
         if result.stdout:
             print(result.stdout)
@@ -59,7 +60,8 @@ def run_command(cmd: List[str], check: bool = True, cwd: Optional[Path] = None) 
             print(e.stderr)
         if check:
             raise BuildError(f"Command failed with exit code {e.returncode}")
-        return e
+        # Return a CompletedProcess-like object for failed commands when check=False
+        return subprocess.CompletedProcess(e.cmd, e.returncode, e.stdout, e.stderr)
 
 
 def ensure_directory(path: Path) -> None:

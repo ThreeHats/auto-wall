@@ -87,7 +87,7 @@ jobs:
   # Linux build job
   build-linux:
     needs: version
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04  # Use older Ubuntu for better GLIBC compatibility
     
     steps:
     - name: Checkout repository
@@ -192,7 +192,7 @@ jobs:
         body: |
           ## Auto-Wall v${{ needs.version.outputs.version }}
           
-          ### 📥 Downloads
+          ### Downloads
           
           **Windows:**
           - `Auto-Wall.exe` - Standalone executable
@@ -204,7 +204,7 @@ jobs:
           **macOS:**
           - `Auto-Wall-macOS.dmg` - macOS installer
           
-          ### 🚀 Installation
+          ### Installation
           
           **Windows:** Download and run `Auto-Wall.exe`
           
@@ -214,7 +214,7 @@ jobs:
           
           **macOS:** Download and open `Auto-Wall-macOS.dmg`, then drag the app to Applications
           
-          ### 📝 Changes
+          ### Changes
           
           See the [changelog](https://github.com/ThreeHats/auto-wall/releases) for detailed changes in this version.
         generate_release_notes: true

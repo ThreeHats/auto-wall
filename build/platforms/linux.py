@@ -99,14 +99,40 @@ class LinuxBuilder:
         env = os.environ.copy()
         env["ARCH"] = "x86_64"
         
-        try:
-            run_command([
-                f"./{appimagetool_path}", str(appdir), appimage_name
-            ], check=False)  # appimagetool sometimes returns non-zero even on success
-        except BuildError:
-            pass  # Ignore appimagetool exit code issues
+        # Try with --appimage-extract-and-run for CI environments without FUSE
+        commands_to_try = [
+            # First try with --appimage-extract-and-run (for CI environments)
+            [f"./{appimagetool_path}", "--appimage-extract-and-run", str(appdir), appimage_name],
+            # Fallback to normal execution
+            [f"./{appimagetool_path}", str(appdir), appimage_name]
+        ]
         
-        if Path(appimage_name).exists():
+        appimage_created = False
+        last_error = None
+        
+        for cmd in commands_to_try:
+            try:
+                print_status(f"Running: {' '.join(cmd)}")
+                result = run_command(cmd, check=False, env=env)
+                
+                # Check if AppImage was created regardless of return code
+                if Path(appimage_name).exists():
+                    appimage_created = True
+                    print_success("AppImage creation succeeded")
+                    break
+                elif result.returncode != 0:
+                    error_msg = f"Command failed with return code {result.returncode}"
+                    if result.stderr and "libfuse" in result.stderr:
+                        error_msg += " (FUSE not available - trying alternative method)"
+                    print_warning(error_msg)
+                    last_error = error_msg
+            except BuildError as e:
+                error_msg = f"Command failed: {e}"
+                print_warning(error_msg)
+                last_error = error_msg
+                continue
+        
+        if appimage_created and Path(appimage_name).exists():
             Path(appimage_name).chmod(0o755)
             # Move to dist folder
             final_path = self.dist_path / appimage_name
@@ -114,7 +140,14 @@ class LinuxBuilder:
             print_success(f"AppImage created: {final_path}")
             return final_path
         else:
-            print_warning("AppImage creation may have failed")
+            if last_error:
+                print_warning(f"AppImage creation failed: {last_error}")
+            else:
+                print_warning("AppImage creation failed for unknown reasons")
+            
+            # In CI environments, AppImage creation may fail due to FUSE issues
+            # This is not a critical failure since we have the .deb package
+            print_status("Continuing without AppImage (executable and .deb package available)")
             return None
     
     def _setup_appimage_icons(self, appdir: Path, icons_dir: Path) -> None:
