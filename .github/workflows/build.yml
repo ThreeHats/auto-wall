@@ -90,7 +90,6 @@ jobs:
         name: Auto-Wall-Windows-${{ needs.version.outputs.version }}
         path: |
           dist/Auto-Wall.exe
-          dist/*.zip
         retention-days: 30
   
   # Linux build job
@@ -134,7 +133,6 @@ jobs:
       with:
         name: Auto-Wall-Linux-${{ needs.version.outputs.version }}
         path: |
-          dist/Auto-Wall
           dist/*.AppImage
           dist/*.deb
         retention-days: 30
@@ -172,7 +170,6 @@ jobs:
       with:
         name: Auto-Wall-macOS-${{ needs.version.outputs.version }}
         path: |
-          dist/Auto-Wall.app
           dist/*.dmg
         retention-days: 30
   
@@ -207,16 +204,13 @@ jobs:
           
           **Windows:**
           - `Auto-Wall.exe` - Standalone executable
-          - `Auto-Wall-*-Windows.zip` - ZIP distribution
           
           **Linux:**
-          - `Auto-Wall-*-x86_64.AppImage` - Universal Linux package (recommended)
+          - `Auto-Wall-*-x86_64.AppImage` - Universal Linux package
           - `auto-wall_*_amd64.deb` - Debian/Ubuntu package
-          - `Auto-Wall` - Standalone executable
           
           **macOS:**
-          - `Auto-Wall-macOS.dmg` - macOS installer (recommended)
-          - `Auto-Wall.app` - Application bundle
+          - `Auto-Wall-macOS.dmg` - macOS installer
           
           ### 🚀 Installation
           

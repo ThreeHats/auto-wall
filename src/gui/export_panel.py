@@ -1324,7 +1324,7 @@ class ExportPanel:
         """Save the previewed Universal VTT file."""
         if not hasattr(self.app, 'uvtt_walls_preview') or not self.app.uvtt_walls_preview:
             QMessageBox.warning(self.app, "No Walls", 
-                               "No walls available to save. Please generate walls first by using the 'Export to UVTT' function.")
+                               "No walls available to save. Please generate walls first by using the 'Generate Walls' button in the walls tab.")
             return
             
         # Get file path for saving

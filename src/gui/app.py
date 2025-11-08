@@ -234,7 +234,6 @@ class WallDetectionApp(QMainWindow):
         
         # Save Image action
         save_image_action = file_menu.addAction('&Save Image')
-        save_image_action.setShortcut('Ctrl+S')
         save_image_action.triggered.connect(self.image_processor.save_image)
         
         # Export SVG action
@@ -243,6 +242,7 @@ class WallDetectionApp(QMainWindow):
         
         # Save File action (for UVTT files)
         save_file_action = file_menu.addAction('Save &File')
+        save_file_action.setShortcut('Ctrl+S')
         save_file_action.triggered.connect(self.export_panel.save_uvtt_preview)
         
         # Copy to Clipboard action
