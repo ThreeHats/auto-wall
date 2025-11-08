@@ -220,7 +220,7 @@ def draw_on_mask(mask, x, y, brush_size, color=(0, 255, 0, 255), erase=False):
     return mask, affected_region
 
 # export
-def contours_to_foundry_walls(contours, image_shape, simplify_tolerance=0.0, max_wall_length=50, max_walls=5000, merge_distance=1.0, angle_tolerance=0.5, max_gap=5.0, grid_size=0, allow_half_grid=True):
+def contours_to_foundry_walls(contours, image_shape, simplify_tolerance=0.0, max_wall_length=50, max_walls=5000, merge_distance=1.0, angle_tolerance=0.5, max_gap=5.0, grid_size=0, allow_half_grid=True, grid_offset_x=0.0, grid_offset_y=0.0):
     """
     Convert OpenCV contours to Foundry VTT wall data format with intelligent segmentation.
     
@@ -234,6 +234,8 @@ def contours_to_foundry_walls(contours, image_shape, simplify_tolerance=0.0, max
     - max_walls: Maximum number of walls to generate
     - grid_size: Size of the grid in pixels (0 to disable grid snapping)
     - allow_half_grid: Whether to allow snapping to half-grid positions
+    - grid_offset_x: Horizontal grid offset in pixels
+    - grid_offset_y: Vertical grid offset in pixels
     
     Returns:
     - List of walls in Foundry VTT format
@@ -373,8 +375,8 @@ def contours_to_foundry_walls(contours, image_shape, simplify_tolerance=0.0, max
     
     # Apply grid snapping if requested
     if grid_size > 0:
-        foundry_walls = snap_walls_to_grid(foundry_walls, grid_size, allow_half_grid)
-        print(f"Snapped walls to grid (size={grid_size}, half-grid={allow_half_grid})")
+        foundry_walls = snap_walls_to_grid(foundry_walls, grid_size, allow_half_grid, grid_offset_x, grid_offset_y)
+        print(f"Snapped walls to grid (size={grid_size}, half-grid={allow_half_grid}, offset=({grid_offset_x}, {grid_offset_y}))")
     
     # Perform connectivity check - merge segments with endpoints very close to each other
     connected_walls = ensure_wall_connectivity(foundry_walls, merge_distance=merge_distance, angle_tolerance=angle_tolerance, max_gap=max_gap)
@@ -829,14 +831,16 @@ def export_mask_to_foundry_json(mask_or_contours, image_shape, filename,
         return False
 
 # export
-def snap_walls_to_grid(walls, grid_size, allow_half_grid=True):
+def snap_walls_to_grid(walls, grid_size, allow_half_grid=True, grid_offset_x=0.0, grid_offset_y=0.0):
     """
-    Snap wall endpoints to a grid.
+    Snap wall endpoints to a grid with optional offset.
     
     Parameters:
     - walls: List of Foundry VTT wall objects
     - grid_size: Grid size in pixels
     - allow_half_grid: If True, points can snap to half grid positions
+    - grid_offset_x: Horizontal grid offset in pixels
+    - grid_offset_y: Vertical grid offset in pixels
     
     Returns:
     - List of walls with endpoints snapped to grid
@@ -850,19 +854,25 @@ def snap_walls_to_grid(walls, grid_size, allow_half_grid=True):
         # Extract the wall coordinates
         start_x, start_y, end_x, end_y = wall["c"]
         
+        # Apply offset to coordinates before snapping
+        offset_start_x = start_x - grid_offset_x
+        offset_start_y = start_y - grid_offset_y
+        offset_end_x = end_x - grid_offset_x
+        offset_end_y = end_y - grid_offset_y
+        
         # Calculate the nearest grid position
         if allow_half_grid:
             # Snap to nearest half-grid position
-            snapped_start_x = round(start_x / (grid_size / 2)) * (grid_size / 2)
-            snapped_start_y = round(start_y / (grid_size / 2)) * (grid_size / 2)
-            snapped_end_x = round(end_x / (grid_size / 2)) * (grid_size / 2)
-            snapped_end_y = round(end_y / (grid_size / 2)) * (grid_size / 2)
+            snapped_start_x = round(offset_start_x / (grid_size / 2)) * (grid_size / 2) + grid_offset_x
+            snapped_start_y = round(offset_start_y / (grid_size / 2)) * (grid_size / 2) + grid_offset_y
+            snapped_end_x = round(offset_end_x / (grid_size / 2)) * (grid_size / 2) + grid_offset_x
+            snapped_end_y = round(offset_end_y / (grid_size / 2)) * (grid_size / 2) + grid_offset_y
         else:
             # Snap to nearest full-grid position
-            snapped_start_x = round(start_x / grid_size) * grid_size
-            snapped_start_y = round(start_y / grid_size) * grid_size
-            snapped_end_x = round(end_x / grid_size) * grid_size
-            snapped_end_y = round(end_y / grid_size) * grid_size
+            snapped_start_x = round(offset_start_x / grid_size) * grid_size + grid_offset_x
+            snapped_start_y = round(offset_start_y / grid_size) * grid_size + grid_offset_y
+            snapped_end_x = round(offset_end_x / grid_size) * grid_size + grid_offset_x
+            snapped_end_y = round(offset_end_y / grid_size) * grid_size + grid_offset_y
         
         # Create a new wall with snapped coordinates
         snapped_wall = wall.copy()
@@ -882,7 +892,7 @@ def snap_walls_to_grid(walls, grid_size, allow_half_grid=True):
     return snapped_walls
 
 # export
-def contours_to_uvtt_walls(contours, image_shape, original_image=None, simplify_tolerance=0.0, max_wall_length=50, max_walls=5000, merge_distance=1.0, angle_tolerance=0.5, max_gap=5.0, grid_size=0, allow_half_grid=True, lights=None):
+def contours_to_uvtt_walls(contours, image_shape, original_image=None, simplify_tolerance=0.0, max_wall_length=50, max_walls=5000, merge_distance=1.0, angle_tolerance=0.5, max_gap=5.0, grid_size=0, allow_half_grid=True, grid_offset_x=0.0, grid_offset_y=0.0, lights=None):
     """
     Convert OpenCV contours to Universal VTT format with intelligent segmentation.
     
@@ -906,7 +916,8 @@ def contours_to_uvtt_walls(contours, image_shape, original_image=None, simplify_
     # First convert to foundry format to reuse existing logic
     foundry_walls = contours_to_foundry_walls(
         contours, image_shape, simplify_tolerance, max_wall_length, 
-        max_walls, merge_distance, angle_tolerance, max_gap, grid_size, allow_half_grid
+        max_walls, merge_distance, angle_tolerance, max_gap, grid_size, allow_half_grid, 
+        grid_offset_x, grid_offset_y
     )
     
     # Convert foundry walls to UVTT line_of_sight format
@@ -963,8 +974,8 @@ def contours_to_uvtt_walls(contours, image_shape, original_image=None, simplify_
         "format": 0.3,
         "resolution": {
             "map_origin": {
-                "x": 0.0,
-                "y": 0.0
+                "x": float(grid_offset_x),
+                "y": float(grid_offset_y)
             },
             "map_size": {
                 "x": float(width / grid_size) if grid_size > 0 else float(width / 70),  # Default to 70px grid

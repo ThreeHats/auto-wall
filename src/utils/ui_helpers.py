@@ -4,7 +4,21 @@ def apply_stylesheet(self):
     """Apply the application stylesheet from the CSS file."""
     try:
         # Get the path to the stylesheet
-        style_path = os.path.join(os.path.dirname(__file__), '..', 'styles', 'style.qss')
+        import sys
+        if getattr(sys, 'frozen', False):
+            # Running as PyInstaller bundle
+            if hasattr(sys, '_MEIPASS') and sys.platform != "darwin":
+                # PyInstaller --onefile mode (Windows/Linux)
+                style_path = os.path.join(sys._MEIPASS, 'src', 'styles', 'style.qss')
+            elif sys.platform == "darwin":
+                # macOS app bundle
+                style_path = os.path.join(os.path.dirname(sys.executable), '..', 'Resources', 'src', 'styles', 'style.qss')
+            else:
+                # Other platforms
+                style_path = os.path.join(os.path.dirname(sys.executable), 'src', 'styles', 'style.qss')
+        else:
+            # Running as script
+            style_path = os.path.join(os.path.dirname(__file__), '..', 'styles', 'style.qss')
         
         # Check if the file exists
         if not os.path.exists(style_path):
@@ -41,7 +55,6 @@ def keyPressEvent(self, event):
     """Handle key press events."""
     # Add debugging for Ctrl+Z
     if event.key() == Qt.Key.Key_Z and event.modifiers() & Qt.KeyboardModifier.ControlModifier:
-        print("Ctrl+Z detected via keyPressEvent")
         # Use unified undo
         self.unified_undo()
     else:

@@ -8,17 +8,67 @@ import atexit
 from src.utils.update_checker import check_for_updates, fetch_version
 
 # Version information - will be updated by GitHub workflow
-APP_VERSION = "1.2.1"
+APP_VERSION = "1.3.1"
 GITHUB_REPO = "ThreeHats/auto-wall"
 
 # Add the project root directory to the Python path
-sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
+def get_base_path():
+    """Get the base path for the application, handling PyInstaller bundles."""
+    if getattr(sys, 'frozen', False):
+        # Running as PyInstaller bundle
+        if hasattr(sys, '_MEIPASS') and sys.platform != "darwin":
+            # PyInstaller --onefile mode - use temporary extraction path
+            return sys._MEIPASS
+        elif sys.platform == "darwin":
+            # macOS app bundle - resources are in Contents/Resources
+            return os.path.join(os.path.dirname(sys.executable), "..", "Resources")
+        else:
+            # Other platforms - resources are next to executable
+            return os.path.dirname(sys.executable)
+    else:
+        # Running as script
+        return os.path.abspath(os.path.dirname(__file__))
+
+sys.path.insert(0, get_base_path())
 
 # Create log directory if it doesn't exist
-def setup_logging():
+def setup_logging(debug_mode=False):
     """Set up logging to files with proper cleanup."""
-    log_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
-    os.makedirs(log_dir, exist_ok=True)
+    if debug_mode:
+        # In debug mode, keep console output visible and set up debug logger
+        print("=" * 50)
+        print("AUTO-WALL DEBUG MODE")
+        print("=" * 50)
+        from src.utils.debug_logger import log_info
+        log_info("Starting Auto-Wall in debug mode - console output enabled")
+        return None, None
+    
+    # Normal mode - redirect to log files
+    # Use proper user directories for all platforms
+    if getattr(sys, 'frozen', False):
+        # Running as PyInstaller bundle - use proper user directory
+        if sys.platform == "darwin":
+            # macOS: ~/Library/Logs/Auto-Wall
+            log_dir = os.path.join(os.path.expanduser("~"), "Library", "Logs", "Auto-Wall")
+        elif sys.platform == "win32":
+            # Windows: %LOCALAPPDATA%/Auto-Wall/Logs
+            localappdata = os.environ.get('LOCALAPPDATA', os.path.join(os.path.expanduser("~"), "AppData", "Local"))
+            log_dir = os.path.join(localappdata, "Auto-Wall", "Logs")
+        else:
+            # Linux: ~/.local/share/Auto-Wall/logs
+            xdg_data = os.environ.get('XDG_DATA_HOME', os.path.join(os.path.expanduser("~"), ".local", "share"))
+            log_dir = os.path.join(xdg_data, "Auto-Wall", "logs")
+    else:
+        # Running as script - use project directory
+        log_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
+    
+    try:
+        os.makedirs(log_dir, exist_ok=True)
+    except (OSError, PermissionError) as e:
+        # Fallback to temp directory if we can't create in user directory
+        import tempfile
+        log_dir = os.path.join(tempfile.gettempdir(), "auto-wall-logs")
+        os.makedirs(log_dir, exist_ok=True)
     
     # Use fixed filenames instead of timestamps
     stdout_path = os.path.join(log_dir, "stdout.log")
@@ -83,23 +133,64 @@ sys.excepthook = excepthook
 def main():
     """Launch the Auto-Wall application with splash screen."""
     try:
+        # Check for debug mode argument
+        debug_mode = "--debug" in sys.argv or "-d" in sys.argv
+        
         # Setup logging early
-        stdout_path, stderr_path = setup_logging()
-        print(f"Auto-Wall version {APP_VERSION}")
-        print(f"Logging to {stdout_path} and {stderr_path}")
+        stdout_path, stderr_path = setup_logging(debug_mode)
+        
+        if debug_mode:
+            print(f"Auto-Wall version {APP_VERSION} (Debug Mode)")
+            print("Debug output will appear in this console.")
+            print("-" * 50)
+        else:
+            print(f"Auto-Wall version {APP_VERSION}")
+            print(f"Logging to {stdout_path} and {stderr_path}")
         
         print("Starting Auto-Wall application...")
         
         # Import PyQt6 for splash screen
         from PyQt6.QtWidgets import QApplication, QSplashScreen, QLabel
         from PyQt6.QtCore import Qt, QTimer, QSize, QThread
-        from PyQt6.QtGui import QPixmap, QFont, QColor, QPainter
+        from PyQt6.QtGui import QPixmap, QFont, QColor, QPainter, QIcon
         
         # Create application instance
         app = QApplication(sys.argv)
         
+        # Set application icon
+        if getattr(sys, 'frozen', False):
+            # Running as PyInstaller bundle
+            if hasattr(sys, '_MEIPASS'):
+                # PyInstaller --onefile mode (Windows/Linux)
+                icon_path = os.path.join(sys._MEIPASS, "resources", "icon.ico")
+            elif sys.platform == "darwin":
+                # macOS app bundle
+                icon_path = os.path.join(os.path.dirname(sys.executable), "..", "Resources", "resources", "icon.ico")
+            else:
+                # Other platforms
+                icon_path = os.path.join(os.path.dirname(sys.executable), "resources", "icon.ico")
+        else:
+            # Running as script
+            icon_path = os.path.join(os.path.dirname(__file__), "resources", "icon.ico")
+        
+        if os.path.exists(icon_path):
+            app.setWindowIcon(QIcon(icon_path))
+        
         # Create the splash screen
-        splash_path = os.path.join(os.path.dirname(__file__), "resources", "splash.png")
+        if getattr(sys, 'frozen', False):
+            # Running as PyInstaller bundle - resources are in proper location
+            if hasattr(sys, '_MEIPASS'):
+                # PyInstaller --onefile mode (Windows/Linux)
+                splash_path = os.path.join(sys._MEIPASS, "resources", "splash.png")
+            elif sys.platform == "darwin":
+                # macOS app bundle
+                splash_path = os.path.join(os.path.dirname(sys.executable), "..", "Resources", "resources", "splash.png")
+            else:
+                # Other platforms
+                splash_path = os.path.join(os.path.dirname(sys.executable), "resources", "splash.png")
+        else:
+            # Running as script
+            splash_path = os.path.join(os.path.dirname(__file__), "resources", "splash.png")
         
         # If splash image doesn't exist, create a simple one
         if not os.path.exists(splash_path):
@@ -149,13 +240,19 @@ def main():
         # Function to show the main window and close splash
         def show_window():
             try:
-                window = WallDetectionApp(version=APP_VERSION, github_repo=GITHUB_REPO)
+                version_string = f"{APP_VERSION}-debug" if debug_mode else APP_VERSION
+                window = WallDetectionApp(version=version_string, github_repo=GITHUB_REPO)
                 window.show()
                 splash.finish(window)
                 print("Window displayed successfully")
                 
-                # Start update check after window is shown
-                QTimer.singleShot(2000, lambda: check_for_updates(window))
+                if debug_mode:
+                    from src.utils.debug_logger import log_info
+                    log_info("Auto-Wall window displayed successfully in debug mode")
+                
+                # Start update check after window is shown (skip in debug mode)
+                if not debug_mode:
+                    QTimer.singleShot(2000, lambda: check_for_updates(window))
             except Exception as e:
                 print(f"Error creating or showing window: {e}")
                 traceback.print_exc()
@@ -174,4 +271,16 @@ def main():
         return 1
 
 if __name__ == "__main__":
+    # Check for help argument
+    if "--help" in sys.argv or "-h" in sys.argv:
+        print("Auto-Wall - Battle Map Wall Detection Tool")
+        print(f"Version: {APP_VERSION}")
+        print("")
+        print("Usage:")
+        print("  python auto_wall.py          # Normal mode (output to log files)")
+        print("  python auto_wall.py --debug  # Debug mode (console output visible)")
+        print("  python auto_wall.py -d       # Debug mode (short form)")
+        print("  python auto_wall.py --help   # Show this help message")
+        sys.exit(0)
+    
     sys.exit(main())

@@ -104,7 +104,7 @@ class ExportPanel:
         max_length_label = QLabel("Maximum Wall Segment Length (pixels):")
         max_length_input = QSpinBox()
         max_length_input.setRange(5, 500)
-        max_length_input.setSingleStep(5)
+        max_length_input.setSingleStep(1)
         max_length_input.setValue(50)
         max_length_input.setToolTip("Limits the maximum length of a single wall segment:\n"
                                    "Lower values (20-50): Creates more, shorter walls which are more adjustable\n"
@@ -172,14 +172,71 @@ class ExportPanel:
         layout.addWidget(max_gap_label)
         layout.addWidget(max_gap_input)
 
-        # Grid snapping section
-        grid_section_label = QLabel("Grid Snapping:")
+        # Grid section
+        grid_section_label = QLabel("Grid Settings:")
         grid_section_label.setStyleSheet("font-weight: bold;")
         layout.addWidget(grid_section_label)
 
+        # Grid overlay toggle
+        show_grid_overlay = QCheckBox("Show Grid Overlay")
+        # Initialize from app export params if available to stay in sync with side-panel
+        try:
+            initial_checked = bool(self.app.uvtt_export_params.get('show_grid_overlay', False)) if hasattr(self.app, 'uvtt_export_params') and self.app.uvtt_export_params else False
+        except Exception:
+            initial_checked = False
+        show_grid_overlay.setChecked(initial_checked)
+        show_grid_overlay.setToolTip("Show a grid overlay on the image during UVTT preview\n"
+                                   "This visual grid helps align walls with your VTT's grid\n"
+                                   "The overlay grid can use different settings than wall snapping")
+        # When changed in the dialog, update the app params and refresh preview
+        show_grid_overlay.stateChanged.connect(lambda state: self._on_dialog_grid_overlay_changed(state))
+        layout.addWidget(show_grid_overlay)
+
+        # Grid overlay size
+        overlay_grid_size_layout = QHBoxLayout()
+        overlay_grid_size_label = QLabel("Overlay Grid Size (pixels):")
+        overlay_grid_size_input = QSpinBox()
+        overlay_grid_size_input.setRange(10, 500)
+        overlay_grid_size_input.setSingleStep(1)
+        overlay_grid_size_input.setValue(70)
+        overlay_grid_size_input.setToolTip("Size of the visual grid overlay in pixels\n"
+                                         "This is separate from wall snapping grid size")
+        overlay_grid_size_layout.addWidget(overlay_grid_size_label)
+        overlay_grid_size_layout.addWidget(overlay_grid_size_input)
+        layout.addLayout(overlay_grid_size_layout)
+
+        # Grid overlay offset
+        overlay_offset_layout = QHBoxLayout()
+        overlay_offset_x_label = QLabel("Overlay Offset X:")
+        overlay_offset_x_input = QDoubleSpinBox()
+        overlay_offset_x_input.setRange(-500.0, 500.0)
+        overlay_offset_x_input.setDecimals(1)
+        overlay_offset_x_input.setSingleStep(1.0)
+        overlay_offset_x_input.setValue(0.0)
+        overlay_offset_x_input.setToolTip("Horizontal offset for grid overlay in pixels")
+        overlay_offset_layout.addWidget(overlay_offset_x_label)
+        overlay_offset_layout.addWidget(overlay_offset_x_input)
+        
+        overlay_offset_y_label = QLabel("Overlay Offset Y:")
+        overlay_offset_y_input = QDoubleSpinBox()
+        overlay_offset_y_input.setRange(-500.0, 500.0)
+        overlay_offset_y_input.setDecimals(1)
+        overlay_offset_y_input.setSingleStep(1.0)
+        overlay_offset_y_input.setValue(0.0)
+        overlay_offset_y_input.setToolTip("Vertical offset for grid overlay in pixels")
+        overlay_offset_layout.addWidget(overlay_offset_y_label)
+        overlay_offset_layout.addWidget(overlay_offset_y_input)
+        
+        layout.addLayout(overlay_offset_layout)
+
+        # Wall snapping section
+        wall_snap_label = QLabel("Wall Snapping:")
+        wall_snap_label.setStyleSheet("font-weight: bold;")
+        layout.addWidget(wall_snap_label)
+
         # Grid size
         grid_size_layout = QHBoxLayout()
-        grid_size_label = QLabel("Grid Size (pixels, 0 to disable):")
+        grid_size_label = QLabel("Wall Snap Grid Size (pixels, 0 to disable):")
         grid_size_input = QSpinBox()
         grid_size_input.setRange(0, 500)
         grid_size_input.setSingleStep(1)
@@ -200,6 +257,34 @@ class ExportPanel:
                                   "Unchecked: Walls only align to full grid intersections (cleaner)")
         layout.addWidget(allow_half_grid)
 
+        # Grid offset controls
+        grid_offset_layout = QHBoxLayout()
+        grid_offset_x_label = QLabel("Grid Offset X:")
+        grid_offset_x_input = QDoubleSpinBox()
+        grid_offset_x_input.setRange(-10.0, 10.0)
+        grid_offset_x_input.setDecimals(2)
+        grid_offset_x_input.setSingleStep(0.1)
+        grid_offset_x_input.setValue(0.0)
+        grid_offset_x_input.setToolTip("Horizontal grid offset in grid units\n"
+                                      "Shifts the entire grid coordinate system\n"
+                                      "Useful for aligning walls with VTT grid")
+        grid_offset_layout.addWidget(grid_offset_x_label)
+        grid_offset_layout.addWidget(grid_offset_x_input)
+        
+        grid_offset_y_label = QLabel("Grid Offset Y:")
+        grid_offset_y_input = QDoubleSpinBox()
+        grid_offset_y_input.setRange(-10.0, 10.0)
+        grid_offset_y_input.setDecimals(2)
+        grid_offset_y_input.setSingleStep(0.1)
+        grid_offset_y_input.setValue(0.0)
+        grid_offset_y_input.setToolTip("Vertical grid offset in grid units\n"
+                                      "Shifts the entire grid coordinate system\n"
+                                      "Useful for aligning walls with VTT grid")
+        grid_offset_layout.addWidget(grid_offset_y_label)
+        grid_offset_layout.addWidget(grid_offset_y_input)
+        
+        layout.addLayout(grid_offset_layout)
+
         # Connect preset selector to update form
         def apply_selected_preset(index):
             if index <= 0:  # Skip the placeholder item
@@ -216,6 +301,12 @@ class ExportPanel:
                 max_gap_input.setValue(preset.get("max_gap", 10.0))
                 grid_size_input.setValue(preset.get("grid_size", 0))
                 allow_half_grid.setChecked(preset.get("allow_half_grid", False))
+                grid_offset_x_input.setValue(preset.get("grid_offset_x", 0.0))
+                grid_offset_y_input.setValue(preset.get("grid_offset_y", 0.0))
+                show_grid_overlay.setChecked(preset.get("show_grid_overlay", False))
+                overlay_grid_size_input.setValue(preset.get("overlay_grid_size", 70))
+                overlay_offset_x_input.setValue(preset.get("overlay_offset_x", 0.0))
+                overlay_offset_y_input.setValue(preset.get("overlay_offset_y", 0.0))
                 
         preset_combo.currentIndexChanged.connect(apply_selected_preset)
 
@@ -236,7 +327,13 @@ class ExportPanel:
                 angle_tolerance_input.value(),
                 max_gap_input.value(),
                 grid_size_input.value(),
-                allow_half_grid.isChecked()
+                allow_half_grid.isChecked(),
+                grid_offset_x_input.value(),
+                grid_offset_y_input.value(),
+                show_grid_overlay.isChecked(),
+                overlay_grid_size_input.value(),
+                overlay_offset_x_input.value(),
+                overlay_offset_y_input.value()
             )
             
             # If a new preset was saved, update the dropdown and select it
@@ -276,6 +373,12 @@ class ExportPanel:
         max_gap = max_gap_input.value()
         grid_size = grid_size_input.value()
         half_grid_allowed = allow_half_grid.isChecked()
+        grid_offset_x = grid_offset_x_input.value()
+        grid_offset_y = grid_offset_y_input.value()
+        show_overlay = show_grid_overlay.isChecked()
+        overlay_size = overlay_grid_size_input.value()
+        overlay_offset_x = overlay_offset_x_input.value()
+        overlay_offset_y = overlay_offset_y_input.value()
         
         # Store export parameters for later use when saving
         self.app.uvtt_export_params = {
@@ -288,7 +391,13 @@ class ExportPanel:
             'angle_tolerance': angle_tolerance,
             'max_gap': max_gap,
             'grid_size': grid_size,
-            'allow_half_grid': half_grid_allowed
+            'allow_half_grid': half_grid_allowed,
+            'grid_offset_x': grid_offset_x,
+            'grid_offset_y': grid_offset_y,
+            'show_grid_overlay': show_overlay,
+            'overlay_grid_size': overlay_size,
+            'overlay_offset_x': overlay_offset_x,
+            'overlay_offset_y': overlay_offset_y
         }
         
         # Store the current export settings (useful when creating new presets)
@@ -300,7 +409,13 @@ class ExportPanel:
             'angle_tolerance': angle_tolerance,
             'max_gap': max_gap,
             'grid_size': grid_size,
-            'allow_half_grid': half_grid_allowed
+            'allow_half_grid': half_grid_allowed,
+            'grid_offset_x': grid_offset_x,
+            'grid_offset_y': grid_offset_y,
+            'show_grid_overlay': show_overlay,
+            'overlay_grid_size': overlay_size,
+            'overlay_offset_x': overlay_offset_x,
+            'overlay_offset_y': overlay_offset_y
         }
 
         # Switch to deletion mode for less interference with the preview
@@ -348,6 +463,8 @@ class ExportPanel:
                 max_gap=params['max_gap'],
                 grid_size=params['grid_size'],
                 allow_half_grid=params['allow_half_grid'],
+                grid_offset_x=params['grid_offset_x'],
+                grid_offset_y=params['grid_offset_y'],
                 lights=self.app.current_lights
             )
         else:  # It's a mask
@@ -371,6 +488,8 @@ class ExportPanel:
                 max_gap=params['max_gap'],
                 grid_size=params['grid_size'],
                 allow_half_grid=params['allow_half_grid'],
+                grid_offset_x=params['grid_offset_x'],
+                grid_offset_y=params['grid_offset_y'],
                 lights=self.app.current_lights
             )
         
@@ -394,7 +513,7 @@ class ExportPanel:
             self.app.wall_edit_history = [initial_state, copy.deepcopy(initial_state)]
             
             # Enable the undo button if walls are present (to allow users to clear them)
-            if len(uvtt_walls['line_of_sight']) > 0:
+            if len(uvtt_walls['line_of_sight']) > 0 and hasattr(self.app, 'undo_button'):
                 self.app.undo_button.setEnabled(True)
                 
             # Log that we've initialized the wall edit history
@@ -403,10 +522,7 @@ class ExportPanel:
         # Create a preview image showing the walls
         self.display_uvtt_preview()
         
-        # Enable save/cancel/copy buttons
-        self.app.save_uvtt_button.setEnabled(True)
-        self.app.cancel_uvtt_button.setEnabled(True)
-        self.app.copy_uvtt_button.setEnabled(True)
+        # UVTT preview is now available (menu items will check for uvtt_walls_preview)
         
         # Set flag for preview mode
         self.app.uvtt_preview_active = True
@@ -447,6 +563,51 @@ class ExportPanel:
         wall_count = len(uvtt_walls['line_of_sight']) if 'line_of_sight' in uvtt_walls else 0
         self.app.setStatusTip(f"Previewing {wall_count} walls for Universal VTT. Use the editing tools to modify walls.")
 
+    def add_grid_overlay(self, image):
+        """Add a grid overlay to the image using current side panel settings."""
+        # Get grid parameters from side panel controls or export params as fallback
+        overlay_size = 70  # default
+        overlay_offset_x = 0.0  # default
+        overlay_offset_y = 0.0  # default
+        
+        # Try to get from side panel controls first
+        if hasattr(self.app, 'uvtt_overlay_grid_size_spinbox'):
+            overlay_size = int(self.app.uvtt_overlay_grid_size_spinbox.value())
+        elif self.app.uvtt_export_params:
+            overlay_size = self.app.uvtt_export_params.get('overlay_grid_size', 70)
+            
+        if hasattr(self.app, 'uvtt_overlay_offset_x_spinbox'):
+            overlay_offset_x = self.app.uvtt_overlay_offset_x_spinbox.value()
+        elif self.app.uvtt_export_params:
+            overlay_offset_x = self.app.uvtt_export_params.get('overlay_offset_x', 0.0)
+            
+        if hasattr(self.app, 'uvtt_overlay_offset_y_spinbox'):
+            overlay_offset_y = self.app.uvtt_overlay_offset_y_spinbox.value()
+        elif self.app.uvtt_export_params:
+            overlay_offset_y = self.app.uvtt_export_params.get('overlay_offset_y', 0.0)
+        
+        if overlay_size <= 0:
+            return image
+        
+        overlay_image = image.copy()
+        height, width = overlay_image.shape[:2]
+        
+        # Grid color (light gray, semi-transparent)
+        grid_color = (128, 128, 128)  # Gray
+        thickness = 1
+        
+        # Draw vertical lines with offset
+        start_x = int(overlay_offset_x) % overlay_size
+        for x in range(start_x, width, overlay_size):
+            cv2.line(overlay_image, (x, 0), (x, height), grid_color, thickness)
+        
+        # Draw horizontal lines with offset
+        start_y = int(overlay_offset_y) % overlay_size
+        for y in range(start_y, height, overlay_size):
+            cv2.line(overlay_image, (0, y), (width, y), grid_color, thickness)
+        
+        return overlay_image
+
     def display_uvtt_preview(self):
         """Display a preview of the Universal VTT walls over the current image."""
         if not self.app.uvtt_walls_preview or self.app.current_image is None:
@@ -475,6 +636,18 @@ class ExportPanel:
         # Convert back to RGB for better visibility
         if len(preview_image.shape) == 2:  # Grayscale
             preview_image = cv2.cvtColor(preview_image, cv2.COLOR_GRAY2BGR)
+            
+        # Add grid overlay if enabled
+        show_grid_overlay = False
+        if hasattr(self.app, 'uvtt_show_grid_overlay') and self.app.uvtt_show_grid_overlay:
+            show_grid_overlay = self.app.uvtt_show_grid_overlay.isChecked()
+        elif (hasattr(self.app, 'uvtt_export_params') and 
+              self.app.uvtt_export_params and 
+              self.app.uvtt_export_params.get('show_grid_overlay', False)):
+            show_grid_overlay = True
+        
+        if show_grid_overlay:
+            preview_image = self.add_grid_overlay(preview_image)
             
         # Draw the walls on the preview image
         if 'line_of_sight' in self.app.uvtt_walls_preview:
@@ -511,6 +684,8 @@ class ExportPanel:
                             line_thickness,  # Use variable thickness
                             cv2.LINE_AA  # Anti-aliased line
                         )
+
+    
                         
                         # Determine endpoint colors based on selection
                         start_endpoint_color = (255, 128, 0)  # Default: Orange dots for endpoints
@@ -1147,7 +1322,9 @@ class ExportPanel:
 
     def save_uvtt_preview(self):
         """Save the previewed Universal VTT file."""
-        if not self.app.uvtt_walls_preview:
+        if not hasattr(self.app, 'uvtt_walls_preview') or not self.app.uvtt_walls_preview:
+            QMessageBox.warning(self.app, "No Walls", 
+                               "No walls available to save. Please generate walls first by using the 'Generate Walls' button in the walls tab.")
             return
             
         # Get file path for saving
@@ -1205,10 +1382,7 @@ class ExportPanel:
 
     def cancel_uvtt_preview(self):
         """Cancel the Universal VTT preview and return to normal view."""
-        # Disable buttons
-        self.app.save_uvtt_button.setEnabled(False)
-        self.app.cancel_uvtt_button.setEnabled(False)
-        self.app.copy_uvtt_button.setEnabled(False)
+        # Clear UVTT preview data (menu items will check for this)
         
         # Remove wall editing controls if they exist
         if hasattr(self.app, 'wall_edit_frame') and self.app.wall_edit_frame is not None:
@@ -1262,7 +1436,8 @@ class ExportPanel:
         
         # Update UI for edit mode
         self.app.color_selection_options.setVisible(False)
-        self.app.mask_edit_options.setVisible(False)
+        if hasattr(self.app, 'mask_edit_options'):
+            self.app.mask_edit_options.setVisible(False)
         self.app.thin_options.setVisible(False)
         
         # Store original image for highlighting
@@ -1274,8 +1449,9 @@ class ExportPanel:
 
     def copy_uvtt_to_clipboard(self):
         """Copy the Universal VTT file JSON to the clipboard."""
-        if not self.app.uvtt_walls_preview:
-            QMessageBox.warning(self.app, "No Walls", "No walls available to copy.")
+        if not hasattr(self.app, 'uvtt_walls_preview') or not self.app.uvtt_walls_preview:
+            QMessageBox.warning(self.app, "No Walls", 
+                               "No walls available to copy. Please generate walls first by using the 'Export to UVTT' function.")
             return
             
         try:
@@ -1340,10 +1516,7 @@ class ExportPanel:
         self.app.uvtt_walls_preview = uvtt_walls
         self.app.uvtt_export_params = export_params
         
-        # Enable the export buttons
-        self.app.save_uvtt_button.setEnabled(True)
-        self.app.cancel_uvtt_button.setEnabled(True)
-        self.app.copy_uvtt_button.setEnabled(True)
+        # UVTT preview is now available (menu items will check for uvtt_walls_preview)
         
         # Create wall editing controls
         self.setup_wall_editing_controls()
@@ -1421,7 +1594,7 @@ class ExportPanel:
         
         # Add the frame to the main window at the proper position
         # Insert it at a position where it's clearly visible
-        self.app.controls_layout.insertWidget(0, self.app.wall_edit_frame)  # Insert at top for visibility
+        self.app.right_layout.insertWidget(0, self.app.wall_edit_frame)  # Insert at top for visibility
         
         # Connect signals
         draw_mode_radio.toggled.connect(lambda checked: self.toggle_wall_edit_mode('draw', checked))
@@ -1521,7 +1694,8 @@ class ExportPanel:
             self.app.setStatusTip(f"Wall edit undone (history: {len(self.app.wall_edit_history)})")
             
             # Update the unified undo button state
-            self.update_undo_button_state()
+            if hasattr(self.app, 'undo_button'):
+                self.update_undo_button_state()
             
             print(f"Undo complete: Wall count changed from {current_wall_count} to {prev_wall_count}")
 
@@ -1619,7 +1793,8 @@ class ExportPanel:
         # Do not set the draw mode as default here, let display_uvtt_preview handle it
         
         # Update the unified undo button state
-        self.update_undo_button_state()
+        if hasattr(self.app, 'undo_button'):
+            self.update_undo_button_state()
 
     def update_undo_button_state(self):
         """Update the state of the unified undo button based on wall editing context."""
@@ -1635,3 +1810,193 @@ class ExportPanel:
             else:
                 # No history to undo in either mode
                 self.app.undo_button.setEnabled(False)
+
+    def export_to_svg(self):
+        """Export detected contours to SVG format."""
+        from src.utils.svg_export import export_contours_to_svg, export_contours_to_svg_with_layers
+        
+        if self.app.current_image is None:
+            QMessageBox.warning(self.app, "No Image", "Please load an image first.")
+            return
+            
+        # Determine which contours to export
+        contours_to_export = None
+        image_shape = None
+        scale_factor = 1.0
+        
+        # Get original image dimensions for proper scaling
+        if self.app.original_image is not None:
+            image_shape = self.app.original_image.shape
+            scale_factor = 1.0 / self.app.scale_factor if self.app.scale_factor != 1.0 else 1.0
+        else:
+            image_shape = self.app.current_image.shape
+            scale_factor = 1.0
+            
+        # Check if we have a mask layer or contours
+        if self.app.mask_layer is not None:
+            # Extract contours from the mask - use alpha channel to determine walls
+            alpha_mask = self.app.mask_layer[:, :, 3].copy()
+            
+            # If we're working with a scaled image, we need to scale the mask back to original size
+            if self.app.scale_factor != 1.0 and self.app.original_image is not None:
+                orig_h, orig_w = image_shape[:2]
+                alpha_mask = cv2.resize(alpha_mask, (orig_w, orig_h), interpolation=cv2.INTER_NEAREST)
+                
+            # Find contours in the mask
+            contours, _ = cv2.findContours(alpha_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            contours_to_export = contours
+            
+        elif self.app.current_contours:
+            # Use detected contours and scale them to original size if needed
+            if self.app.scale_factor != 1.0 and self.app.original_image is not None:
+                contours_to_export = self.app.contour_processor.scale_contours_to_original(
+                    self.app.current_contours, self.app.scale_factor
+                )
+            else:
+                contours_to_export = self.app.current_contours
+        else:
+            QMessageBox.warning(self.app, "No Walls", "No walls to export. Please detect walls first.")
+            return
+            
+        if not contours_to_export:
+            QMessageBox.warning(self.app, "No Walls", "No walls to export.")
+            return
+        
+        # Create export dialog
+        dialog = QDialog(self.app)
+        dialog.setWindowTitle("Export to SVG")
+        layout = QVBoxLayout(dialog)
+        
+        # Export type selection
+        export_type_label = QLabel("Export Type:")
+        export_type_group = QButtonGroup(dialog)
+        
+        simple_radio = QRadioButton("Simple SVG (single layer)")
+        simple_radio.setChecked(True)
+        simple_radio.setToolTip("Export all contours as a single layer with uniform styling")
+        
+        layered_radio = QRadioButton("Layered SVG (grouped by size)")
+        layered_radio.setToolTip("Export contours grouped into layers based on size (outer walls, inner walls, details)")
+        
+        export_type_group.addButton(simple_radio)
+        export_type_group.addButton(layered_radio)
+        
+        layout.addWidget(export_type_label)
+        layout.addWidget(simple_radio)
+        layout.addWidget(layered_radio)
+        
+        # Simplification tolerance
+        tolerance_label = QLabel("Simplification Tolerance:")
+        tolerance_input = QDoubleSpinBox()
+        tolerance_input.setRange(0.0, 0.1)
+        tolerance_input.setDecimals(4)
+        tolerance_input.setSingleStep(0.001)
+        tolerance_input.setValue(0.001)
+        tolerance_input.setToolTip("Controls how much detail is simplified:\n"
+                                  "0 = No simplification, preserves all curves and detail\n"
+                                  "0.001 = Minor simplification, removes microscopic zigzags\n"
+                                  "0.01+ = Heavy simplification, only keeps major shapes")
+        layout.addWidget(tolerance_label)
+        layout.addWidget(tolerance_input)
+        
+        # Stroke width (only for simple SVG)
+        stroke_width_label = QLabel("Stroke Width:")
+        stroke_width_input = QSpinBox()
+        stroke_width_input.setRange(1, 10)
+        stroke_width_input.setValue(2)
+        stroke_width_input.setToolTip("Width of the stroke lines in the SVG")
+        layout.addWidget(stroke_width_label)
+        layout.addWidget(stroke_width_input)
+        
+        # Stroke color (only for simple SVG)
+        stroke_color_label = QLabel("Stroke Color:")
+        stroke_color_combo = QComboBox()
+        stroke_color_combo.addItems(["black", "white", "red", "blue", "green", "gray"])
+        stroke_color_combo.setToolTip("Color of the stroke lines in the SVG")
+        layout.addWidget(stroke_color_label)
+        layout.addWidget(stroke_color_combo)
+        
+        # Update visibility based on export type
+        def update_controls():
+            is_simple = simple_radio.isChecked()
+            stroke_width_label.setVisible(is_simple)
+            stroke_width_input.setVisible(is_simple)
+            stroke_color_label.setVisible(is_simple)
+            stroke_color_combo.setVisible(is_simple)
+            
+        simple_radio.toggled.connect(update_controls)
+        update_controls()
+        
+        # Dialog buttons
+        button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        button_box.accepted.connect(dialog.accept)
+        button_box.rejected.connect(dialog.reject)
+        layout.addWidget(button_box)
+        
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            # Get file path from user
+            file_path, _ = QFileDialog.getSaveFileName(
+                self.app,
+                "Export SVG",
+                "contours.svg",
+                "SVG files (*.svg);;All files (*.*)"
+            )
+            
+            if file_path:
+                try:
+                    success = False
+                    
+                    if simple_radio.isChecked():
+                        # Simple SVG export
+                        success = export_contours_to_svg(
+                            contours_to_export,
+                            image_shape,
+                            file_path,
+                            scale_factor=1.0,  # Already scaled contours above
+                            simplify_tolerance=tolerance_input.value(),
+                            stroke_width=stroke_width_input.value(),
+                            stroke_color=stroke_color_combo.currentText()
+                        )
+                    else:
+                        # Layered SVG export
+                        success = export_contours_to_svg_with_layers(
+                            contours_to_export,
+                            image_shape,
+                            file_path,
+                            scale_factor=1.0,  # Already scaled contours above
+                            simplify_tolerance=tolerance_input.value()
+                        )
+                    
+                    if success:
+                        QMessageBox.information(
+                            self.app, 
+                            "Export Successful", 
+                            f"Contours exported successfully to:\n{file_path}"
+                        )
+                    else:
+                        QMessageBox.critical(
+                            self.app, 
+                            "Export Failed", 
+                            "Failed to export SVG. Please check the console for error details."
+                        )
+                        
+                except Exception as e:
+                    QMessageBox.critical(
+                        self.app, 
+                        "Export Error", 
+                        f"An error occurred during export:\n{str(e)}"
+                    )
+    def _on_dialog_grid_overlay_changed(self, state):
+        """Handler for the export dialog's grid overlay checkbox.
+
+        Keep the application's uvtt_export_params in sync and refresh preview if active.
+        """
+        try:
+            if not hasattr(self.app, 'uvtt_export_params') or not self.app.uvtt_export_params:
+                self.app.uvtt_export_params = {}
+            self.app.uvtt_export_params['show_grid_overlay'] = bool(state)
+        except Exception:
+            pass
+
+        if hasattr(self.app, 'uvtt_preview_active') and self.app.uvtt_preview_active:
+            self.display_uvtt_preview()

@@ -70,7 +70,12 @@ def check_for_updates(self):
             self.update_available = True
             self.update_url = download_url
             self.update_text.setText(f"Update {latest_version} Available!")
+            # Ensure dismiss button is still visible and connected
+            if hasattr(self, 'dismiss_button'):
+                self.dismiss_button.show()
             self.update_notification.show()
+            # Position the notification after it's shown and sized
+            self.position_update_notification()
             print(f"Update available: version {latest_version}")
     except Exception as e:
         print(f"Error checking for updates: {e}")

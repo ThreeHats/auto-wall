@@ -49,8 +49,7 @@ class MaskProcessor:
         self.app.edit_mask_mode_radio.setVisible(True)
         self.app.edit_mask_mode_radio.setChecked(True)
         
-        # Enable the Export to UVTT button
-        self.app.export_uvtt_button.setEnabled(True)
+        # Export functionality is now available via menu items
           # Update display
         self.update_display_with_mask()
         

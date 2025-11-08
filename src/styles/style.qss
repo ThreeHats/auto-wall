@@ -108,37 +108,6 @@ QPushButton:disabled {
     border: 1px solid #444444;
 }
 
-/* Primary action button styling */
-QPushButton#export_foundry_button, 
-QPushButton#save_foundry_button,
-QPushButton#copy_foundry_button {
-    background-color: #0c84e4;
-    color: white;
-}
-
-QPushButton#export_foundry_button:hover, 
-QPushButton#save_foundry_button:hover,
-QPushButton#copy_foundry_button:hover {
-    background-color: #1a91f0;
-}
-
-QPushButton#export_foundry_button:pressed, 
-QPushButton#save_foundry_button:pressed,
-QPushButton#copy_foundry_button:pressed {
-    background-color: #0a6bba;
-}
-
-/* Cancel button styling */
-QPushButton#cancel_foundry_button {
-    background-color: #333333;
-    color: #ffffff;
-}
-
-QPushButton#cancel_foundry_button:hover {
-    background-color: #e74c3c;
-    color: white;
-}
-
 /* ============= Labels & Text ============= */
 QLabel {
     color: #ffffff;
@@ -212,7 +181,7 @@ QSlider::handle:horizontal {
     width: 16px;
     height: 16px;
     margin: -6px 0;
-    border-radius: 2px;
+    border-radius: 8px;
 }
 
 QSlider::handle:horizontal:hover {
@@ -261,7 +230,7 @@ QCheckBox::indicator {
 }
 
 QRadioButton::indicator {
-    border-radius: 2px;
+    border-radius: 8px;
 }
 
 QCheckBox::indicator:checked, QRadioButton::indicator:checked {
@@ -403,4 +372,158 @@ QTabBar::tab:!selected {
 
 QTabBar::tab:hover:!selected {
     background-color: #333333;
+}
+
+/* ============= Custom Component Styles ============= */
+
+/* Left Tool Panel */
+#leftToolPanel {
+    /* background-color: #2b2b2b; */
+    border-right: 1px solid #555;
+}
+
+#leftToolPanel QPushButton {
+    background-color: #3c3c3c;
+    border: 1px solid #555;
+    border-radius: 4px;
+    padding: 8px;
+    margin: 2px;
+    color: white;
+    font-size: 11px;
+    text-align: left;
+    padding-left: 8px;
+}
+
+#leftToolPanel QPushButton:hover {
+    background-color: #4a4a4a;
+}
+
+#leftToolPanel QPushButton:checked {
+    background-color: #0078d4;
+    border-color: #0078d4;
+}
+
+/* Image Container */
+#imageContainer {
+    /* background-color: #2e2e2e; */
+}
+
+#imageLabel {
+    /* background-color: #2e2e2e; */
+    border: none;
+}
+
+/* Image Scroll Area */
+#imageScrollArea {
+    border: none;
+    /* background-color: #2e2e2e; */
+}
+
+#imageScrollArea QScrollBar:vertical,
+#imageScrollArea QScrollBar:horizontal {
+    /* background-color: #2e2e2e; */
+    border: none;
+    width: 12px;
+}
+
+#imageScrollArea QScrollBar::handle:vertical,
+#imageScrollArea QScrollBar::handle:horizontal {
+    background-color: #555;
+    border-radius: 6px;
+    min-height: 20px;
+}
+
+#imageScrollArea QScrollBar::handle:hover {
+    background-color: #777;
+}
+
+/* Right Properties Panel */
+#rightPropertiesPanel {
+    /* background-color: #2b2b2b; */
+    color: white;
+    border-left: 1px solid #555;
+}
+
+#rightPropertiesPanel QLabel {
+    color: white;
+    font-size: 12px;
+}
+
+#rightPropertiesPanel QGroupBox {
+    font-weight: bold;
+    border: 1px solid #555;
+    border-radius: 5px;
+    margin-top: 5px;
+    padding-top: 10px;
+}
+
+#rightPropertiesPanel QGroupBox::title {
+    subcontrol-origin: margin;
+    left: 10px;
+    padding: 0 5px 0 5px;
+}
+
+/* Hatching Color Button */
+#hatchingColorButton {
+    background-color: rgb(0, 0, 0);
+}
+
+/* Header Labels */
+QLabel[headerLabel="true"] {
+    font-weight: bold;
+}
+
+/* Update Notification */
+#updateNotification {
+    background-color: #0c84e4;
+    border-radius: 4px;
+    padding: 4px;
+}
+
+#updateNotification QLabel {
+    color: white;
+    font-weight: bold;
+}
+
+#dismissButton {
+    background-color: transparent;
+    color: white;
+    border: none;
+    border-radius: 10px;
+    font-weight: normal;
+    font-size: 16px;
+    width: 20px;
+    height: 20px;
+    min-width: 20px;
+    max-width: 20px;
+    min-height: 20px;
+    max-height: 20px;
+    padding: 0px;
+    margin: 0px;
+}
+
+#dismissButton:hover {
+    background-color: rgba(255, 255, 255, 0.2);
+}
+
+#dismissButton:pressed {
+    background-color: rgba(255, 255, 255, 0.1);
+}
+
+/* Generate Walls Button */
+#generateWallsButton {
+    background-color: #0d6efd;
+    color: white;
+    font-weight: bold;
+    padding: 10px;
+    border-radius: 4px;
+    font-size: 13px;
+}
+
+#generateWallsButton:hover {
+    background-color: #0b5ed7;
+}
+
+#generateWallsButton:pressed {
+    background-color: #0a58ca;
 }

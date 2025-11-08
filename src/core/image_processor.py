@@ -33,6 +33,11 @@ class ImageProcessor:
         """Internal update method with performance optimizations."""
         if self.app.current_image is None:
             return
+            
+        # If we're in Draw mode (edit_mask_mode_enabled), show the mask layer instead of detection
+        if self.app.edit_mask_mode_enabled and hasattr(self.app, 'mask_processor'):
+            self.app.mask_processor.update_display_with_mask()
+            return
 
         with PerformanceTimer("Full image update"):
             # Get slider values
@@ -252,11 +257,10 @@ class ImageProcessor:
             # Display original full-resolution image without contours
             display_image = self.app.original_image.copy() if self.app.original_image is not None else processed_image
             self.app.processed_image = display_image
-            # Disable export button when no contours are found
-            self.app.export_uvtt_button.setEnabled(False)
+            # No contours found - export functions will handle this case
+            pass
         else:
-            # Enable export button when contours are successfully detected
-            self.app.export_uvtt_button.setEnabled(True)
+            # Contours successfully detected - export functions are now available
             # Scale contours up to original resolution for display
             if self.app.scale_factor != 1.0 and self.app.original_image is not None:
                 # Scale contours to original resolution
@@ -389,8 +393,8 @@ class ImageProcessor:
 
             self.app.export_panel.set_controls_enabled(True)
             
-            # Reset button states when loading a new image
-            self.app.export_uvtt_button.setEnabled(False)
+            # Reset export states when loading a new image
+            # (Export functions will check for available data)
             
             # Reset the current overlays and detected contours
             self.app.current_contours = None
@@ -453,10 +457,8 @@ class ImageProcessor:
             self.app.export_panel.set_controls_enabled(True)
             
             # Reset button states when loading a new image
-            self.app.export_uvtt_button.setEnabled(False)
-            self.app.save_uvtt_button.setEnabled(False)
-            self.app.cancel_uvtt_button.setEnabled(False)
-            self.app.copy_uvtt_button.setEnabled(False)
+            # Reset export states when loading new image from URL
+            # (Export functions will check for available data)
             
             # Update the display
             self.app.setStatusTip(f"Image loaded from URL. Size: {img.shape[1]}x{img.shape[0]}")

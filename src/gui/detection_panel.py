@@ -126,7 +126,7 @@ class DetectionPanel:
         slider_layout.addWidget(slider)
         
         # Add the container to the controls layout
-        self.app.controls_layout.addWidget(slider_container)
+        self.app.right_layout.addWidget(slider_container)
 
         # Store both the slider, its container, AND the label in the dictionary
         self.app.sliders[label] = {'slider': slider, 'container': slider_container, 'label': slider_label}
@@ -175,7 +175,8 @@ class DetectionPanel:
         self.app.color_selection_options.setVisible(self.app.color_selection_mode_enabled)
         
         # Show/hide mask edit options
-        self.app.mask_edit_options.setVisible(self.app.edit_mask_mode_enabled)
+        if hasattr(self.app, 'mask_edit_options'):
+            self.app.mask_edit_options.setVisible(self.app.edit_mask_mode_enabled)
         
         # Show/hide thinning options
         self.app.thin_options.setVisible(self.app.thin_mode_enabled)
