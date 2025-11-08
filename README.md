@@ -214,6 +214,7 @@ Multiple drawing tools for precise mask editing:
 - **Angle Tolerance:** Determines when walls at different angles should merge
 - **Maximum Straight Gap to Connect:** Maximum distance to bridge between straight nearby walls
 - **Grid Snapping:** Optional alignment to a grid for precise positioning
+- **Grid Overlay:** Enable grid overlay to visualize alignment. The overlay grid size (in pixels) determines the `pixels_per_grid` value in the exported UVTT file, ensuring the grid scale matches your VTT's expectations
 
 
 ### Development Setup
