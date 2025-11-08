@@ -16,7 +16,10 @@ def get_base_path():
     """Get the base path for the application, handling PyInstaller bundles."""
     if getattr(sys, 'frozen', False):
         # Running as PyInstaller bundle
-        if sys.platform == "darwin":
+        if hasattr(sys, '_MEIPASS') and sys.platform != "darwin":
+            # PyInstaller --onefile mode - use temporary extraction path
+            return sys._MEIPASS
+        elif sys.platform == "darwin":
             # macOS app bundle - resources are in Contents/Resources
             return os.path.join(os.path.dirname(sys.executable), "..", "Resources")
         else:
@@ -149,15 +152,37 @@ def main():
         # Import PyQt6 for splash screen
         from PyQt6.QtWidgets import QApplication, QSplashScreen, QLabel
         from PyQt6.QtCore import Qt, QTimer, QSize, QThread
-        from PyQt6.QtGui import QPixmap, QFont, QColor, QPainter
+        from PyQt6.QtGui import QPixmap, QFont, QColor, QPainter, QIcon
         
         # Create application instance
         app = QApplication(sys.argv)
         
+        # Set application icon
+        if getattr(sys, 'frozen', False):
+            # Running as PyInstaller bundle
+            if hasattr(sys, '_MEIPASS'):
+                # PyInstaller --onefile mode (Windows/Linux)
+                icon_path = os.path.join(sys._MEIPASS, "resources", "icon.ico")
+            elif sys.platform == "darwin":
+                # macOS app bundle
+                icon_path = os.path.join(os.path.dirname(sys.executable), "..", "Resources", "resources", "icon.ico")
+            else:
+                # Other platforms
+                icon_path = os.path.join(os.path.dirname(sys.executable), "resources", "icon.ico")
+        else:
+            # Running as script
+            icon_path = os.path.join(os.path.dirname(__file__), "resources", "icon.ico")
+        
+        if os.path.exists(icon_path):
+            app.setWindowIcon(QIcon(icon_path))
+        
         # Create the splash screen
         if getattr(sys, 'frozen', False):
             # Running as PyInstaller bundle - resources are in proper location
-            if sys.platform == "darwin":
+            if hasattr(sys, '_MEIPASS'):
+                # PyInstaller --onefile mode (Windows/Linux)
+                splash_path = os.path.join(sys._MEIPASS, "resources", "splash.png")
+            elif sys.platform == "darwin":
                 # macOS app bundle
                 splash_path = os.path.join(os.path.dirname(sys.executable), "..", "Resources", "resources", "splash.png")
             else:
