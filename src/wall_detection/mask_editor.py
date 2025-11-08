@@ -892,7 +892,7 @@ def snap_walls_to_grid(walls, grid_size, allow_half_grid=True, grid_offset_x=0.0
     return snapped_walls
 
 # export
-def contours_to_uvtt_walls(contours, image_shape, original_image=None, simplify_tolerance=0.0, max_wall_length=50, max_walls=5000, merge_distance=1.0, angle_tolerance=0.5, max_gap=5.0, grid_size=0, allow_half_grid=True, grid_offset_x=0.0, grid_offset_y=0.0, lights=None):
+def contours_to_uvtt_walls(contours, image_shape, original_image=None, simplify_tolerance=0.0, max_wall_length=50, max_walls=5000, merge_distance=1.0, angle_tolerance=0.5, max_gap=5.0, grid_size=0, allow_half_grid=True, grid_offset_x=0.0, grid_offset_y=0.0, lights=None, overlay_grid_size=None):
     """
     Convert OpenCV contours to Universal VTT format with intelligent segmentation.
     
@@ -906,6 +906,7 @@ def contours_to_uvtt_walls(contours, image_shape, original_image=None, simplify_
     - grid_size: Size of the grid in pixels (0 to disable grid snapping)
     - allow_half_grid: Whether to allow snapping to half-grid positions
     - lights: List of light dictionaries to include in the UVTT export
+    - overlay_grid_size: Grid overlay size to use as pixels_per_grid in UVTT file
     
     Returns:
     - Dictionary in Universal VTT format with walls in 'line_of_sight' array
@@ -923,7 +924,8 @@ def contours_to_uvtt_walls(contours, image_shape, original_image=None, simplify_
     # Convert foundry walls to UVTT line_of_sight format
     line_of_sight = []
     line_of_sight_preview_pixels = []  # Store pixel coordinates for preview
-    pixels_per_grid_unit = grid_size if grid_size > 0 else 70  # Default to 70px per grid
+    # Always use overlay_grid_size as pixels_per_grid if provided, otherwise fall back to grid_size or default
+    pixels_per_grid_unit = overlay_grid_size if overlay_grid_size and overlay_grid_size > 0 else (grid_size if grid_size > 0 else 70)
     
     for wall in foundry_walls:
         # Foundry wall format: {"c": [start_x, start_y, end_x, end_y]}
@@ -970,6 +972,7 @@ def contours_to_uvtt_walls(contours, image_shape, original_image=None, simplify_
             pass
     
     # Create UVTT format structure
+    # Use overlay_grid_size for pixels_per_grid and map_size calculations
     uvtt_data = {
         "format": 0.3,
         "resolution": {
@@ -978,10 +981,10 @@ def contours_to_uvtt_walls(contours, image_shape, original_image=None, simplify_
                 "y": float(grid_offset_y)
             },
             "map_size": {
-                "x": float(width / grid_size) if grid_size > 0 else float(width / 70),  # Default to 70px grid
-                "y": float(height / grid_size) if grid_size > 0 else float(height / 70)
+                "x": float(width / pixels_per_grid_unit),
+                "y": float(height / pixels_per_grid_unit)
             },
-            "pixels_per_grid": grid_size if grid_size > 0 else 72  # Default grid size
+            "pixels_per_grid": int(pixels_per_grid_unit)
         },
         "line_of_sight": line_of_sight,
         "objects_line_of_sight": [],

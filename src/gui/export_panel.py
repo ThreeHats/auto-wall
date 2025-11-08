@@ -465,7 +465,8 @@ class ExportPanel:
                 allow_half_grid=params['allow_half_grid'],
                 grid_offset_x=params['grid_offset_x'],
                 grid_offset_y=params['grid_offset_y'],
-                lights=self.app.current_lights
+                lights=self.app.current_lights,
+                overlay_grid_size=params.get('overlay_grid_size')
             )
         else:  # It's a mask
             # Extract contours from the mask - use RETR_CCOMP instead of RETR_EXTERNAL to get inner contours
@@ -490,7 +491,8 @@ class ExportPanel:
                 allow_half_grid=params['allow_half_grid'],
                 grid_offset_x=params['grid_offset_x'],
                 grid_offset_y=params['grid_offset_y'],
-                lights=self.app.current_lights
+                lights=self.app.current_lights,
+                overlay_grid_size=params.get('overlay_grid_size')
             )
         
         # Store the generated walls for later use

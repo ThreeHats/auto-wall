@@ -1128,7 +1128,6 @@ class WallDetectionApp(QMainWindow):
         self.light_options.setVisible(False)
         
         self.right_layout.addWidget(self.light_group)
-        self.light_group.setVisible(False)
         
         # Add a default bright white color for light detection
         self.detection_panel.add_light_color_to_list(QColor(255, 255, 200), 15.0)
