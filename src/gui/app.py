@@ -1630,12 +1630,26 @@ class WallDetectionApp(QMainWindow):
         if hasattr(self, 'light_group'):
             self.light_group.setVisible(False)
         
+        # Hide wall editing controls when switching away from Walls tab
+        if hasattr(self, 'wall_edit_frame') and self.wall_edit_frame is not None:
+            self.wall_edit_frame.setVisible(False)
+        
+        # Re-enable detection controls if they were disabled (legacy from UVTT preview mode)
+        if hasattr(self, 'export_panel') and self.uvtt_preview_active:
+            self.export_panel.set_controls_enabled(True)
+        
         # Reset modes
         self.deletion_mode_enabled = False
         self.thin_mode_enabled = False
         self.color_selection_mode_enabled = False
         self.edit_mask_mode_enabled = False
         self.uvtt_preview_active = False
+        
+        # Reset UVTT editing modes
+        self.uvtt_draw_mode = False
+        self.uvtt_edit_mode = False
+        self.uvtt_delete_mode = False
+        self.uvtt_portal_mode = False
         
         if tool_id == 0:  # Detection tool
             # Show detection mode controls and color section if needed
@@ -1724,6 +1738,11 @@ class WallDetectionApp(QMainWindow):
             self.edit_mask_mode_radio.setVisible(False)
             
             self.uvtt_preview_active = True
+            
+            # Show wall editing controls immediately when entering Walls tab
+            if hasattr(self, 'export_panel'):
+                self.export_panel.setup_wall_editing_controls()
+            
             # Show UVTT preview if walls exist, otherwise show grid overlay on main display
             if hasattr(self, 'export_panel') and hasattr(self, 'uvtt_walls_preview') and self.uvtt_walls_preview:
                 self.export_panel.display_uvtt_preview()

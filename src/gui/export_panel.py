@@ -555,11 +555,12 @@ class ExportPanel:
             self.app.selected_light_indices = []
             self.app.selected_points = []
         
-        # Disable detection controls while in preview mode
-        self.set_controls_enabled(False)
-        
-        # Set up the wall editing controls
-        self.setup_wall_editing_controls()
+        # Set up the wall editing controls (if not already set up from tab switch)
+        if not hasattr(self.app, 'wall_edit_frame') or self.app.wall_edit_frame is None:
+            self.setup_wall_editing_controls()
+        else:
+            # Just make sure they're visible
+            self.app.wall_edit_frame.setVisible(True)
         
         # Update status with more detailed information
         wall_count = len(uvtt_walls['line_of_sight']) if 'line_of_sight' in uvtt_walls else 0
@@ -1361,17 +1362,7 @@ class ExportPanel:
             # Ensure we're still in preview mode and have valid walls data
             self.app.uvtt_preview_active = True
             
-            # Recreate the wall editing controls to ensure they're visible
-            # First, remove any existing ones to avoid duplicates
-            if hasattr(self.app, 'wall_edit_frame') and self.app.wall_edit_frame is not None:
-                self.app.wall_edit_frame.setVisible(False)
-                self.app.wall_edit_frame.deleteLater()
-                self.app.wall_edit_frame = None
-            
-            # Create new controls
-            self.setup_wall_editing_controls()
-            
-            # Make sure they're visible
+            # Make sure wall editing controls are visible
             if hasattr(self.app, 'wall_edit_frame') and self.app.wall_edit_frame is not None:
                 self.app.wall_edit_frame.setVisible(True)
                 self.app.wall_edit_frame.raise_()  # Bring to front
@@ -1529,18 +1520,22 @@ class ExportPanel:
         # Display the preview
         self.display_uvtt_preview()
         
-        # Disable detection controls while in preview mode
-        self.set_controls_enabled(False)
-        
         # Update status with more detailed information
         wall_count = len(uvtt_walls['line_of_sight']) if 'line_of_sight' in uvtt_walls else 0
         self.app.setStatusTip(f"Previewing {wall_count} walls for Universal VTT. Use the editing tools to modify walls.")
 
     def setup_wall_editing_controls(self):
         """Create controls for wall editing in the preview mode."""
-        # Create a frame to hold the wall editing controls
+        # If controls already exist, just make them visible and activate default mode
         if hasattr(self.app, 'wall_edit_frame') and self.app.wall_edit_frame is not None:
-            self.app.wall_edit_frame.deleteLater()
+            self.app.wall_edit_frame.setVisible(True)
+            # Ensure draw mode radio is checked and activate draw mode
+            if hasattr(self.app, 'draw_mode_radio'):
+                self.app.draw_mode_radio.setChecked(True)
+                self.toggle_wall_edit_mode('draw', True)
+            return
+        
+        # Create a frame to hold the wall editing controls
         
         self.app.wall_edit_frame = QFrame(self.app)
         self.app.wall_edit_frame.setFrameShape(QFrame.Shape.StyledPanel)
