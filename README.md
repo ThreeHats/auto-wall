@@ -2,105 +2,38 @@
 
 ![Auto-Wall](resources/icon.ico)
 
-**Auto-Wall** is a powerful tool for processing battle maps for virtual tabletop games. It automatically detects walls, obstacles, and lights in your maps and converts them into VTT-compatible wall data.
+**Automatically detect walls in TTRPG battle maps and export them to your virtual tabletop.**
 
-Watch the video:
-[![video link](https://img.youtube.com/vi/gqkEIWwuJX4/maxresdefault.jpg)](https://youtu.be/gqkEIWwuJX4)
+Auto-Wall transforms battle map images into ready-to-use wall data for FoundryVTT, Roll20, Fantasy Grounds, and other VTTs supporting the Universal VTT format. No more tedious manual wall tracing—load your map, tweak detection settings, and export in seconds.
 
 [![GitHub Release](https://img.shields.io/github/v/release/ThreeHats/auto-wall?style=flat&label=Latest)](https://github.com/ThreeHats/auto-wall/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-[Discord server](https://discord.gg/HUzEnZy8uJ)
-
-## What's New in v1.3.1
-
-- **Revamped UI:** 
-  - New centralized mode management system with cleaner, more intuitive interface
-  - Left sidebar with mode selection (Detect, Paint, Walls) and right panel with mode-specific settings
-  - Improved visual hierarchy and reduced clutter
-  - Better organization of detection, drawing, and export controls
-
-- **Cross-Platform Support:**
-  - **Windows:** Portable `.exe` application
-  - **Linux:** `.deb` for Ubuntu/Debian based distros and AppImage for all others
-  - **macOS:** `.dmg` bundle (unsigned - see installation notes below)
-
-### Importing UVTT Files
-
-- **FoundryVTT:** Use the [Universal Battlemap Importer](https://foundryvtt.com/packages/uvtt-importer) by Moo Man.
-- **Roll20:** Use the [UniversalVTTImporter](https://github.com/shdwjk/UniversalVTTImporter) by The Aaron.
-- **Arkenforge & Fantasy Grounds:** Both platforms support UVTT files natively—simply import your exported file.
+[📺 Watch the Demo](https://youtu.be/gqkEIWwuJX4) · [💬 Discord](https://discord.gg/HUzEnZy8uJ) · [🌐 Website](https://autowallvtt.com)
 
 ---
 
-## Features
+## Why Auto-Wall?
 
-### Automated Wall, Door, and Light Detection
-- **Edge Detection:** Automatically finds walls using edge detection algorithms
-- **Color-Based Detection:** Extract walls based on specific colors
-- **Adjustable Detection Parameters:** Fine-tune detection sensitivity and results
-- **High-Resolution Processing:** Option to process at full resolution for more accurate results
-- **Light Detection:** Dedicated settings for detecting lights (currently not saved in presets)
-- **Door Drawing:** Manually add doors in edit mode
+Setting up dynamic lighting for battle maps is time-consuming. Auto-Wall solves this by using computer vision to automatically detect walls, doors, and light sources, then exporting everything in the industry-standard UVTT format.
 
-### Editing and Refinement
-- **Interactive Deletion:** Click to remove unwanted walls
-- **Color Picking:** Extract colors directly from the map for better detection
-- **Mask Editing:** Draw or erase walls manually with various drawing tools
-- **Wall Thinning:** Automatically reduce wall thickness for cleaner results
-- **Contour Merging:** Connect and simplify wall segments
-- **Edit Walls Mode:** Draw, erase, and modify walls, doors, and lights
+**The Problem:** Manually tracing walls on a detailed dungeon map can take 20–30 minutes or more.
 
-### Universal VTT (UVTT) Integration
+**The Solution:** Auto-Wall detects walls automatically using edge detection or color-based algorithms, letting you export a fully traced map in under a minute.
 
-- **Save as UVTT:** Export maps and wall data in the Universal VTT (UVTT) format, compatible with many virtual tabletops.
-- **Workflow:** Export your map as UVTT from Auto-Wall, then follow the instructions for your VTT of choice to import walls, doors, lights, and map images.
+---
 
-## Installation
+## Key Features
 
-### Windows
-1. Download the latest `.exe` from [autowallvtt.com](autowallvtt.com) or the [Releases page](https://github.com/ThreeHats/auto-wall/releases)
-2. Run `Auto-Wall.exe`
+- **Smart Wall Detection** — Edge detection (Canny algorithm) finds walls from outlines; color detection extracts walls based on specific colors
+- **Light Source Detection** — Automatically identifies torches, lamps, and bright areas for dynamic lighting
+- **Manual Refinement Tools** — Brush, line, rectangle, and fill tools to add or remove walls; door placement for dynamic entry points
+- **Universal VTT Export** — One-click export to UVTT format, compatible with FoundryVTT, Roll20, Fantasy Grounds, and Arkenforge
+- **Cross-Platform** — Native builds for Windows (.exe), Linux (.deb, AppImage), and macOS (.dmg)
 
-### Linux
-#### Option 1: Debian Package (.deb)
-1. Download the latest `.deb` file from [autowallvtt.com](autowallvtt.com) or the [Releases page](https://github.com/ThreeHats/auto-wall/releases)
-2. Install: `sudo dpkg -i auto-wall_{version}_amd64.deb`
-3. Run from applications menu or terminal: `auto-wall`
+---
 
-#### Option 2: AppImage
-1. Download the latest `.AppImage` file from [autowallvtt.com](autowallvtt.com) or the [Releases page](https://github.com/ThreeHats/auto-wall/releases)
-2. Make executable: `chmod +x Auto-Wall-{version}-x86_64.AppImage`
-3. Run: `./Auto-Wall-{version}-x86_64.AppImage`
-
-*Replace `{version}` with the actual version number from the release (e.g., `1.3.1`).*
-
-### macOS
-1. Download the latest `.dmg` bundle from [autowallvtt.com](autowallvtt.com) or the [Releases page](https://github.com/ThreeHats/auto-wall/releases)
-2. Open the `.dmg` file
-2. Drag Auto-Wall to Applications folder
-3. **Important:** The app is not notarized due to the $99/year cost. You will see something like this when trying to open the app:
-![macos-warning](resources/macos-warning.png)
-To open the application, click done and go to Settings -> Privacy & Security. Scroll down to the bottom, and click "Open Anyway".
-
-### From Source
-1. Clone the repository:
-   ```
-   git clone https://github.com/ThreeHats/auto-wall.git
-   ```
-
-2. Install dependencies:
-   ```
-   cd auto-wall
-   pip install -r requirements.txt
-   ```
-
-3. Run the application:
-   ```
-   python auto_wall.py
-   ```
-
-## Quick Start Guide
+## Quick Start
 
 1. **Open an image:** Click "Open Image" or "Load from URL" to import your battle map
 2. **Navigate the view:** Use scroll wheel to zoom, right-click and drag to pan
@@ -119,6 +52,79 @@ To open the application, click done and go to Settings -> Privacy & Security. Sc
    - Draw doors
 7. **Export:** Save as UVTT file by opening the file menu and clicking "Save File" or using "ctrl + s"
 
+---
+
+## How It Works
+
+Auto-Wall is built on **OpenCV** for image processing, **scikit-learn** for color clustering, and **PyQt6** for the desktop interface.
+
+### Architecture Overview
+
+```
+auto_wall.py          → Application entry point with splash screen
+src/
+├── gui/              → PyQt6 interface (app.py, image_viewer, panels)
+├── core/             → Image and contour processing logic
+├── wall_detection/   → Detection algorithms (edge, color, light)
+└── utils/            → Performance optimizations, update checker
+```
+
+### Detection Pipeline
+
+1. **Preprocessing** — Image is optionally scaled for performance, then blurred to reduce noise
+2. **Edge Detection** — Canny edge detection finds contours from brightness gradients
+3. **Color Detection** (alternate) — User-selected colors are matched within a configurable threshold
+4. **Contour Processing** — Small artifacts filtered, contours merged and simplified
+5. **Wall Generation** — Contours converted to wall segments with configurable simplification
+
+---
+
+## Installation
+
+### Windows
+1. Download the latest `.exe` from [autowallvtt.com](https://autowallvtt.com) or the [Releases page](https://github.com/ThreeHats/auto-wall/releases)
+2. Run `Auto-Wall.exe`
+
+### Linux
+#### Option 1: Debian Package (.deb)
+1. Download the latest `.deb` file from [autowallvtt.com](https://autowallvtt.com) or the [Releases page](https://github.com/ThreeHats/auto-wall/releases)
+2. Install: `sudo dpkg -i auto-wall_{version}_amd64.deb`
+3. Run from applications menu or terminal: `auto-wall`
+
+#### Option 2: AppImage
+1. Download the latest `.AppImage` file from [autowallvtt.com](https://autowallvtt.com) or the [Releases page](https://github.com/ThreeHats/auto-wall/releases)
+2. Make executable: `chmod +x Auto-Wall-{version}-x86_64.AppImage`
+3. Run: `./Auto-Wall-{version}-x86_64.AppImage`
+
+*Replace `{version}` with the actual version number from the release (e.g., `1.3.1`).*
+
+### macOS
+1. Download the latest `.dmg` bundle from [autowallvtt.com](https://autowallvtt.com) or the [Releases page](https://github.com/ThreeHats/auto-wall/releases)
+2. Open the `.dmg` file
+3. Drag Auto-Wall to Applications folder
+4. **Important:** The app is not notarized due to the $99/year cost. You will see a security warning when trying to open the app.
+
+   To open the application, click "OK" on the warning and go to Settings → Privacy & Security. Scroll down to the bottom, and click "Open Anyway".
+
+### From Source
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/ThreeHats/auto-wall.git
+   ```
+
+2. Install dependencies:
+   ```bash
+   cd auto-wall
+   pip install -r requirements.txt
+   ```
+
+3. Run the application:
+   ```bash
+   python auto_wall.py
+   ```
+
+---
+
 ## Usage Guide
 
 ### Application Layout
@@ -127,6 +133,11 @@ Auto-Wall features a three-panel interface:
 - **Left Sidebar:** Mode selection (Detect, Paint, Walls)
 - **Right Panel:** Mode-specific settings and controls
 - **Center:** Image display with interactive tools
+
+**Navigation:**
+- Use scroll wheel to zoom
+- Right-click and drag to pan
+- View controls available in the View menu
 
 ### Mode Overview
 
@@ -157,6 +168,7 @@ Best for maps with clear wall lines:
 - **Min Area:** Filter out small artifacts
 - **Smoothing:** Reduce noise (higher values = more smoothing)
 - **Edge Margin:** Exclude detection near image edges
+- **High-Resolution Processing:** Option to process at full resolution for more accurate results
 
 #### Color Detection
 Best for maps with distinct colors for the walls or background:
@@ -204,8 +216,7 @@ Multiple drawing tools for precise mask editing:
 - **Thinning Tool:** Reduce thickness of detected walls
 - **Color Pick Tool:** Select colors directly from the image (Color Detection mode)
 
-
-### Export settings
+### Export Settings
 
 - **Simplification Tolerance:** Controls how much wall details are simplified (0 = full detail)
 - **Maximum Wall Segment Length:** Limits how long each wall segment can be
@@ -216,56 +227,89 @@ Multiple drawing tools for precise mask editing:
 - **Grid Snapping:** Optional alignment to a grid for precise positioning
 - **Grid Overlay:** Enable grid overlay to visualize alignment. The overlay grid size (in pixels) determines the `pixels_per_grid` value in the exported UVTT file, ensuring the grid scale matches your VTT's expectations
 
+---
 
-### Development Setup
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/ThreeHats/auto-wall.git
-   cd auto-wall
-   ```
+## VTT Integration
 
-2. Create virtual environment:
-   ```bash
-   python -m venv .venv
-   source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-   ```
+Export your map as UVTT from Auto-Wall, then import using:
 
-3. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
+- **FoundryVTT:** Use the [Universal Battlemap Importer](https://foundryvtt.com/packages/dd-import/) module by Moo Man.
+- **Roll20:** Use the [UniversalVTTImporter](https://wiki.roll20.net/Script:UniversalVTTImporter) API script by The Aaron.
+- **Arkenforge & Fantasy Grounds:** Both platforms support UVTT files natively—simply import your exported file.
 
-### Building Executables
+---
+
+## Development
+
+### Setup
+
+```bash
+git clone https://github.com/ThreeHats/auto-wall.git
+cd auto-wall
+python -m venv .venv
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
+pip install -r requirements.txt
+python auto_wall.py --debug
+```
+
+### Building Releases
 
 ```bash
 python build.py --platform [linux|windows|macos]
 ```
 
-#### Build Options
-- `--clean`: Clean build artifacts before building
-- `--skip-appimage`: Skip AppImage creation (Linux only)
-- `--skip-deb`: Skip Debian package creation (Linux only)
-- `--install-deps`: Install build dependencies only
+**Options:**
+- `--clean` — Clean build artifacts first
+- `--skip-appimage` — Skip AppImage (Linux)
+- `--skip-deb` — Skip Debian package (Linux)
+
+### Tech Stack
+
+- **Python 3.x** — Core language
+- **OpenCV** — Edge detection, contour processing, image manipulation
+- **scikit-learn** — Color clustering for color-based detection
+- **PyQt6** — Cross-platform desktop GUI
+- **PyInstaller** — Executable bundling
+
+---
+
+## What's New in v1.3.1
+
+- **Revamped UI:** 
+  - New centralized mode management system with cleaner, more intuitive interface
+  - Left sidebar with mode selection (Detect, Paint, Walls) and right panel with mode-specific settings
+  - Improved visual hierarchy and reduced clutter
+  - Better organization of detection, drawing, and export controls
+
+- **Cross-Platform Support:**
+  - **Windows:** Portable `.exe` application
+  - **Linux:** `.deb` for Ubuntu/Debian based distros and AppImage for all others
+  - **macOS:** `.dmg` bundle (unsigned - see installation notes below)
+
+---
 
 ## Contributing
 
-Contributions are welcome! Please feel free to:
+Contributions welcome! Feel free to:
+- Report bugs or request features via [Issues](https://github.com/ThreeHats/auto-wall/issues)
+- Submit pull requests with fixes or improvements
+- Suggest new detection algorithms
 
-1. Report bugs and request features using the issue tracker
-2. Submit pull requests with fixes and improvements
-3. Suggest new detection algorithms or optimizations
+---
 
 ## License
 
-Auto-Wall is licensed under the MIT License. See [LICENSE](LICENSE) for details.
+MIT License — see [LICENSE](LICENSE) for details.
+
+---
 
 ## Acknowledgments
 
-- Uses [OpenCV](https://opencv.org/) for image processing
-- Uses [scikit-learn](https://scikit-learn.org/) for color clustering  
-- Uses [PyQt6](https://www.riverbankcomputing.com/software/pyqt/) for the user interface
-- Uses [PyInstaller](https://www.pyinstaller.org/) for executable creation
-- Special thanks to the TTRPG community for feedback and testing
+- [OpenCV](https://opencv.org/) for image processing
+- [scikit-learn](https://scikit-learn.org/) for color clustering
+- [PyQt6](https://www.riverbankcomputing.com/software/pyqt/) for the interface
+- [PyInstaller](https://www.pyinstaller.org/) for executable creation
+- The TTRPG community for feedback and testing
 
 ---
 
