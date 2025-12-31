@@ -4,7 +4,7 @@
 
 **Automatically detect walls in TTRPG battle maps and export them to your virtual tabletop.**
 
-Auto-Wall transforms battle map images into ready-to-use wall data for FoundryVTT, Roll20, Fantasy Grounds, and other VTTs supporting the Universal VTT format. No more tedious manual wall tracing—load your map, tweak detection settings, and export in seconds.
+Auto-Wall transforms battle map images into ready-to-use wall data for FoundryVTT, Roll20, Fantasy Grounds, and other VTTs supporting the Universal VTT format. No more tedious manual wall tracing—load your map, tweak detection settings, and export in minutes.
 
 [![GitHub Release](https://img.shields.io/github/v/release/ThreeHats/auto-wall?style=flat&label=Latest)](https://github.com/ThreeHats/auto-wall/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
@@ -19,7 +19,7 @@ Setting up dynamic lighting for battle maps is time-consuming. Auto-Wall solves 
 
 **The Problem:** Manually tracing walls on a detailed dungeon map can take 20–30 minutes or more.
 
-**The Solution:** Auto-Wall detects walls automatically using edge detection or color-based algorithms, letting you export a fully traced map in under a minute.
+**The Solution:** Auto-Wall detects walls automatically using edge detection or color-based algorithms, letting you export a fully traced map in just a few minutes.
 
 ---
 
