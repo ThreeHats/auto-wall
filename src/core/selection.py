@@ -1,4 +1,5 @@
 import cv2
+import numpy as np
 from sklearn.cluster import KMeans
 from PyQt6.QtGui import QColor
 
@@ -276,12 +277,12 @@ class SelectionManager:
             x2 = max(self.app.color_selection_start[0], self.app.color_selection_current[0])
             y2 = max(self.app.color_selection_start[1], self.app.color_selection_current[1])
             
-            # Make sure we have a valid selection area
-            if x1 < x2 and y1 < y2 and x2 - x1 > 5 and y2 - y1 > 5:
+            # Make sure we have a valid selection area (at least 1 pixel)
+            if x1 <= x2 and y1 <= y2:
                 # Extract colors from the selected area
                 self.extract_colors_from_selection(x1, y1, x2, y2)
             else:
-                print("Selection area too small")            # Clear the selection
+                print("Invalid selection area")            # Clear the selection
             self.clear_selection()
                 
         elif self.app.thin_mode_enabled and self.app.selecting:
@@ -325,9 +326,19 @@ class SelectionManager:
         """Extract dominant colors from the selected region."""
         if self.app.current_image is None:
             return
+        
+        # Convert coordinates to working resolution if needed
+        # The coordinates are in display resolution, but current_image is at working resolution
+        if self.app.scale_factor != 1.0 and self.app.original_image is not None:
+            working_x1 = int(x1 * self.app.scale_factor)
+            working_y1 = int(y1 * self.app.scale_factor)
+            working_x2 = int(x2 * self.app.scale_factor)
+            working_y2 = int(y2 * self.app.scale_factor)
+        else:
+            working_x1, working_y1, working_x2, working_y2 = x1, y1, x2, y2
             
         # Extract the selected region from the image
-        region = self.app.current_image[y1:y2, x1:x2]
+        region = self.app.current_image[working_y1:working_y2+1, working_x1:working_x2+1]
         
         if region.size == 0:
             print("Selected region is empty")
@@ -339,12 +350,24 @@ class SelectionManager:
         # Get the number of colors to extract
         num_colors = self.app.color_count_spinner.value()
         
-        # Use K-means clustering to find the dominant colors
-        kmeans = KMeans(n_clusters=num_colors, n_init=10)
-        kmeans.fit(pixels)
+        # Get unique colors in the selection
+        unique_pixels = np.unique(pixels, axis=0)
+        actual_num_colors = min(len(unique_pixels), num_colors)
         
-        # Get the colors (cluster centers)
-        colors = kmeans.cluster_centers_
+        # Handle cases where we have very few pixels
+        if actual_num_colors == 0:
+            print("No pixels found in selected region")
+            return
+        elif actual_num_colors < num_colors:
+            # If we have fewer unique colors than requested, just use the unique ones
+            colors = unique_pixels
+            if len(unique_pixels) < num_colors:
+                print(f"Selected area contains only {len(unique_pixels)} unique color(s)")
+        else:
+            # Use K-means clustering to find the dominant colors
+            kmeans = KMeans(n_clusters=actual_num_colors, n_init=10)
+            kmeans.fit(pixels)
+            colors = kmeans.cluster_centers_
         
         # Add each color to the color list
         for color in colors:
@@ -358,7 +381,7 @@ class SelectionManager:
             self.app.wall_colors_list.setCurrentItem(item)
             self.app.detection_panel.select_color(item)
         
-        print(f"Extracted {num_colors} colors from selected region")
+        print(f"Extracted {len(colors)} color(s) from selected region")
         
         # Update the image with the new colors
         self.app.image_processor.update_image()
