@@ -161,8 +161,15 @@ jobs:
         # Check if numpy has universal support (it should via wheel)
         python3 -c "import numpy; print(f'NumPy version: {numpy.__version__}')"
         
-        # List binary files to check architectures
-        find $(python3 -c "import numpy, os; print(os.path.dirname(numpy.__file__))") -name "*.so" -o -name "*.dylib" | head -3 | xargs -I {} sh -c 'echo "{}:" && file {}'
+        # Check a sample binary file for architecture support
+        NUMPY_DIR=$(python3 -c "import numpy, os; print(os.path.dirname(numpy.__file__))")
+        SAMPLE_SO=$(find "$NUMPY_DIR" -name "*.so" -type f | head -1)
+        if [ -n "$SAMPLE_SO" ]; then
+          echo "Sample NumPy binary: $SAMPLE_SO"
+          file "$SAMPLE_SO"
+        else
+          echo "No .so files found in NumPy installation"
+        fi
     
     - name: Build macOS app
       run: |
