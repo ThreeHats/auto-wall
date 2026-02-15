@@ -63,10 +63,8 @@ def build_macos_app():
         ]
 
         # Build PyInstaller command - using native macOS app bundle creation
-        # Universal binary support for both Apple Silicon and Intel Macs
         cmd = [
             'pyinstaller', '--clean', '--windowed', '--name', 'Auto-Wall',
-            '--target-arch', 'universal2',  # Build for both ARM64 and x86_64
             '--workpath', 'build/pyinstaller_work', '--distpath', 'dist'
         ]
 
