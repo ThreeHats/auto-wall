@@ -132,7 +132,7 @@ jobs:
   # macOS build job
   build-macos:
     needs: version
-    runs-on: macos-latest
+    runs-on: macos-14-large  # Intel runner (x86_64) - works on both Intel and Apple Silicon via Rosetta 2
     
     steps:
     - name: Checkout repository
@@ -153,9 +153,26 @@ jobs:
         python3 -m pip install --upgrade pip
         pip install -r requirements.txt
     
+    - name: Verify Python environment
+      run: |
+        echo "Checking Python and architecture..."
+        python3 -c "import platform; print(f'Python arch: {platform.machine()}')"
+        python3 -c "import sys; print(f'Python version: {sys.version}')"
+    
     - name: Build macOS app
       run: |
         python3 build.py --platform macos
+    
+    - name: Verify build was created
+      run: |
+        if [ -f "dist/Auto-Wall.app/Contents/MacOS/Auto-Wall" ]; then
+          echo "Checking architecture of built app:"
+          file dist/Auto-Wall.app/Contents/MacOS/Auto-Wall
+          lipo -info dist/Auto-Wall.app/Contents/MacOS/Auto-Wall 2>/dev/null || echo "(Single architecture binary)"
+        else
+          echo "ERROR: Auto-Wall executable not found!"
+          exit 1
+        fi
     
     - name: Upload macOS artifacts
       uses: actions/upload-artifact@v4
