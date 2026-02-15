@@ -153,9 +153,31 @@ jobs:
         python3 -m pip install --upgrade pip
         pip install -r requirements.txt
     
+    - name: Verify Python dependencies support universal2
+      run: |
+        echo "Checking architecture support for key dependencies..."
+        python3 -c "import platform; print(f'Python arch: {platform.machine()}')"
+        
+        # Check if numpy has universal support (it should via wheel)
+        python3 -c "import numpy; print(f'NumPy version: {numpy.__version__}')"
+        
+        # List binary files to check architectures
+        find $(python3 -c "import numpy, os; print(os.path.dirname(numpy.__file__))") -name "*.so" -o -name "*.dylib" | head -3 | xargs -I {} sh -c 'echo "{}:" && file {}'
+    
     - name: Build macOS app
       run: |
         python3 build.py --platform macos
+    
+    - name: Verify universal binary was created
+      run: |
+        if [ -f "dist/Auto-Wall.app/Contents/MacOS/Auto-Wall" ]; then
+          echo "Checking architectures in built app:"
+          lipo -info dist/Auto-Wall.app/Contents/MacOS/Auto-Wall || echo "lipo failed, checking with file:"
+          file dist/Auto-Wall.app/Contents/MacOS/Auto-Wall
+        else
+          echo "ERROR: Auto-Wall executable not found!"
+          exit 1
+        fi
     
     - name: Upload macOS artifacts
       uses: actions/upload-artifact@v4
@@ -202,7 +224,7 @@ jobs:
           - `auto-wall_*_amd64.deb` - Debian/Ubuntu package
           
           **macOS:**
-          - `Auto-Wall-macOS.dmg` - macOS installer
+          - `Auto-Wall-macOS.dmg` - Universal macOS installer
           
           ### 🚀 Installation
           
