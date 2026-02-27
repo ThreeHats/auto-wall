@@ -3,6 +3,7 @@ Windows-specific build functionality for Auto-Wall
 """
 
 import shutil
+import urllib.request
 from pathlib import Path
 from typing import List
 
@@ -10,6 +11,9 @@ from build_utils import (
     BuildError, print_status, print_success, 
     ensure_directory
 )
+
+VCREDIST_URL = "https://aka.ms/vs/17/release/vc_redist.x64.exe"
+VCREDIST_FILENAME = "vc_redist.x64.exe"
 
 
 class WindowsBuilder:
@@ -38,32 +42,24 @@ class WindowsBuilder:
         return results
     
     def create_zip_distribution(self, executable_path: Path) -> Path:
-        """Create a ZIP distribution with executable and resources"""
+        """Create a ZIP distribution with the standalone executable"""
         print_status("Creating ZIP distribution...")
         
-        # Create temporary directory for ZIP contents
         zip_dir = Path("Auto-Wall-Windows")
         if zip_dir.exists():
             shutil.rmtree(zip_dir)
-        
         zip_dir.mkdir()
         
-        # Copy executable
         shutil.copy2(executable_path, zip_dir / "Auto-Wall.exe")
         
-        # Copy documentation
         for doc_file in ["README.md", "LICENSE"]:
             doc_path = Path(doc_file)
             if doc_path.exists():
                 shutil.copy2(doc_path, zip_dir / doc_file)
         
-        # Create ZIP file
         zip_name = f"Auto-Wall-{self.version}-Windows"
         zip_path = self.dist_path / f"{zip_name}.zip"
-        
         shutil.make_archive(str(self.dist_path / zip_name), 'zip', str(zip_dir))
-        
-        # Clean up
         shutil.rmtree(zip_dir)
         
         if zip_path.exists():

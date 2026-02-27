@@ -175,6 +175,23 @@ def get_pyinstaller_args(platform: str) -> Tuple[List[str], List[str]]:
             "--version-file=Auto-Wall.spec.version" if Path("Auto-Wall.spec.version").exists() else None,
         ])
         base_args = [arg for arg in base_args if arg is not None]
+
+        # Bundle MSVC runtime DLLs so the exe is truly standalone.
+        # PyInstaller excludes these by default, causing DLL errors on machines
+        # without the VC++ redistributable installed.
+        import os
+        _msvc_dlls = [
+            'VCRUNTIME140.dll',
+            'VCRUNTIME140_1.dll',
+            'MSVCP140.dll',
+            'MSVCP140_1.dll',
+            'MSVCP140_2.dll',
+        ]
+        sysroot = os.environ.get('SystemRoot', r'C:\Windows')
+        for _dll in _msvc_dlls:
+            _path = os.path.join(sysroot, 'System32', _dll)
+            if os.path.exists(_path):
+                base_args.append(f'--add-binary={_path}{separator}.')
     
     elif platform == "macos":
         base_args.extend([
