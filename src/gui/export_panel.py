@@ -1551,27 +1551,27 @@ class ExportPanel:
         edit_mode_group = QButtonGroup(self.app.wall_edit_frame)
         
         # Draw mode
-        draw_mode_radio = QRadioButton("Draw Walls")
-        draw_mode_radio.setToolTip("Click and drag to draw new wall segments")
+        draw_mode_radio = QRadioButton("Draw Walls (&W)")
+        draw_mode_radio.setToolTip("Click and drag to draw new wall segments (W)")
         draw_mode_radio.setChecked(True)  # Default mode
         edit_mode_group.addButton(draw_mode_radio)
         wall_edit_layout.addWidget(draw_mode_radio)
         
         # Portal mode
-        portal_mode_radio = QRadioButton("Draw Doors")
-        portal_mode_radio.setToolTip("Click and drag to draw doors and portals")
+        portal_mode_radio = QRadioButton("Draw Portals (&P)")
+        portal_mode_radio.setToolTip("Click and drag to draw doors and portals (P)")
         edit_mode_group.addButton(portal_mode_radio)
         wall_edit_layout.addWidget(portal_mode_radio)
 
         # Edit mode
-        edit_mode_radio = QRadioButton("Edit Mode")
-        edit_mode_radio.setToolTip("Click and drag wall endpoints to move them")
+        edit_mode_radio = QRadioButton("Edit Mode (&I)")
+        edit_mode_radio.setToolTip("Click and drag wall endpoints to move them (I)")
         edit_mode_group.addButton(edit_mode_radio)
         wall_edit_layout.addWidget(edit_mode_radio)
         
         # Delete mode
-        delete_mode_radio = QRadioButton("Delete Mode")
-        delete_mode_radio.setToolTip("Click on walls to delete them")
+        delete_mode_radio = QRadioButton("Delete Mode (&X)")
+        delete_mode_radio.setToolTip("Click on walls to delete them (X)")
         edit_mode_group.addButton(delete_mode_radio)
         wall_edit_layout.addWidget(delete_mode_radio)
         

@@ -63,6 +63,7 @@ class WallDetectionApp(QMainWindow):
         # Set up the main layout and widgets
         self.initialize_state()
         self.setup_ui()
+        self.setup_shortcuts()
 
         # Load presets on startup
         self.preset_manager.load_presets_from_file()
@@ -214,6 +215,52 @@ class WallDetectionApp(QMainWindow):
         self.setup_central_image_area()
         self.setup_right_properties_panel()
         
+    def setup_shortcuts(self):
+        """Set up keyboard shortcuts for quick access to drawing and wall editing modes."""
+        
+        # Drawing mode shortcuts (D/E)
+        self.draw_mode_shortcut = QShortcut(QKeySequence(Qt.Key.Key_D), self)
+        self.draw_mode_shortcut.activated.connect(self.select_draw_mode)
+        
+        self.erase_mode_shortcut = QShortcut(QKeySequence(Qt.Key.Key_E), self)
+        self.erase_mode_shortcut.activated.connect(self.select_erase_mode)
+        
+        # Drawing tool shortcuts (1-5)
+        self.brush_tool_shortcut = QShortcut(QKeySequence(Qt.Key.Key_1), self)
+        self.brush_tool_shortcut.activated.connect(lambda: self.select_tool('brush'))
+        
+        self.line_tool_shortcut = QShortcut(QKeySequence(Qt.Key.Key_2), self)
+        self.line_tool_shortcut.activated.connect(lambda: self.select_tool('line'))
+        
+        self.rectangle_tool_shortcut = QShortcut(QKeySequence(Qt.Key.Key_3), self)
+        self.rectangle_tool_shortcut.activated.connect(lambda: self.select_tool('rectangle'))
+        
+        self.circle_tool_shortcut = QShortcut(QKeySequence(Qt.Key.Key_4), self)
+        self.circle_tool_shortcut.activated.connect(lambda: self.select_tool('circle'))
+        
+        self.ellipse_tool_shortcut = QShortcut(QKeySequence(Qt.Key.Key_5), self)
+        self.ellipse_tool_shortcut.activated.connect(lambda: self.select_tool('ellipse'))
+        
+        # Wall editing mode shortcuts (W/I/X/P)
+        self.wall_draw_shortcut = QShortcut(QKeySequence(Qt.Key.Key_W), self)
+        self.wall_draw_shortcut.activated.connect(lambda: self.select_wall_mode('draw'))
+        
+        self.wall_edit_shortcut = QShortcut(QKeySequence(Qt.Key.Key_I), self)
+        self.wall_edit_shortcut.activated.connect(lambda: self.select_wall_mode('edit'))
+        
+        self.wall_delete_shortcut = QShortcut(QKeySequence(Qt.Key.Key_X), self)
+        self.wall_delete_shortcut.activated.connect(lambda: self.select_wall_mode('delete'))
+        
+        self.wall_portal_shortcut = QShortcut(QKeySequence(Qt.Key.Key_P), self)
+        self.wall_portal_shortcut.activated.connect(lambda: self.select_wall_mode('portal'))
+        
+        # Universal shortcuts (Esc/Delete)
+        self.cancel_shortcut = QShortcut(QKeySequence(Qt.Key.Key_Escape), self)
+        self.cancel_shortcut.activated.connect(self.cancel_current_action)
+        
+        self.delete_shortcut = QShortcut(QKeySequence(Qt.Key.Key_Delete), self)
+        self.delete_shortcut.activated.connect(self.delete_selected_wall)
+        
     def setup_menu_bar(self):
         """Create the menu bar with File, Edit, View, and Help menus."""
         menubar = self.menuBar()
@@ -347,12 +394,12 @@ class WallDetectionApp(QMainWindow):
         self.left_layout.addWidget(self.detect_tool_btn)
         
         # Paint/Edit tool
-        self.paint_tool_btn = QPushButton(" Draw")
+        self.paint_tool_btn = QPushButton(" &Draw")
         draw_icon = QIcon(os.path.join(resources_dir, 'pen-tool-vector-design-icon.svg'))
         self.paint_tool_btn.setIcon(draw_icon)
         self.paint_tool_btn.setIconSize(QSize(24, 24))
         self.paint_tool_btn.setCheckable(True)
-        self.paint_tool_btn.setToolTip("Draw/Edit Mask Tool")
+        self.paint_tool_btn.setToolTip("Draw/Edit Mask Tool (D)")
         self.tool_group.addButton(self.paint_tool_btn, 1)
         self.left_layout.addWidget(self.paint_tool_btn)
         
@@ -1155,8 +1202,10 @@ class WallDetectionApp(QMainWindow):
         
         # Draw/Erase mode
         mode_layout = QHBoxLayout()
-        self.draw_radio = QRadioButton("Draw")
-        self.erase_radio = QRadioButton("Erase")
+        self.draw_radio = QRadioButton("&Draw")
+        self.draw_radio.setToolTip("Draw on mask (D)")
+        self.erase_radio = QRadioButton("&Erase")
+        self.erase_radio.setToolTip("Erase from mask (E)")
         self.draw_radio.setChecked(True)
         
         self.draw_mode_group = QButtonGroup()
@@ -1991,6 +2040,82 @@ class WallDetectionApp(QMainWindow):
             print("No history to undo")
             self.setStatusTip("Nothing to undo")
             QMessageBox.information(self, "Undo", "Nothing to undo")
+
+    def _reset_uvtt_temporary_state(self):
+        """Reset temporary UVTT editing/drawing state without changing the active mode."""
+        self.drawing_new_wall = False
+        self.drawing_new_portal = False
+        self.new_wall_start = None
+        self.new_wall_end = None
+        self.new_portal_start = None
+        self.new_portal_end = None
+        self.selecting_walls = False
+        self.wall_selection_start = None
+        self.wall_selection_current = None
+        self.multi_wall_drag = False
+        self.multi_wall_drag_start = None
+        self.dragging_from_line = False
+        self.dragging_from_portal_line = False
+        self.selected_wall_index = -1
+        self.selected_point_index = -1
+        self.selected_portal_index = -1
+
+    def select_draw_mode(self):
+        """Select draw mode for mask editing and sync UI state."""
+        if hasattr(self, 'draw_radio'):
+            self.draw_radio.setChecked(True)
+        if hasattr(self, 'erase_radio'):
+            self.erase_radio.setChecked(False)
+        self.setStatusTip("Paint Mode: Draw on the mask layer")
+
+    def select_erase_mode(self):
+        """Select erase mode for mask editing and sync UI state."""
+        if hasattr(self, 'erase_radio'):
+            self.erase_radio.setChecked(True)
+        if hasattr(self, 'draw_radio'):
+            self.draw_radio.setChecked(False)
+        self.setStatusTip("Paint Mode: Erase from the mask layer")
+
+    def select_tool(self, tool_name):
+        """Select a drawing tool and sync the corresponding radio button."""
+        tools = {
+            'brush': 'brush_tool_radio',
+            'line': 'line_tool_radio',
+            'rectangle': 'rectangle_tool_radio',
+            'circle': 'circle_tool_radio',
+            'ellipse': 'ellipse_tool_radio'
+        }
+        radio_name = tools.get(tool_name)
+        if radio_name and hasattr(self, radio_name):
+            getattr(self, radio_name).setChecked(True)
+
+    def select_wall_mode(self, mode):
+        """Select a UVTT wall editing mode and keep radio buttons and flags in sync."""
+        if hasattr(self, 'draw_mode_radio') and hasattr(self, 'edit_mode_radio'):
+            if mode == 'draw' and hasattr(self, 'draw_mode_radio'):
+                self.draw_mode_radio.setChecked(True)
+            elif mode == 'edit' and hasattr(self, 'edit_mode_radio'):
+                self.edit_mode_radio.setChecked(True)
+            elif mode == 'delete' and hasattr(self, 'delete_mode_radio'):
+                self.delete_mode_radio.setChecked(True)
+            elif mode == 'portal' and hasattr(self, 'portal_mode_radio'):
+                self.portal_mode_radio.setChecked(True)
+        elif hasattr(self.export_panel, 'toggle_wall_edit_mode'):
+            self.export_panel.toggle_wall_edit_mode(mode, True)
+
+    def cancel_current_action(self):
+        """Cancel the current action by clearing temporary drawing and selection state."""
+        self._reset_uvtt_temporary_state()
+        if hasattr(self, 'uvtt_preview_active') and self.uvtt_preview_active:
+            if hasattr(self.export_panel, 'display_uvtt_preview'):
+                self.export_panel.display_uvtt_preview()
+        self.setStatusTip("Action canceled")
+
+    def delete_selected_wall(self):
+        """Delete selected wall/portal if a selection exists."""
+        if hasattr(self.export_panel, 'delete_selected_wall'):
+            self.export_panel.delete_selected_wall()
+
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
