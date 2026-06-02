@@ -127,7 +127,6 @@ def get_pyinstaller_args(platform: str) -> Tuple[List[str], List[str]]:
     base_args = [
         "auto_wall.py",
         "--name=Auto-Wall",
-        "--onefile",
         "--windowed",
         "--clean",
         "--distpath=dist",
@@ -138,6 +137,7 @@ def get_pyinstaller_args(platform: str) -> Tuple[List[str], List[str]]:
         "--collect-all=PIL",
         "--collect-all=onnxruntime",
         "--collect-all=rembg",
+        "--collect-all=pymatting",
         "--paths=src",
         "--noconfirm",
         "--noupx",
@@ -172,19 +172,24 @@ def get_pyinstaller_args(platform: str) -> Tuple[List[str], List[str]]:
     
     # Add platform-specific arguments
     if platform == "windows":
+        # One-directory build: avoids temp-extraction overhead and packaging
+        # issues with packages like pymatting that embed non-Python data files.
         base_args.extend([
+            "--onedir",
             "--icon=resources/icon.ico",
             "--version-file=Auto-Wall.spec.version" if Path("Auto-Wall.spec.version").exists() else None,
         ])
         base_args = [arg for arg in base_args if arg is not None]
-    
+
     elif platform == "macos":
         base_args.extend([
+            "--onefile",
             "--icon=resources/icon.ico",
             "--osx-bundle-identifier=com.threehats.auto-wall",
         ])
 
     elif platform == "linux":
+        base_args.append("--onefile")
         # Bundle CUDA shared libs from pip-installed nvidia-* packages so GPU
         # works in the AppImage/deb without requiring a system CUDA install.
         import site as _site
@@ -232,14 +237,12 @@ def build_pyinstaller_executable(platform: str) -> Path:
     cmd = [sys.executable, "-m", "PyInstaller"] + args
     run_command(cmd)
     
-    # Determine executable name
+    # Determine executable path (Windows onedir puts the exe in a subdirectory)
     if platform == "windows":
-        exe_name = "Auto-Wall.exe"
+        exe_path = dist_path / "Auto-Wall" / "Auto-Wall.exe"
     else:
-        exe_name = "Auto-Wall"
-    
-    exe_path = dist_path / exe_name
-    
+        exe_path = dist_path / "Auto-Wall"
+
     if not exe_path.exists():
         raise BuildError(f"Executable not found: {exe_path}")
     

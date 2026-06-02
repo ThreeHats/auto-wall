@@ -7,12 +7,17 @@ All notable changes to Auto-Wall are documented here.
 ### Added
 - Background removal panel and processing pipeline (`rembg` / ONNX Runtime)
 - `requirements-gpu.txt` for optional CUDA 12.x GPU acceleration
+- **Help → Open Log Folder** menu item — opens the log directory in the system file explorer on all platforms
+- CI builds now trigger on pull requests to `main` (artifacts only, no release)
+- Beta pre-release support: push a `v*.*.*-beta.*` tag to create a GitHub pre-release
 
 ### Changed
 - `onnxruntime` version constraint (`>=1.19.0,<2.0.0`)
+- Windows distributable switched from single-file to one-directory format (faster startup, no antivirus extraction delay)
 
 ### Fixed
 - Non-standard characters no longer crash the file picker
+- `pymatting` package data missing in Windows executable (caused background removal to fail)
 
 ---
 

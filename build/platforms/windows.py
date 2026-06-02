@@ -38,34 +38,40 @@ class WindowsBuilder:
         return results
     
     def create_zip_distribution(self, executable_path: Path) -> Path:
-        """Create a ZIP distribution with executable and resources"""
+        """Create a ZIP distribution with the onedir app folder and docs."""
         print_status("Creating ZIP distribution...")
-        
-        # Create temporary directory for ZIP contents
+
+        app_dir = executable_path.parent  # dist/Auto-Wall/
+
+        # Staging directory
         zip_dir = Path("Auto-Wall-Windows")
         if zip_dir.exists():
             shutil.rmtree(zip_dir)
-        
         zip_dir.mkdir()
-        
-        # Copy executable
-        shutil.copy2(executable_path, zip_dir / "Auto-Wall.exe")
-        
-        # Copy documentation
+
+        # Copy entire onedir output (exe + all DLLs / _internal data)
+        for item in app_dir.iterdir():
+            dest = zip_dir / item.name
+            if item.is_dir():
+                shutil.copytree(item, dest)
+            else:
+                shutil.copy2(item, dest)
+
+        # Copy documentation alongside the app files
         for doc_file in ["README.md", "LICENSE"]:
             doc_path = Path(doc_file)
             if doc_path.exists():
                 shutil.copy2(doc_path, zip_dir / doc_file)
-        
+
         # Create ZIP file
         zip_name = f"Auto-Wall-{self.version}-Windows"
         zip_path = self.dist_path / f"{zip_name}.zip"
-        
+
         shutil.make_archive(str(self.dist_path / zip_name), 'zip', str(zip_dir))
-        
-        # Clean up
+
+        # Clean up staging dir
         shutil.rmtree(zip_dir)
-        
+
         if zip_path.exists():
             print_success(f"ZIP distribution created: {zip_path}")
             return zip_path

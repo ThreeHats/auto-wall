@@ -6,6 +6,7 @@ import datetime
 import atexit
 
 from src.utils.update_checker import check_for_updates, fetch_version
+from src.utils.debug_logger import get_log_dir
 
 # Version information - will be updated by GitHub workflow
 APP_VERSION = "1.3.1"
@@ -44,23 +45,7 @@ def setup_logging(debug_mode=False):
         return None, None
     
     # Normal mode - redirect to log files
-    # Use proper user directories for all platforms
-    if getattr(sys, 'frozen', False):
-        # Running as PyInstaller bundle - use proper user directory
-        if sys.platform == "darwin":
-            # macOS: ~/Library/Logs/Auto-Wall
-            log_dir = os.path.join(os.path.expanduser("~"), "Library", "Logs", "Auto-Wall")
-        elif sys.platform == "win32":
-            # Windows: %LOCALAPPDATA%/Auto-Wall/Logs
-            localappdata = os.environ.get('LOCALAPPDATA', os.path.join(os.path.expanduser("~"), "AppData", "Local"))
-            log_dir = os.path.join(localappdata, "Auto-Wall", "Logs")
-        else:
-            # Linux: ~/.local/share/Auto-Wall/logs
-            xdg_data = os.environ.get('XDG_DATA_HOME', os.path.join(os.path.expanduser("~"), ".local", "share"))
-            log_dir = os.path.join(xdg_data, "Auto-Wall", "logs")
-    else:
-        # Running as script - use project directory
-        log_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
+    log_dir = get_log_dir()
     
     try:
         os.makedirs(log_dir, exist_ok=True)

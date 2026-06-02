@@ -7,6 +7,30 @@ import sys
 import os
 from logging.handlers import RotatingFileHandler
 
+
+def get_log_dir() -> str:
+    """Return the platform-appropriate log directory for this installation."""
+    if getattr(sys, 'frozen', False):
+        if sys.platform == "darwin":
+            return os.path.join(os.path.expanduser("~"), "Library", "Logs", "Auto-Wall")
+        elif sys.platform == "win32":
+            localappdata = os.environ.get(
+                'LOCALAPPDATA',
+                os.path.join(os.path.expanduser("~"), "AppData", "Local")
+            )
+            return os.path.join(localappdata, "Auto-Wall", "Logs")
+        else:
+            xdg_data = os.environ.get(
+                'XDG_DATA_HOME',
+                os.path.join(os.path.expanduser("~"), ".local", "share")
+            )
+            return os.path.join(xdg_data, "Auto-Wall", "logs")
+    else:
+        utils_dir = os.path.dirname(os.path.abspath(__file__))
+        project_root = os.path.dirname(os.path.dirname(utils_dir))
+        return os.path.join(project_root, "logs")
+
+
 class DebugLogger:
     def __init__(self, name="auto_wall", level=logging.DEBUG):
         self.logger = logging.getLogger(name)
@@ -27,30 +51,19 @@ class DebugLogger:
         console_handler.setLevel(logging.DEBUG)
         console_handler.setFormatter(formatter)
         self.logger.addHandler(console_handler)
-        
-                # File handler - rotating log file in proper user directory
+
+        # File handler - rotating log file in proper user directory
         try:
-            if getattr(sys, 'frozen', False):
-                # Running as PyInstaller bundle - use proper user directory
-                if sys.platform == "darwin":
-                    # macOS: ~/Library/Logs/Auto-Wall
-                    log_dir = os.path.join(os.path.expanduser("~"), "Library", "Logs", "Auto-Wall")
-                elif sys.platform == "win32":
-                    # Windows: %LOCALAPPDATA%/Auto-Wall/Logs
-                    localappdata = os.environ.get('LOCALAPPDATA', os.path.join(os.path.expanduser("~"), "AppData", "Local"))
-                    log_dir = os.path.join(localappdata, "Auto-Wall", "Logs")
-                else:
-                    # Linux: ~/.local/share/Auto-Wall/logs
-                    xdg_data = os.environ.get('XDG_DATA_HOME', os.path.join(os.path.expanduser("~"), ".local", "share"))
-                    log_dir = os.path.join(xdg_data, "Auto-Wall", "logs")
-            else:
-                # Running as script - use project directory
-                log_dir = "logs"
-            
+            log_dir = get_log_dir()
             os.makedirs(log_dir, exist_ok=True)
             log_file = os.path.join(log_dir, "debug.log")
+            file_handler = RotatingFileHandler(
+                log_file, maxBytes=1024*1024, backupCount=5
+            )
+            file_handler.setLevel(logging.DEBUG)
+            file_handler.setFormatter(formatter)
+            self.logger.addHandler(file_handler)
         except (OSError, PermissionError):
-            # Fallback to temp directory
             import tempfile
             log_file = os.path.join(tempfile.gettempdir(), "auto_wall_debug.log")
             file_handler = RotatingFileHandler(

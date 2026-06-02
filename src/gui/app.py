@@ -16,6 +16,7 @@ from PyQt6.QtGui import QPixmap, QPainter, QColor, QGuiApplication, QKeySequence
 from collections import deque
 
 from src.utils.update_checker import check_for_updates, open_update_url
+from src.utils.debug_logger import get_log_dir
 from src.gui.drawing_tools import DrawingTools
 from src.gui.preset_manager import PresetManager
 from src.core.image_processor import ImageProcessor
@@ -306,7 +307,12 @@ class WallDetectionApp(QMainWindow):
         
         # Help menu
         help_menu = menubar.addMenu('&Help')
-        
+
+        open_logs_action = help_menu.addAction('Open &Log Folder')
+        open_logs_action.triggered.connect(self.open_log_folder)
+
+        help_menu.addSeparator()
+
         about_action = help_menu.addAction('&About')
         about_action.triggered.connect(self.show_about)
         
@@ -1912,6 +1918,14 @@ class WallDetectionApp(QMainWindow):
         if hasattr(self, 'uvtt_independent_grid_group'):
             self.uvtt_independent_grid_group.setVisible(show_independent)
             
+    def open_log_folder(self):
+        """Open the log folder in the system file explorer."""
+        from PyQt6.QtCore import QUrl
+        from PyQt6.QtGui import QDesktopServices
+        log_dir = get_log_dir()
+        os.makedirs(log_dir, exist_ok=True)
+        QDesktopServices.openUrl(QUrl.fromLocalFile(log_dir))
+
     def show_about(self):
         """Show about dialog."""
         QMessageBox.about(self, "About Auto-Wall",
