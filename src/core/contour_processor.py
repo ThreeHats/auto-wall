@@ -2,7 +2,7 @@ import cv2
 import numpy as np
 
 from src.wall_detection.detector import draw_walls
-from src.wall_detection.mask_editor import thin_contour
+from src.wall_detection.mask_editor import thin_contour, thicken_contour
 
 class ContourProcessor:
     def __init__(self, app):
@@ -42,15 +42,16 @@ class ContourProcessor:
     def update_display_from_contours(self):
         """Update the display with the current contours."""
         if self.app.current_image is not None and self.app.current_contours:
+            # Use bg-removed preview as base image when active
+            base_image = self.app.image_processor._get_display_base_image(self.app.current_image)
+
             # Handle scaling properly - display on full-resolution image if available
             if self.app.scale_factor != 1.0 and self.app.original_image is not None:
                 # Scale contours to original resolution for display
                 display_contours = self.scale_contours_to_original(self.app.current_contours, self.app.scale_factor)
-                # Draw contours on the original full-resolution image
-                self.app.processed_image = draw_walls(self.app.original_image, display_contours)
+                self.app.processed_image = draw_walls(base_image, display_contours)
             else:
-                # No scaling needed or no original image available
-                self.app.processed_image = draw_walls(self.app.current_image, self.app.current_contours)
+                self.app.processed_image = draw_walls(base_image, self.app.current_contours)
             
             # Re-draw lights if they exist and light detection is enabled
             if (hasattr(self.app, 'current_lights') and self.app.current_lights and 
@@ -87,8 +88,8 @@ class ContourProcessor:
             self.app.original_processed_image = self.app.processed_image.copy()
             self.app.refresh_display()
         elif self.app.current_image is not None:
-            # Display the original full-resolution image if available, otherwise the working image
-            display_image = self.app.original_image.copy() if self.app.original_image is not None else self.app.current_image
+            # Use bg-removed preview as base when active, otherwise original
+            display_image = self.app.image_processor._get_display_base_image(self.app.current_image)
             self.app.processed_image = display_image
             
             # Re-draw lights even when no contours exist
@@ -145,46 +146,80 @@ class ContourProcessor:
         self.update_display_from_contours()
 
     def thin_selected_contour(self, contour):
-        """Thin a single contour using morphological thinning."""
+        """Thin a single contour using morphological thinning.
+
+        Returns a list of contours (thinning may split one contour into multiple).
+        """
         # Create a mask for the contour
         mask = np.zeros(self.app.current_image.shape[:2], dtype=np.uint8)
         cv2.drawContours(mask, [contour], -1, 255, -1)
-        
+
         # Apply the thinning operation using the imported function
         # Pass the current target width and max iterations settings
-        thinned_contour = thin_contour(mask, target_width=self.app.target_width, max_iterations=self.app.max_iterations)
-        
-        # No need to extract contours, thin_contour() already returns a contour object
-        if thinned_contour is not None:
-            return thinned_contour
+        thinned_contours = thin_contour(mask, target_width=self.app.target_width, max_iterations=self.app.max_iterations)
+
+        if thinned_contours is not None:
+            return thinned_contours
         else:
-            # If thinning failed, return the original contour
-            return contour
+            return [contour]
 
     def thin_selected_contours(self):
         """Thin the selected contours."""
         if not self.app.selected_contour_indices:
             return
-        
+
         # Save state before modifying
         self.app.mask_processor.save_state()
-        
-        # Thin each selected contour
-        for idx in sorted(self.app.selected_contour_indices):
-            if 0 <= idx < len(self.app.current_contours):
-                # Get the contour
-                contour = self.app.current_contours[idx]
-                # Apply thinning
-                thinned_contour = self.thin_selected_contour(contour)
-                # Replace the original with the thinned version
-                self.app.current_contours[idx] = thinned_contour
-        
+
+        # Build new contour list, replacing thinned contours (which may split into multiple)
+        new_contours = []
+        thinned_indices = set(self.app.selected_contour_indices)
+
+        for idx, contour in enumerate(self.app.current_contours):
+            if idx in thinned_indices:
+                new_contours.extend(self.thin_selected_contour(contour))
+            else:
+                new_contours.append(contour)
+
+        self.app.current_contours = new_contours
+
         # Clear selection and update display
         self.app.selection_manager.clear_selection()
         self.update_display_from_contours()
 
-    def thin_contour(self, contour):
-        """Thin a single contour using morphological thinning."""
-        # Create a mask for the contour
+    def thicken_selected_contour(self, contour):
+        """Thicken a single contour using morphological dilation.
+
+        Returns a list of contours (dilation may merge nearby regions).
+        """
         mask = np.zeros(self.app.current_image.shape[:2], dtype=np.uint8)
         cv2.drawContours(mask, [contour], -1, 255, -1)
+
+        thickened_contours = thicken_contour(mask, target_width=self.app.target_width, max_iterations=self.app.max_iterations)
+
+        if thickened_contours is not None:
+            return thickened_contours
+        else:
+            return [contour]
+
+    def thicken_selected_contours(self):
+        """Thicken the selected contours."""
+        if not self.app.selected_contour_indices:
+            return
+
+        self.app.mask_processor.save_state()
+
+        new_contours = []
+        thickened_indices = set(self.app.selected_contour_indices)
+
+        for idx, contour in enumerate(self.app.current_contours):
+            if idx in thickened_indices:
+                new_contours.extend(self.thicken_selected_contour(contour))
+            else:
+                new_contours.append(contour)
+
+        self.app.current_contours = new_contours
+
+        self.app.selection_manager.clear_selection()
+        self.update_display_from_contours()
+

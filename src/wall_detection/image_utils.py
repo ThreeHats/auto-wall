@@ -41,30 +41,16 @@ def load_image(image_path):
             img_array = np.frombuffer(response.content, np.uint8)
             image = cv2.imdecode(img_array, cv2.IMREAD_UNCHANGED)
         else:
-            # Try standard loading first for all formats
-            image = cv2.imread(image_path, cv2.IMREAD_UNCHANGED)
-            
-            # If standard loading failed for WebP, try alternate approach
+            # Read raw bytes so cv2.imdecode handles the decode — cv2.imread silently
+            # returns None on Windows when the path contains non-ASCII characters.
+            with open(image_path, 'rb') as f:
+                img_bytes = f.read()
+            img_array = np.frombuffer(img_bytes, np.uint8)
+            image = cv2.imdecode(img_array, cv2.IMREAD_UNCHANGED)
+
             if image is None and is_webp:
-                print(f"Standard loading failed for WebP file: {image_path}, trying alternate method...")
-                try:
-                    # Read raw bytes first
-                    with open(image_path, 'rb') as f:
-                        img_bytes = f.read()
-                    
-                    # Decode WebP with maximum quality
-                    img_array = np.frombuffer(img_bytes, np.uint8)
-                    image = cv2.imdecode(img_array, cv2.IMREAD_UNCHANGED)
-                    
-                    if image is None:
-                        # If still failed, try loading with standard IMREAD_COLOR flag
-                        image = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
-                        
-                except Exception as e:
-                    print(f"Failed to load WebP with alternate method: {e}")
-                    traceback.print_exc()
-                    # Fall back to original method as a last resort
-                    image = cv2.imread(image_path, cv2.IMREAD_COLOR)
+                print(f"Standard loading failed for WebP file: {image_path}, trying IMREAD_COLOR...")
+                image = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
         
         if image is None:
             raise FileNotFoundError(f"Image not found or couldn't be loaded from {image_path}")
@@ -117,25 +103,23 @@ def load_image(image_path):
 
 def save_image(image, save_path):
     """Save an image to the specified path with format-appropriate settings."""
-    # Get file extension (including the period)
     file_extension = os.path.splitext(save_path)[1].lower()
-    
-    # Use appropriate parameters based on file extension
+
+    # Use imencode + binary write so non-ASCII paths work on Windows.
     if file_extension == '.webp':
-        # Use high quality WebP encoding (100 is max quality)
         params = [cv2.IMWRITE_WEBP_QUALITY, 98]
-        cv2.imwrite(save_path, image, params)
     elif file_extension == '.png':
-        # Use best compression for PNG
         params = [cv2.IMWRITE_PNG_COMPRESSION, 9]
-        cv2.imwrite(save_path, image, params)
-    elif file_extension == '.jpg' or file_extension == '.jpeg':
-        # Use high quality JPEG encoding
+    elif file_extension in ('.jpg', '.jpeg'):
         params = [cv2.IMWRITE_JPEG_QUALITY, 95]
-        cv2.imwrite(save_path, image, params)
     else:
-        # Default for other formats
-        cv2.imwrite(save_path, image)
+        params = []
+
+    success, img_bytes = cv2.imencode(file_extension, image, params)
+    if not success:
+        raise IOError(f"cv2.imencode failed for format '{file_extension}' when saving '{save_path}'")
+    with open(save_path, 'wb') as f:
+        f.write(img_bytes.tobytes())
 
 def preprocess_image(image):
     """Preprocess an image for wall detection."""

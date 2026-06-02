@@ -3,8 +3,16 @@ name: Build Auto-Wall Multi-Platform
 on:
   push:
     tags:
-      - '*.*.*'  # Run when a version tag is pushed
-  workflow_dispatch:  # Allow manual triggering
+      - '*.*.*'           # stable release: 1.4.0
+      - 'v*.*.*-beta.*'   # beta pre-release: v1.4.0-beta.1
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: write
@@ -18,6 +26,7 @@ jobs:
     outputs:
       version: ${{ steps.set_version.outputs.version }}
       is_release: ${{ steps.set_version.outputs.is_release }}
+      is_prerelease: ${{ steps.set_version.outputs.is_prerelease }}
     
     steps:
     - name: Checkout repository
@@ -28,21 +37,32 @@ jobs:
       run: |
         if [[ "${{ github.ref_type }}" == "tag" ]]; then
           VERSION="${{ github.ref_name }}"
-          # Remove 'v' prefix if present
-          VERSION=${VERSION#v}
+          VERSION=${VERSION#v}  # strip leading v (v1.4.0-beta.1 -> 1.4.0-beta.1)
           IS_RELEASE="true"
-          echo "Setting release version to $VERSION"
+          if [[ "$VERSION" == *"-beta."* ]]; then
+            IS_PRERELEASE="true"
+          else
+            IS_PRERELEASE="false"
+          fi
+          echo "Setting release version to $VERSION (prerelease=$IS_PRERELEASE)"
         else
-          # For non-tag builds, use current date and commit
-          VERSION="dev-$(date +%Y%m%d)-$(echo ${{ github.sha }} | cut -c1-7)"
+          BASE_VERSION=$(grep -oP 'APP_VERSION = "\K[^"]+' auto_wall.py)
+          SHORT_SHA=$(echo ${{ github.sha }} | cut -c1-7)
           IS_RELEASE="false"
+          IS_PRERELEASE="false"
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            VERSION="${BASE_VERSION}-pr-${{ github.event.pull_request.number }}-${SHORT_SHA}"
+          else
+            VERSION="${BASE_VERSION}-dev-$(date +%Y%m%d)-${SHORT_SHA}"
+          fi
           echo "Setting dev version to $VERSION"
         fi
-        
-        echo "version=$VERSION" >> $GITHUB_OUTPUT
-        echo "is_release=$IS_RELEASE" >> $GITHUB_OUTPUT
-        echo "VERSION=$VERSION" >> $GITHUB_ENV
-        
+
+        echo "version=$VERSION"             >> $GITHUB_OUTPUT
+        echo "is_release=$IS_RELEASE"       >> $GITHUB_OUTPUT
+        echo "is_prerelease=$IS_PRERELEASE" >> $GITHUB_OUTPUT
+        echo "VERSION=$VERSION"             >> $GITHUB_ENV
+
         # Update version in auto_wall.py
         sed -i "s/APP_VERSION = \".*\"/APP_VERSION = \"$VERSION\"/" auto_wall.py
   
@@ -114,8 +134,8 @@ jobs:
     - name: Install Python dependencies
       run: |
         python3 -m pip install --upgrade pip
-        pip install -r requirements.txt
-    
+        pip install -r requirements.txt -r requirements-gpu.txt
+
     - name: Build Linux packages
       run: |
         python3 build.py --platform linux
@@ -203,7 +223,7 @@ jobs:
         files: |
           artifacts/**/*
         draft: false
-        prerelease: false
+        prerelease: ${{ needs.version.outputs.is_prerelease == 'true' }}
         tag_name: ${{ github.ref_name }}
         name: "Auto-Wall v${{ needs.version.outputs.version }}"
         body: |

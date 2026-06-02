@@ -25,6 +25,8 @@ from src.core.contour_processor import ContourProcessor
 from src.gui.detection_panel import DetectionPanel
 from src.gui.export_panel import ExportPanel
 from src.core.mask_processor import MaskProcessor
+from src.core.background_remover import BackgroundRemover
+from src.gui.background_removal_panel import BackgroundRemovalPanel
 
 from src.utils.ui_helpers import apply_stylesheet
 
@@ -46,6 +48,8 @@ class WallDetectionApp(QMainWindow):
         self.detection_panel = DetectionPanel(self)
         self.export_panel = ExportPanel(self)
         self.mask_processor = MaskProcessor(self)
+        self.background_remover = BackgroundRemover(self)
+        self.bg_removal_panel = BackgroundRemovalPanel(self)
         # Set up unified undo shortcut
         self.undo_shortcut = QShortcut(QKeySequence.StandardKey.Undo, self)
         self.undo_shortcut.activated.connect(self.unified_undo)
@@ -85,13 +89,15 @@ class WallDetectionApp(QMainWindow):
         self.display_offset = (0, 0)
         self.sliders = {}
         self.mask_layer = None  # Mask layer for paint mode
+        self.bg_removed_image = None  # Cached background-removed working image
 
         # Modes
         self.deletion_mode_enabled = True
         self.color_selection_mode_enabled = False
         self.edit_mask_mode_enabled = False
         self.thin_mode_enabled = False
-        
+        self.thicken_mode_enabled = False
+
         # Hover highlighting
         self.highlighted_contour_index = -1  # -1 means no contour is highlighted
         self.original_processed_image = None  # Store original image without highlight
@@ -557,6 +563,7 @@ class WallDetectionApp(QMainWindow):
         
         self.deletion_mode_radio = QRadioButton("Deletion")
         self.thin_mode_radio = QRadioButton("Thin")
+        self.thicken_mode_radio = QRadioButton("Thicken")
         self.deletion_mode_radio.setChecked(True)
         self.color_selection_mode_radio = QRadioButton("Color Pick")
         self.color_selection_mode_radio.setVisible(False)  # Hide this radio button initially
@@ -567,18 +574,21 @@ class WallDetectionApp(QMainWindow):
         self.mode_button_group = QButtonGroup()
         self.mode_button_group.addButton(self.deletion_mode_radio)
         self.mode_button_group.addButton(self.thin_mode_radio)
+        self.mode_button_group.addButton(self.thicken_mode_radio)
         self.mode_button_group.addButton(self.color_selection_mode_radio)
         self.mode_button_group.addButton(self.edit_mask_mode_radio)
         self.mode_button_group.setExclusive(True)
 
         self.mode_layout.addWidget(self.deletion_mode_radio)
         self.mode_layout.addWidget(self.thin_mode_radio)
+        self.mode_layout.addWidget(self.thicken_mode_radio)
         self.mode_layout.addWidget(self.color_selection_mode_radio)
         self.mode_layout.addWidget(self.edit_mask_mode_radio)
-        
+
         # Connect mode radio buttons
         self.deletion_mode_radio.toggled.connect(self.detection_panel.toggle_mode)
         self.thin_mode_radio.toggled.connect(self.detection_panel.toggle_mode)
+        self.thicken_mode_radio.toggled.connect(self.detection_panel.toggle_mode)
         self.color_selection_mode_radio.toggled.connect(self.detection_panel.toggle_mode)
         self.edit_mask_mode_radio.toggled.connect(self.detection_panel.toggle_mode)
 
@@ -721,6 +731,9 @@ class WallDetectionApp(QMainWindow):
 
         # Use a scaling factor of 10 for float values (0 to 10.0 with 0.1 precision)
         self.detection_panel.add_slider("Min Merge Distance", 0, 100, 5, scale_factor=0.1)  # Default 0.5
+
+        # Background removal section
+        self.bg_removal_panel.setup_ui()
 
         # Create layout for hatching controls
         self.hatching_layout = QVBoxLayout()
@@ -1600,6 +1613,7 @@ class WallDetectionApp(QMainWindow):
         # Hide all mode radio buttons initially
         self.deletion_mode_radio.setVisible(False)
         self.thin_mode_radio.setVisible(False)
+        self.thicken_mode_radio.setVisible(False)
         self.color_selection_mode_radio.setVisible(False)
         self.edit_mask_mode_radio.setVisible(False)
         
@@ -1609,8 +1623,8 @@ class WallDetectionApp(QMainWindow):
         self.tool_separator_bottom.setVisible(False)
         
         # Hide all detection-specific widgets
-        for widget_name in ['min_area_mode_layout', 'merge_options_layout', 'hatching_layout', 
-                            'high_res_checkbox', 'presets_container']:
+        for widget_name in ['min_area_mode_layout', 'merge_options_layout', 'hatching_layout',
+                            'bg_removal_layout', 'high_res_checkbox', 'presets_container']:
             if hasattr(self, widget_name):
                 widget = getattr(self, widget_name)
                 if hasattr(widget, 'setVisible'):
@@ -1641,6 +1655,7 @@ class WallDetectionApp(QMainWindow):
         # Reset modes
         self.deletion_mode_enabled = False
         self.thin_mode_enabled = False
+        self.thicken_mode_enabled = False
         self.color_selection_mode_enabled = False
         self.edit_mask_mode_enabled = False
         self.uvtt_preview_active = False
@@ -1665,30 +1680,34 @@ class WallDetectionApp(QMainWindow):
             
             self.deletion_mode_radio.setVisible(True)
             self.thin_mode_radio.setVisible(True)
+            self.thicken_mode_radio.setVisible(True)
             # Only show color selection mode if in color detection mode
             if self.color_detection_radio.isChecked():
                 self.color_selection_mode_radio.setVisible(True)
             else:
                 self.color_selection_mode_radio.setVisible(False)
             self.edit_mask_mode_radio.setVisible(False)
-            
+
             # Default to deletion mode if no valid mode is selected
-            if not (self.deletion_mode_radio.isChecked() or 
-                    self.thin_mode_radio.isChecked() or 
+            if not (self.deletion_mode_radio.isChecked() or
+                    self.thin_mode_radio.isChecked() or
+                    self.thicken_mode_radio.isChecked() or
                     (self.color_selection_mode_radio.isChecked() and self.color_detection_radio.isChecked())):
                 self.deletion_mode_radio.setChecked(True)
-            
+
             # Set appropriate mode based on current selection
             if self.deletion_mode_radio.isChecked():
                 self.deletion_mode_enabled = True
             elif self.thin_mode_radio.isChecked():
                 self.thin_mode_enabled = True
+            elif self.thicken_mode_radio.isChecked():
+                self.thicken_mode_enabled = True
             elif self.color_selection_mode_radio.isChecked():
                 self.color_selection_mode_enabled = True
             
             # Show all detection-specific widgets
             for widget_name in ['min_area_mode_layout', 'merge_options_layout', 'hatching_layout',
-                                'high_res_checkbox', 'presets_container']:
+                                'bg_removal_layout', 'high_res_checkbox', 'presets_container']:
                 if hasattr(self, widget_name):
                     widget = getattr(self, widget_name)
                     if hasattr(widget, 'setVisible'):
@@ -1718,6 +1737,7 @@ class WallDetectionApp(QMainWindow):
             # Hide all mode buttons for Paint tool - not needed since we have Paint Settings
             self.deletion_mode_radio.setVisible(False)
             self.thin_mode_radio.setVisible(False)
+            self.thicken_mode_radio.setVisible(False)
             self.color_selection_mode_radio.setVisible(False)
             self.edit_mask_mode_radio.setVisible(False)
             
@@ -1734,6 +1754,7 @@ class WallDetectionApp(QMainWindow):
             # Hide all mode buttons for UVTT tool
             self.deletion_mode_radio.setVisible(False)
             self.thin_mode_radio.setVisible(False)
+            self.thicken_mode_radio.setVisible(False)
             self.color_selection_mode_radio.setVisible(False)
             self.edit_mask_mode_radio.setVisible(False)
             
@@ -1759,7 +1780,7 @@ class WallDetectionApp(QMainWindow):
             self.image_label.setCursor(Qt.CursorShape.CrossCursor)
         elif self.color_selection_mode_enabled:
             self.image_label.setCursor(Qt.CursorShape.PointingHandCursor)
-        elif self.deletion_mode_enabled or self.thin_mode_enabled:
+        elif self.deletion_mode_enabled or self.thin_mode_enabled or self.thicken_mode_enabled:
             self.image_label.setCursor(Qt.CursorShape.CrossCursor)
         else:
             self.image_label.setCursor(Qt.CursorShape.ArrowCursor)

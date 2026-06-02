@@ -136,6 +136,8 @@ def get_pyinstaller_args(platform: str) -> Tuple[List[str], List[str]]:
         "--collect-all=sklearn",
         "--collect-all=numpy",
         "--collect-all=PIL",
+        "--collect-all=onnxruntime",
+        "--collect-all=rembg",
         "--paths=src",
         "--noconfirm",
         "--noupx",
@@ -181,7 +183,29 @@ def get_pyinstaller_args(platform: str) -> Tuple[List[str], List[str]]:
             "--icon=resources/icon.ico",
             "--osx-bundle-identifier=com.threehats.auto-wall",
         ])
-    
+
+    elif platform == "linux":
+        # Bundle CUDA shared libs from pip-installed nvidia-* packages so GPU
+        # works in the AppImage/deb without requiring a system CUDA install.
+        import site as _site
+        import glob as _glob
+        site_pkgs = []
+        try:
+            site_pkgs = _site.getsitepackages()
+        except AttributeError:
+            pass
+        try:
+            site_pkgs.append(_site.getusersitepackages())
+        except AttributeError:
+            pass
+        for sp in site_pkgs:
+            nvidia_base = os.path.join(sp, "nvidia")
+            if os.path.isdir(nvidia_base):
+                for so_file in sorted(_glob.glob(os.path.join(nvidia_base, "*/lib/*.so.*"))):
+                    rel_dir = os.path.relpath(os.path.dirname(so_file), sp)
+                    base_args.append(f"--add-binary={so_file}:{rel_dir}")
+                break
+
     # Add hidden imports
     for imp in hidden_imports:
         base_args.extend(["--hidden-import", imp])

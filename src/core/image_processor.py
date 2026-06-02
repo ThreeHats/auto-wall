@@ -24,6 +24,30 @@ class ImageProcessor:
         # Create debounced version of update_image
         self.debounced_update = debounce(delay_ms=250)(self._update_image_internal)
 
+    def _is_bg_preview_active(self):
+        """Check if background removal preview is currently active."""
+        return (hasattr(self.app, 'bg_removal_checkbox')
+                and self.app.bg_removal_checkbox.isChecked()
+                and hasattr(self.app, 'bg_removal_preview_checkbox')
+                and self.app.bg_removal_preview_checkbox.isChecked()
+                and self.app.bg_removed_image is not None)
+
+    def _get_display_base_image(self, fallback):
+        """Get the base image for drawing contours on.
+
+        When bg removal preview is active, returns the bg-removed image scaled
+        to original resolution. Otherwise returns the original image.
+        """
+        if self._is_bg_preview_active():
+            base = self.app.bg_removed_image
+            if self.app.scale_factor != 1.0 and self.app.original_image is not None:
+                orig_h, orig_w = self.app.original_image.shape[:2]
+                base = cv2.resize(base, (orig_w, orig_h), interpolation=cv2.INTER_LINEAR)
+            return base
+        if self.app.original_image is not None:
+            return self.app.original_image.copy()
+        return fallback
+
     def update_image(self):
         """Update the displayed image based on the current settings (debounced)."""
         # Use debounced version to prevent rapid successive calls
@@ -78,8 +102,13 @@ class ImageProcessor:
             # If using pixels mode, scale the pixels to the working image size
             working_min_area = int(min_area * self.app.scale_factor * self.app.scale_factor)
         
-        # Working image that we'll pass to the detection function
-        processed_image = self.app.current_image.copy()
+        # Use background-removed image if available and enabled
+        if (hasattr(self.app, 'bg_removal_checkbox')
+                and self.app.bg_removal_checkbox.isChecked()
+                and self.app.bg_removed_image is not None):
+            processed_image = self.app.bg_removed_image.copy()
+        else:
+            processed_image = self.app.current_image.copy()
         
         # Apply hatching removal if enabled
         if self.app.remove_hatching_checkbox.isChecked():
@@ -143,6 +172,7 @@ class ImageProcessor:
             'min_merge_distance': min_merge_distance,
             'hatching_enabled': self.app.remove_hatching_checkbox.isChecked(),
             'hatching_params': (self.app.hatching_color.rgb(), self.app.hatching_threshold, self.app.hatching_width) if self.app.remove_hatching_checkbox.isChecked() else None,
+            'bg_removal_enabled': hasattr(self.app, 'bg_removal_checkbox') and self.app.bg_removal_checkbox.isChecked() and self.app.bg_removed_image is not None,
             'image_hash': fast_hash(processed_image.tobytes()[:1000])  # Hash first 1KB for speed
         }
         
@@ -251,26 +281,21 @@ class ImageProcessor:
         # Store detected lights for interactive editing
         self.app.current_lights = current_lights
 
+        # Determine base image for display (bg-removed preview or original)
+        base_display_image = self._get_display_base_image(processed_image)
+
         # Ensure contours are not empty
         if not contours:
             print("No contours found after processing.")
-            # Display original full-resolution image without contours
-            display_image = self.app.original_image.copy() if self.app.original_image is not None else processed_image
-            self.app.processed_image = display_image
-            # No contours found - export functions will handle this case
-            pass
+            self.app.processed_image = base_display_image.copy()
         else:
-            # Contours successfully detected - export functions are now available
             # Scale contours up to original resolution for display
             if self.app.scale_factor != 1.0 and self.app.original_image is not None:
-                # Scale contours to original resolution
                 display_contours = self.app.contour_processor.scale_contours_to_original(contours, self.app.scale_factor)
-                # Draw contours on the original full-resolution image
-                display_image = draw_walls(self.app.original_image, display_contours)
+                display_image = draw_walls(base_display_image, display_contours)
             else:
-                # No scaling needed or no original image available
-                display_image = draw_walls(processed_image, contours)
-            
+                display_image = draw_walls(processed_image if not self._is_bg_preview_active() else base_display_image, contours)
+
             self.app.processed_image = display_image
 
         # Draw lights on the processed image if light detection is enabled and lights were detected
@@ -390,12 +415,13 @@ class ImageProcessor:
             # Reset the mask layer when loading a new image to prevent dimension mismatch
             self.app.mask_layer = None
             self.app.uvtt_walls_preview = None
+            self.app.bg_removed_image = None
 
             self.app.export_panel.set_controls_enabled(True)
-            
+
             # Reset export states when loading a new image
             # (Export functions will check for available data)
-            
+
             # Reset the current overlays and detected contours
             self.app.current_contours = None
             self.app.edges_overlay = None
@@ -453,9 +479,10 @@ class ImageProcessor:
             # Reset the mask layer when loading a new image to prevent dimension mismatch
             self.app.mask_layer = None
             self.app.uvtt_walls_preview = None
+            self.app.bg_removed_image = None
 
             self.app.export_panel.set_controls_enabled(True)
-            
+
             # Reset button states when loading a new image
             # Reset export states when loading new image from URL
             # (Export functions will check for available data)
@@ -547,6 +574,7 @@ class ImageProcessor:
         
         # Recreate the working image with the current checkbox state
         self.app.current_image, self.app.scale_factor = self.create_working_image(self.app.original_image)
+        self.app.bg_removed_image = None
         print(f"Resolution changed: Working size {self.app.current_image.shape}, Scale factor {self.app.scale_factor}")
         
         # Update the image with new resolution

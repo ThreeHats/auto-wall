@@ -84,30 +84,30 @@ class SelectionManager:
             self.app.selecting_colors = True
             self.app.color_selection_start = (img_x, img_y)
             self.app.color_selection_current = (img_x, img_y)
-        elif self.app.thin_mode_enabled:
+        elif self.app.thin_mode_enabled or self.app.thicken_mode_enabled:
             # Check if click is on a contour edge
             min_distance = float('inf')
             found_contour_index = -1
-            
+
             for i, contour in enumerate(self.app.current_contours):
                 contour_points = contour.reshape(-1, 2)
-                
+
                 for j in range(len(contour_points)):
                     p1 = contour_points[j]
                     p2 = contour_points[(j + 1) % len(contour_points)]
                     distance = point_to_line_distance(img_x, img_y, p1[0], p1[1], p2[0], p2[1])
-                    
+
                     # If point is close enough to a line segment
                     if distance < 5 and distance < min_distance:  # Threshold for line detection (pixels)
                         min_distance = distance
                         found_contour_index = i
-            
+
             # If click is on a contour edge, handle as single click
             if found_contour_index != -1:
-                self.handle_thinning_click(x, y)
+                self.handle_resize_click(x, y)
                 return
-                
-            # Otherwise, start a selection for thinning multiple contours
+
+            # Otherwise, start a selection for resizing multiple contours
             self.app.selecting = True
             self.app.selection_start_img = (img_x, img_y)
             self.app.selection_current_img = (img_x, img_y)
@@ -128,7 +128,7 @@ class SelectionManager:
         elif self.app.color_selection_mode_enabled and self.app.selecting_colors:
             self.app.color_selection_current = (img_x, img_y)
             self.update_color_selection_display()
-        elif self.app.thin_mode_enabled and self.app.selecting:
+        elif (self.app.thin_mode_enabled or self.app.thicken_mode_enabled) and self.app.selecting:
             self.app.selection_current_img = (img_x, img_y)
             self.update_selection_display()
 
@@ -285,41 +285,38 @@ class SelectionManager:
                 print("Invalid selection area")            # Clear the selection
             self.clear_selection()
                 
-        elif self.app.thin_mode_enabled and self.app.selecting:
+        elif (self.app.thin_mode_enabled or self.app.thicken_mode_enabled) and self.app.selecting:
             self.app.selection_current_img = (img_x, img_y)
-            
+
             # Calculate selection rectangle
             x1 = min(self.app.selection_start_img[0], self.app.selection_current_img[0])
             y1 = min(self.app.selection_start_img[1], self.app.selection_current_img[1])
             x2 = max(self.app.selection_start_img[0], self.app.selection_current_img[0])
             y2 = max(self.app.selection_start_img[1], self.app.selection_current_img[1])
-            
-            # Convert rectangle to working coordinates for contour matching if needed
-            # The rectangle coordinates are in display image coordinates (full resolution)
-            # but contours are in working resolution, so scale down if necessary
+
             working_x1, working_y1, working_x2, working_y2 = x1, y1, x2, y2
             if self.app.scale_factor != 1.0 and self.app.original_image is not None:
                 working_x1 = int(x1 * self.app.scale_factor)
                 working_y1 = int(y1 * self.app.scale_factor)
                 working_x2 = int(x2 * self.app.scale_factor)
                 working_y2 = int(y2 * self.app.scale_factor)
-            
+
             # Find contours within the selection
             self.app.selected_contour_indices = []
-            
+
             for i, contour in enumerate(self.app.current_contours):
-                # Check if contour is at least partially within selection rectangle
                 for point in contour:
                     px, py = point[0]
                     if working_x1 <= px <= working_x2 and working_y1 <= py <= working_y2:
                         self.app.selected_contour_indices.append(i)
                         break
-            
-            # If we have selected contours, thin them
+
             if self.app.selected_contour_indices:
-                self.app.contour_processor.thin_selected_contours()
+                if self.app.thin_mode_enabled:
+                    self.app.contour_processor.thin_selected_contours()
+                else:
+                    self.app.contour_processor.thicken_selected_contours()
             else:
-                # If no contours were selected, just clear the selection
                 self.clear_selection()
 
     def extract_colors_from_selection(self, x1, y1, x2, y2):
@@ -443,63 +440,63 @@ class SelectionManager:
             self.app.contour_processor.update_display_from_contours()
             return
 
-    def handle_thinning_click(self, x, y):
-        """Handle clicks for thinning mode."""
+    def handle_resize_click(self, x, y):
+        """Handle clicks for thinning/thickening mode."""
         if not self.app.current_contours or self.app.current_image is None:
             return
-            
-        # Convert display coordinates to image coordinates
+
         img_x, img_y = convert_to_image_coordinates(self.app, x, y)
-        
-        # Check if coordinates are valid
+
         if img_x is None or img_y is None:
-            return        # Clear any existing selection when handling a single click
+            return
         self.app.selection_manager.clear_selection()
-        
-        # Save state before modifying
         self.app.mask_processor.save_state()
-        
+
+        is_thicken = self.app.thicken_mode_enabled
+        action_name = "Thickening" if is_thicken else "Thinning"
+
+        def resize_contour(contour):
+            if is_thicken:
+                return self.app.contour_processor.thicken_selected_contour(contour)
+            else:
+                return self.app.contour_processor.thin_selected_contour(contour)
+
         # Use the highlighted contour if available
         if self.app.highlighted_contour_index != -1:
-            print(f"Thinning highlighted contour {self.app.highlighted_contour_index}")
-            contour = self.app.current_contours[self.app.highlighted_contour_index]
-            thinned_contour = self.app.contour_processor.thin_selected_contour(contour)
-            self.app.current_contours[self.app.highlighted_contour_index] = thinned_contour
-            self.app.highlighted_contour_index = -1  # Reset highlight
+            idx = self.app.highlighted_contour_index
+            print(f"{action_name} highlighted contour {idx}")
+            contour = self.app.current_contours[idx]
+            result = resize_contour(contour)
+            # Replace single contour with potentially multiple results
+            self.app.current_contours[idx:idx+1] = result
+            self.app.highlighted_contour_index = -1
             self.app.contour_processor.update_display_from_contours()
             return
-            
-        # Convert to working coordinates for contour matching if needed
-        # img_x, img_y are in display image coordinates (full resolution)
-        # but contours are in working resolution, so scale down if necessary
+
         working_x, working_y = img_x, img_y
         if self.app.scale_factor != 1.0 and self.app.original_image is not None:
             working_x = int(img_x * self.app.scale_factor)
             working_y = int(img_y * self.app.scale_factor)
-            
-        # Find contours where the click is on or near an edge
+
         min_distance = float('inf')
         closest_contour_index = -1
-        
-        # Check if click is on or near a contour edge
+
         for i, contour in enumerate(self.app.current_contours):
             contour_points = contour.reshape(-1, 2)
-            
+
             for j in range(len(contour_points)):
                 p1 = contour_points[j]
                 p2 = contour_points[(j + 1) % len(contour_points)]
                 distance = point_to_line_distance(working_x, working_y, p1[0], p1[1], p2[0], p2[1])
-                
-                # If point is close enough to a line segment
-                if distance < 5 and distance < min_distance:  # Threshold for line detection (pixels)
+
+                if distance < 5 and distance < min_distance:
                     min_distance = distance
                     closest_contour_index = i
-        
-        # If click is on or near an edge, thin that contour
+
         if closest_contour_index != -1:
-            print(f"Thinning contour {closest_contour_index} (edge clicked)")
+            print(f"{action_name} contour {closest_contour_index} (edge clicked)")
             contour = self.app.current_contours[closest_contour_index]
-            thinned_contour = self.app.contour_processor.thin_selected_contour(contour)
-            self.app.current_contours[closest_contour_index] = thinned_contour
+            result = resize_contour(contour)
+            self.app.current_contours[closest_contour_index:closest_contour_index+1] = result
             self.app.contour_processor.update_display_from_contours()
             return

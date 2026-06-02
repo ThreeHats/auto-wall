@@ -469,17 +469,92 @@ def thin_contour(input_data, target_width=5, max_iterations=3):
     
     if not thinned_contours:
         print("No thinned contours found, returning original contour")
-        return contour
-        
-    # Find the largest thinned contour (in case multiple were created)
-    largest_contour = max(thinned_contours, key=cv2.contourArea)
-    
-    # Shift the contour back to original coordinates
-    largest_contour[:, :, 0] = largest_contour[:, :, 0] + x - padding
-    largest_contour[:, :, 1] = largest_contour[:, :, 1] + y - padding
-    
-    print(f"Thinned contour found with {len(largest_contour)} points")
-    return largest_contour
+        return [contour]
+
+    # Shift all contours back to original coordinates
+    result_contours = []
+    for tc in thinned_contours:
+        tc[:, :, 0] = tc[:, :, 0] + x - padding
+        tc[:, :, 1] = tc[:, :, 1] + y - padding
+        result_contours.append(tc)
+
+    print(f"Thinning produced {len(result_contours)} contour(s)")
+    return result_contours
+
+def thicken_contour(input_data, target_width=10, max_iterations=3):
+    """
+    Thickens a contour to approximately target_width pixels using controlled dilation.
+
+    Parameters:
+    - input_data: Either an OpenCV contour or a binary mask
+    - target_width: Target width in pixels
+    - max_iterations: Maximum number of dilation iterations
+
+    Returns:
+    - List of thickened contours (dilation may merge nearby regions)
+    """
+    # Check if input is a binary mask (2D array with uint8 dtype)
+    if isinstance(input_data, np.ndarray) and len(input_data.shape) == 2 and input_data.dtype == np.uint8:
+        contours, hierarchy = cv2.findContours(input_data, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_SIMPLE)
+        if not contours:
+            print("No contours found in mask")
+            return None
+
+        processed_contours = process_contours_with_hierarchy(contours, hierarchy, 0, None)
+        if not processed_contours:
+            return None
+
+        contour = max(processed_contours, key=cv2.contourArea)
+    else:
+        contour = input_data
+
+    x, y, w, h = cv2.boundingRect(contour)
+    padding = 10 + max_iterations * 2  # Extra padding for dilation growth
+    mask = np.zeros((h + 2*padding, w + 2*padding), dtype=np.uint8)
+
+    shifted_contour = contour.copy()
+    shifted_contour[:, :, 0] = contour[:, :, 0] - x + padding
+    shifted_contour[:, :, 1] = contour[:, :, 1] - y + padding
+
+    cv2.drawContours(mask, [shifted_contour], -1, 255, thickness=cv2.FILLED)
+
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+    thick = mask.copy()
+    iterations = 0
+
+    while iterations < max_iterations:
+        temp_contours, _ = cv2.findContours(thick, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+        if not temp_contours:
+            break
+
+        largest = max(temp_contours, key=cv2.contourArea)
+        area = cv2.contourArea(largest)
+        perimeter = cv2.arcLength(largest, True)
+        est_width = 2 * area / perimeter if perimeter > 0 else 0
+
+        if est_width >= target_width:
+            break
+
+        thick = cv2.dilate(thick, kernel)
+        iterations += 1
+
+    print(f"Contour thickening stopped after {iterations} iterations")
+
+    thickened_contours, _ = cv2.findContours(thick, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    if not thickened_contours:
+        print("No thickened contours found, returning original contour")
+        return [contour]
+
+    result_contours = []
+    for tc in thickened_contours:
+        tc[:, :, 0] = tc[:, :, 0] + x - padding
+        tc[:, :, 1] = tc[:, :, 1] + y - padding
+        result_contours.append(tc)
+
+    print(f"Thickening produced {len(result_contours)} contour(s)")
+    return result_contours
 
 # export
 def ensure_wall_connectivity(walls, merge_distance=1.0, angle_tolerance=0.5, max_gap=5.0):

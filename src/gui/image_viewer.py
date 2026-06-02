@@ -803,7 +803,7 @@ class InteractiveImageLabel(QLabel):
                     # Start drawing on mask
                     self.last_point = QPoint(x, y)
                     self.parent_app.drawing_tools.start_drawing(x, y)
-                elif self.parent_app.thin_mode_enabled:
+                elif self.parent_app.thin_mode_enabled or self.parent_app.thicken_mode_enabled:
                     self.parent_app.selection_manager.start_selection(x, y)                
         super().mousePressEvent(event)
     
@@ -1037,11 +1037,11 @@ class InteractiveImageLabel(QLabel):
                     current_point = QPoint(x, y)
                     self.parent_app.drawing_tools.continue_drawing(self.last_point.x(), self.last_point.y(), x, y)
                     self.last_point = current_point
-                elif self.parent_app.thin_mode_enabled:
+                elif self.parent_app.thin_mode_enabled or self.parent_app.thicken_mode_enabled:
                     self.parent_app.selection_manager.update_selection(x, y)
             # Just hovering - this always runs for any mouse movement
             else:
-                if self.parent_app.deletion_mode_enabled or self.parent_app.thin_mode_enabled:
+                if self.parent_app.deletion_mode_enabled or self.parent_app.thin_mode_enabled or self.parent_app.thicken_mode_enabled:
                     self.handle_hover(pos.x(), pos.y())
                 elif self.parent_app.edit_mask_mode_enabled:
                     # Always update brush preview when hovering in edit mask mode
@@ -1330,7 +1330,7 @@ class InteractiveImageLabel(QLabel):
                     # End drawing on mask
                     self.parent_app.drawing_tools.end_drawing()
                     self.last_point = None
-                elif self.parent_app.thin_mode_enabled:
+                elif self.parent_app.thin_mode_enabled or self.parent_app.thicken_mode_enabled:
                     self.parent_app.selection_manager.end_selection(x, y)
                 
                 # Clear selection points
@@ -1356,7 +1356,7 @@ class InteractiveImageLabel(QLabel):
     def leaveEvent(self, event):
         """Handle mouse leaving the widget."""
         if self.parent_app:
-            if self.parent_app.deletion_mode_enabled or self.parent_app.thin_mode_enabled:
+            if self.parent_app.deletion_mode_enabled or self.parent_app.thin_mode_enabled or self.parent_app.thicken_mode_enabled:
                 self.clear_hover()
             elif self.parent_app.edit_mask_mode_enabled:
                 # Clear brush preview when mouse leaves the widget
@@ -1425,7 +1425,7 @@ class InteractiveImageLabel(QLabel):
             # Use different colors based on the current mode
             if self.parent_app.deletion_mode_enabled:
                 highlight_color = (0, 0, 255)  # Red for delete
-            elif self.parent_app.thin_mode_enabled:
+            elif self.parent_app.thin_mode_enabled or self.parent_app.thicken_mode_enabled:
                 highlight_color = (255, 0, 255)  # Magenta for thin
             else:
                 highlight_color = (0, 0, 255)  # Default: red

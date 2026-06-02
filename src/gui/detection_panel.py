@@ -159,6 +159,7 @@ class DetectionPanel:
             self.app.deletion_mode_enabled = self.app.deletion_mode_radio.isChecked()
             self.app.edit_mask_mode_enabled = self.app.edit_mask_mode_radio.isChecked()
             self.app.thin_mode_enabled = self.app.thin_mode_radio.isChecked()
+            self.app.thicken_mode_enabled = self.app.thicken_mode_radio.isChecked()
             
             # If switching to/from mask mode, save state
             current_mode = 'mask' if self.app.edit_mask_mode_enabled else 'contour'
@@ -170,6 +171,7 @@ class DetectionPanel:
             self.app.deletion_mode_enabled = self.app.deletion_mode_radio.isChecked()
             self.app.edit_mask_mode_enabled = self.app.edit_mask_mode_radio.isChecked()
             self.app.thin_mode_enabled = self.app.thin_mode_radio.isChecked()
+            self.app.thicken_mode_enabled = self.app.thicken_mode_radio.isChecked()
         
         # Show/hide color selection options
         self.app.color_selection_options.setVisible(self.app.color_selection_mode_enabled)
@@ -178,8 +180,8 @@ class DetectionPanel:
         if hasattr(self.app, 'mask_edit_options'):
             self.app.mask_edit_options.setVisible(self.app.edit_mask_mode_enabled)
         
-        # Show/hide thinning options
-        self.app.thin_options.setVisible(self.app.thin_mode_enabled)
+        # Show/hide thinning/thickening options
+        self.app.thin_options.setVisible(self.app.thin_mode_enabled or self.app.thicken_mode_enabled)
         
         if self.app.deletion_mode_enabled:
             self.app.setStatusTip("Deletion Mode: Click inside contours or on lines to delete them")
@@ -212,7 +214,10 @@ class DetectionPanel:
                     self.app.drawing_tools.update_brush_preview(cursor_pos.x(), cursor_pos.y())
         elif self.app.thin_mode_enabled:
             self.app.setStatusTip("Thinning Mode: Click on contours to thin them")
-            # Store original image for highlighting
+            if self.app.processed_image is not None:
+                self.app.original_processed_image = self.app.processed_image.copy()
+        elif self.app.thicken_mode_enabled:
+            self.app.setStatusTip("Thickening Mode: Click on contours to thicken them")
             if self.app.processed_image is not None:
                 self.app.original_processed_image = self.app.processed_image.copy()
         else:

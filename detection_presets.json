@@ -1,1 +1,78 @@
-{}
+{
+    "Remove bg": {
+        "sliders": {
+            "Min Area": 100,
+            "Smoothing": 5,
+            "Edge Sensitivity": 255,
+            "Edge Threshold": 106,
+            "Edge Margin": 0,
+            "Min Merge Distance": 5
+        },
+        "checkboxes": {
+            "High Resolution": false,
+            "Merge Contours": false,
+            "Remove Hatching": false
+        },
+        "radios": {
+            "Edge Detection": false,
+            "Color Detection": true,
+            "Min Area Percentage": true,
+            "Min Area Pixels": false
+        },
+        "colors": [
+            {
+                "color": [
+                    255,
+                    255,
+                    255
+                ],
+                "threshold": 10.0
+            }
+        ],
+        "hatching": {
+            "color": [
+                0,
+                0,
+                0
+            ],
+            "threshold": 10.0,
+            "width": 3
+        },
+        "bg_removal": {
+            "enabled": true,
+            "model": "bria-rmbg",
+            "resolution": 1024,
+            "device": "gpu:0",
+            "preview": false
+        },
+        "light_detection": {
+            "enabled": false,
+            "brightness_threshold": 80,
+            "min_size": 5,
+            "max_size": 500,
+            "merge_distance": 20,
+            "colors": [
+                {
+                    "color": [
+                        255,
+                        255,
+                        200
+                    ],
+                    "threshold": 15.0
+                }
+            ]
+        },
+        "grid_settings": {
+            "enable_grid": false,
+            "same_as_overlay": true,
+            "grid_size": 70,
+            "allow_half_grid": false,
+            "grid_offset_x": 0.0,
+            "grid_offset_y": 0.0,
+            "show_grid_overlay": false,
+            "overlay_grid_size": 70,
+            "overlay_offset_x": 0.0,
+            "overlay_offset_y": 0.0
+        }
+    }
+}

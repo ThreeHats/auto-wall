@@ -1426,7 +1426,8 @@ class ExportPanel:
         self.app.color_selection_mode_enabled = False
         self.app.edit_mask_mode_enabled = False
         self.app.thin_mode_enabled = False
-        
+        self.app.thicken_mode_enabled = False
+
         # Update UI for edit mode
         self.app.color_selection_options.setVisible(False)
         if hasattr(self.app, 'mask_edit_options'):

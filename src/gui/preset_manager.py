@@ -292,6 +292,15 @@ class PresetManager:
         settings["hatching"]["threshold"] = self.app.hatching_threshold
         settings["hatching"]["width"] = self.app.hatching_width
 
+        # Background Removal Settings
+        settings["bg_removal"] = {
+            "enabled": self.app.bg_removal_checkbox.isChecked(),
+            "model": self.app.bg_removal_model_combo.currentData(),
+            "resolution": self.app.bg_removal_res_combo.currentData(),
+            "device": self.app.bg_removal_device_combo.currentData(),
+            "preview": self.app.bg_removal_preview_checkbox.isChecked(),
+        }
+
         # Light Detection Settings
         settings["light_detection"] = {
             "enabled": self.app.enable_light_detection.isChecked(),
@@ -372,7 +381,14 @@ class PresetManager:
         self.app.hatching_color_button.blockSignals(True)
         self.app.hatching_threshold_slider.blockSignals(True)
         self.app.hatching_width_slider.blockSignals(True)
-        
+
+        # Background removal controls
+        self.app.bg_removal_checkbox.blockSignals(True)
+        self.app.bg_removal_model_combo.blockSignals(True)
+        self.app.bg_removal_res_combo.blockSignals(True)
+        self.app.bg_removal_device_combo.blockSignals(True)
+        self.app.bg_removal_preview_checkbox.blockSignals(True)
+
         # Light detection controls
         self.app.enable_light_detection.blockSignals(True)
         self.app.light_brightness_slider.blockSignals(True)
@@ -467,6 +483,31 @@ class PresetManager:
                     self.app.hatching_width_slider.setValue(self.app.hatching_width)
                     self.app.hatching_width_value.setText(str(self.app.hatching_width))
 
+            # Apply Background Removal Settings
+            bg_settings = settings.get("bg_removal", {})
+            self.app.bg_removal_checkbox.setChecked(bg_settings.get("enabled", False))
+            self.app.bg_removal_options.setVisible(bg_settings.get("enabled", False))
+
+            if "model" in bg_settings:
+                idx = self.app.bg_removal_model_combo.findData(bg_settings["model"])
+                if idx >= 0:
+                    self.app.bg_removal_model_combo.setCurrentIndex(idx)
+
+            if "resolution" in bg_settings:
+                idx = self.app.bg_removal_res_combo.findData(bg_settings["resolution"])
+                if idx >= 0:
+                    self.app.bg_removal_res_combo.setCurrentIndex(idx)
+
+            if "device" in bg_settings:
+                idx = self.app.bg_removal_device_combo.findData(bg_settings["device"])
+                if idx >= 0:
+                    self.app.bg_removal_device_combo.setCurrentIndex(idx)
+
+            self.app.bg_removal_preview_checkbox.setChecked(bg_settings.get("preview", False))
+
+            # Invalidate cached bg removal result when preset changes
+            self.app.bg_removed_image = None
+
             # Apply Light Detection Settings (always apply defaults for missing settings)
             light_settings = settings.get("light_detection", {})
             
@@ -555,7 +596,14 @@ class PresetManager:
             self.app.hatching_color_button.blockSignals(False)
             self.app.hatching_threshold_slider.blockSignals(False)
             self.app.hatching_width_slider.blockSignals(False)
-            
+
+            # Unblock background removal controls
+            self.app.bg_removal_checkbox.blockSignals(False)
+            self.app.bg_removal_model_combo.blockSignals(False)
+            self.app.bg_removal_res_combo.blockSignals(False)
+            self.app.bg_removal_device_combo.blockSignals(False)
+            self.app.bg_removal_preview_checkbox.blockSignals(False)
+
             # Unblock light detection controls
             self.app.enable_light_detection.blockSignals(False)
             self.app.light_brightness_slider.blockSignals(False)
