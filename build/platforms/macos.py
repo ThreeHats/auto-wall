@@ -62,6 +62,13 @@ def build_macos_app():
             'sklearn.utils._heap', 'sklearn.utils._sorting', 'sklearn.tree._utils'
         ]
 
+        # Fully bundle data files, submodules, and dist-info metadata.
+        # rembg/pymatting read their own version via importlib.metadata at
+        # import time, so the metadata must be present.
+        collect_all_packages = [
+            'cv2', 'sklearn', 'numpy', 'PIL', 'onnxruntime', 'rembg', 'pymatting'
+        ]
+
         # Build PyInstaller command - using native macOS app bundle creation
         cmd = [
             'pyinstaller', '--clean', '--windowed', '--name', 'Auto-Wall',
@@ -75,6 +82,9 @@ def build_macos_app():
         # Add hidden imports for essential modules
         for module in hidden_imports:
             cmd.extend(['--hidden-import', module])
+
+        for package in collect_all_packages:
+            cmd.extend(['--collect-all', package])
 
         # Add icon if available
         icon_path = 'resources/icon.ico'
