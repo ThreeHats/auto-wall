@@ -32,6 +32,26 @@ from src.gui.background_removal_panel import BackgroundRemovalPanel
 from src.utils.ui_helpers import apply_stylesheet
 
 
+def _link_slider_spinbox(slider, spinbox, to_display=None, to_slider=None):
+    """Wire a QSlider and QSpinBox/QDoubleSpinBox bidirectionally.
+
+    to_display: int → spinbox-value (default: identity)
+    to_slider:  spinbox-value → int (default: round)
+    """
+    if to_display is None:
+        to_display = lambda v: v
+    if to_slider is None:
+        to_slider = lambda v: int(round(v))
+
+    def _on_slider(v):
+        spinbox.blockSignals(True)
+        spinbox.setValue(to_display(v))
+        spinbox.blockSignals(False)
+
+    slider.valueChanged.connect(_on_slider)
+    spinbox.valueChanged.connect(lambda v: slider.setValue(to_slider(v)))
+
+
 
 class WallDetectionApp(QMainWindow):
     def __init__(self, version="0.9.0", github_repo="ThreeHats/auto-wall"):
@@ -622,9 +642,14 @@ class WallDetectionApp(QMainWindow):
         self.target_width_slider.setValue(5)
         self.target_width_slider.valueChanged.connect(self.detection_panel.update_target_width)
         self.target_width_layout.addWidget(self.target_width_slider)
-        
-        self.target_width_value = QLabel("5")
+
+        self.target_width_value = QSpinBox()
+        self.target_width_value.setMinimum(1)
+        self.target_width_value.setMaximum(10)
+        self.target_width_value.setValue(5)
+        self.target_width_value.setFixedWidth(60)
         self.target_width_layout.addWidget(self.target_width_value)
+        _link_slider_spinbox(self.target_width_slider, self.target_width_value)
         self.thin_layout.addLayout(self.target_width_layout)
         
         # Max iterations control
@@ -638,9 +663,14 @@ class WallDetectionApp(QMainWindow):
         self.max_iterations_slider.setValue(3)
         self.max_iterations_slider.valueChanged.connect(self.detection_panel.update_max_iterations)
         self.max_iterations_layout.addWidget(self.max_iterations_slider)
-        
-        self.max_iterations_value = QLabel("3")
+
+        self.max_iterations_value = QSpinBox()
+        self.max_iterations_value.setMinimum(1)
+        self.max_iterations_value.setMaximum(20)
+        self.max_iterations_value.setValue(3)
+        self.max_iterations_value.setFixedWidth(60)
         self.max_iterations_layout.addWidget(self.max_iterations_value)
+        _link_slider_spinbox(self.max_iterations_slider, self.max_iterations_value)
         self.thin_layout.addLayout(self.max_iterations_layout)
 
         # Add a separator at the bottom of thinning options
@@ -780,12 +810,21 @@ class WallDetectionApp(QMainWindow):
         self.hatching_threshold_slider = QSlider(Qt.Orientation.Horizontal)
         self.hatching_threshold_slider.setMinimum(0)
         self.hatching_threshold_slider.setMaximum(300)
-        self.hatching_threshold_slider.setValue(100)  # Default value 10.0
+        self.hatching_threshold_slider.setValue(100)
         self.hatching_threshold_slider.valueChanged.connect(self.detection_panel.update_hatching_threshold)
         self.hatching_threshold_layout.addWidget(self.hatching_threshold_slider)
-        
-        self.hatching_threshold_value = QLabel("10.0")
+
+        self.hatching_threshold_value = QDoubleSpinBox()
+        self.hatching_threshold_value.setMinimum(0.0)
+        self.hatching_threshold_value.setMaximum(30.0)
+        self.hatching_threshold_value.setSingleStep(0.1)
+        self.hatching_threshold_value.setDecimals(1)
+        self.hatching_threshold_value.setValue(10.0)
+        self.hatching_threshold_value.setFixedWidth(70)
         self.hatching_threshold_layout.addWidget(self.hatching_threshold_value)
+        _link_slider_spinbox(self.hatching_threshold_slider, self.hatching_threshold_value,
+                             to_display=lambda v: round(v / 10.0, 1),
+                             to_slider=lambda v: round(v * 10))
         
         # Maximum hatching width slider
         self.hatching_width_layout = QHBoxLayout()
@@ -800,9 +839,14 @@ class WallDetectionApp(QMainWindow):
         self.hatching_width_slider.setValue(3)
         self.hatching_width_slider.valueChanged.connect(self.detection_panel.update_hatching_width)
         self.hatching_width_layout.addWidget(self.hatching_width_slider)
-        
-        self.hatching_width_value = QLabel("3")
+
+        self.hatching_width_value = QSpinBox()
+        self.hatching_width_value.setMinimum(1)
+        self.hatching_width_value.setMaximum(20)
+        self.hatching_width_value.setValue(3)
+        self.hatching_width_value.setFixedWidth(60)
         self.hatching_width_layout.addWidget(self.hatching_width_value)
+        _link_slider_spinbox(self.hatching_width_slider, self.hatching_width_value)
 
         # Initially hide the hatching options until enabled
         self.hatching_options.setVisible(False)
@@ -855,15 +899,27 @@ class WallDetectionApp(QMainWindow):
         self.current_threshold_layout = QHBoxLayout()
         self.threshold_layout.addLayout(self.current_threshold_layout)
         
-        self.threshold_label = QLabel("Threshold: 10.0")
+        self.threshold_label = QLabel("Threshold:")
         self.current_threshold_layout.addWidget(self.threshold_label)
-        
+
         self.threshold_slider = QSlider(Qt.Orientation.Horizontal)
         self.threshold_slider.setMinimum(0)
         self.threshold_slider.setMaximum(300)
-        self.threshold_slider.setValue(100)  # Default value 10.0
+        self.threshold_slider.setValue(100)
         self.threshold_slider.valueChanged.connect(self.detection_panel.update_selected_threshold)
         self.current_threshold_layout.addWidget(self.threshold_slider)
+
+        self.threshold_spinbox = QDoubleSpinBox()
+        self.threshold_spinbox.setMinimum(0.0)
+        self.threshold_spinbox.setMaximum(30.0)
+        self.threshold_spinbox.setSingleStep(0.1)
+        self.threshold_spinbox.setDecimals(1)
+        self.threshold_spinbox.setValue(10.0)
+        self.threshold_spinbox.setFixedWidth(70)
+        self.current_threshold_layout.addWidget(self.threshold_spinbox)
+        _link_slider_spinbox(self.threshold_slider, self.threshold_spinbox,
+                             to_display=lambda v: round(v / 10.0, 1),
+                             to_slider=lambda v: round(v * 10))
         
         # Add a separator
         separator = QFrame()
@@ -1022,14 +1078,23 @@ class WallDetectionApp(QMainWindow):
         self.light_brightness_layout.addWidget(self.light_brightness_label)
         
         self.light_brightness_slider = QSlider(Qt.Orientation.Horizontal)
-        self.light_brightness_slider.setMinimum(30)  # 0.3
-        self.light_brightness_slider.setMaximum(100)  # 1.0
-        self.light_brightness_slider.setValue(80)  # 0.8 default
+        self.light_brightness_slider.setMinimum(30)
+        self.light_brightness_slider.setMaximum(100)
+        self.light_brightness_slider.setValue(80)
         self.light_brightness_slider.valueChanged.connect(self.detection_panel.update_light_brightness)
         self.light_brightness_layout.addWidget(self.light_brightness_slider)
-        
-        self.light_brightness_value = QLabel("0.8")
+
+        self.light_brightness_value = QDoubleSpinBox()
+        self.light_brightness_value.setMinimum(0.30)
+        self.light_brightness_value.setMaximum(1.00)
+        self.light_brightness_value.setSingleStep(0.01)
+        self.light_brightness_value.setDecimals(2)
+        self.light_brightness_value.setValue(0.80)
+        self.light_brightness_value.setFixedWidth(70)
         self.light_brightness_layout.addWidget(self.light_brightness_value)
+        _link_slider_spinbox(self.light_brightness_slider, self.light_brightness_value,
+                             to_display=lambda v: round(v / 100.0, 2),
+                             to_slider=lambda v: round(v * 100))
         self.light_options_layout.addLayout(self.light_brightness_layout)
         
         # Light minimum size
@@ -1043,9 +1108,14 @@ class WallDetectionApp(QMainWindow):
         self.light_min_size_slider.setValue(5)
         self.light_min_size_slider.valueChanged.connect(self.detection_panel.update_light_min_size)
         self.light_min_size_layout.addWidget(self.light_min_size_slider)
-        
-        self.light_min_size_value = QLabel("5")
+
+        self.light_min_size_value = QSpinBox()
+        self.light_min_size_value.setMinimum(1)
+        self.light_min_size_value.setMaximum(50)
+        self.light_min_size_value.setValue(5)
+        self.light_min_size_value.setFixedWidth(60)
         self.light_min_size_layout.addWidget(self.light_min_size_value)
+        _link_slider_spinbox(self.light_min_size_slider, self.light_min_size_value)
         self.light_options_layout.addLayout(self.light_min_size_layout)
         
         # Light maximum size
@@ -1059,9 +1129,14 @@ class WallDetectionApp(QMainWindow):
         self.light_max_size_slider.setValue(500)
         self.light_max_size_slider.valueChanged.connect(self.detection_panel.update_light_max_size)
         self.light_max_size_layout.addWidget(self.light_max_size_slider)
-        
-        self.light_max_size_value = QLabel("500")
+
+        self.light_max_size_value = QSpinBox()
+        self.light_max_size_value.setMinimum(50)
+        self.light_max_size_value.setMaximum(2000)
+        self.light_max_size_value.setValue(500)
+        self.light_max_size_value.setFixedWidth(65)
         self.light_max_size_layout.addWidget(self.light_max_size_value)
+        _link_slider_spinbox(self.light_max_size_slider, self.light_max_size_value)
         self.light_options_layout.addLayout(self.light_max_size_layout)
         
         # Light merge distance
@@ -1070,14 +1145,19 @@ class WallDetectionApp(QMainWindow):
         self.light_merge_distance_layout.addWidget(self.light_merge_distance_label)
         
         self.light_merge_distance_slider = QSlider(Qt.Orientation.Horizontal)
-        self.light_merge_distance_slider.setMinimum(0)   # 0 pixels
-        self.light_merge_distance_slider.setMaximum(100) # 100 pixels
-        self.light_merge_distance_slider.setValue(20)    # 20 pixels default
+        self.light_merge_distance_slider.setMinimum(0)
+        self.light_merge_distance_slider.setMaximum(100)
+        self.light_merge_distance_slider.setValue(20)
         self.light_merge_distance_slider.valueChanged.connect(self.detection_panel.update_light_merge_distance)
         self.light_merge_distance_layout.addWidget(self.light_merge_distance_slider)
-        
-        self.light_merge_distance_value = QLabel("20")
+
+        self.light_merge_distance_value = QSpinBox()
+        self.light_merge_distance_value.setMinimum(0)
+        self.light_merge_distance_value.setMaximum(100)
+        self.light_merge_distance_value.setValue(20)
+        self.light_merge_distance_value.setFixedWidth(60)
         self.light_merge_distance_layout.addWidget(self.light_merge_distance_value)
+        _link_slider_spinbox(self.light_merge_distance_slider, self.light_merge_distance_value)
         self.light_options_layout.addLayout(self.light_merge_distance_layout)
         
         # Light color selection
@@ -1120,15 +1200,27 @@ class WallDetectionApp(QMainWindow):
         self.light_current_threshold_layout = QHBoxLayout()
         self.light_threshold_layout.addLayout(self.light_current_threshold_layout)
         
-        self.light_threshold_label = QLabel("Threshold: 15.0")
+        self.light_threshold_label = QLabel("Threshold:")
         self.light_current_threshold_layout.addWidget(self.light_threshold_label)
-        
+
         self.light_threshold_slider = QSlider(Qt.Orientation.Horizontal)
-        self.light_threshold_slider.setMinimum(50)   # 5.0
-        self.light_threshold_slider.setMaximum(500)  # 50.0
-        self.light_threshold_slider.setValue(150)    # Default value 15.0
+        self.light_threshold_slider.setMinimum(50)
+        self.light_threshold_slider.setMaximum(500)
+        self.light_threshold_slider.setValue(150)
         self.light_threshold_slider.valueChanged.connect(self.detection_panel.update_selected_light_threshold)
         self.light_current_threshold_layout.addWidget(self.light_threshold_slider)
+
+        self.light_threshold_spinbox = QDoubleSpinBox()
+        self.light_threshold_spinbox.setMinimum(5.0)
+        self.light_threshold_spinbox.setMaximum(50.0)
+        self.light_threshold_spinbox.setSingleStep(0.1)
+        self.light_threshold_spinbox.setDecimals(1)
+        self.light_threshold_spinbox.setValue(15.0)
+        self.light_threshold_spinbox.setFixedWidth(70)
+        self.light_current_threshold_layout.addWidget(self.light_threshold_spinbox)
+        _link_slider_spinbox(self.light_threshold_slider, self.light_threshold_spinbox,
+                             to_display=lambda v: round(v / 10.0, 1),
+                             to_slider=lambda v: round(v * 10))
         
         self.light_colors_layout.addWidget(self.light_threshold_container)
         
@@ -1168,8 +1260,13 @@ class WallDetectionApp(QMainWindow):
         self.brush_size_slider.setValue(10)
         self.brush_size_slider.valueChanged.connect(self.drawing_tools.update_brush_size)
         brush_layout.addWidget(self.brush_size_slider)
-        self.brush_size_value = QLabel("10")
+        self.brush_size_value = QSpinBox()
+        self.brush_size_value.setMinimum(0)
+        self.brush_size_value.setMaximum(50)
+        self.brush_size_value.setValue(10)
+        self.brush_size_value.setFixedWidth(60)
         brush_layout.addWidget(self.brush_size_value)
+        _link_slider_spinbox(self.brush_size_slider, self.brush_size_value)
         paint_layout.addLayout(brush_layout)
         
         # Draw/Erase mode

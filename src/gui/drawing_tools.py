@@ -64,7 +64,6 @@ class DrawingTools:
     def update_brush_size(self, value):
         """Update the brush size."""
         self.brush_size = value
-        self.app.brush_size_value.setText(str(value))
         
         # Update brush preview if in edit mode
         if self.app.edit_mask_mode_enabled:

@@ -1,7 +1,7 @@
 from PyQt6.QtWidgets import (
-    QHBoxLayout, QLabel, QSlider, QWidget, 
+    QHBoxLayout, QLabel, QSlider, QWidget,
     QColorDialog, QListWidget, QListWidgetItem,
-    QDialog
+    QDialog, QSpinBox, QDoubleSpinBox,
 )
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor, QCursor
@@ -65,86 +65,103 @@ class DetectionPanel:
             self.app.image_processor.update_lights_only()
 
     def update_light_brightness(self, value):
-        """Update light brightness threshold display."""
-        brightness = value / 100.0
-        self.app.light_brightness_value.setText(f"{brightness:.2f}")
         if self.app.current_image is not None:
-            # Update lights only, don't re-detect contours
             self.app.image_processor.update_lights_only()
 
     def update_light_min_size(self, value):
-        """Update light minimum size display."""
-        self.app.light_min_size_value.setText(str(value))
         if self.app.current_image is not None:
-            # Update lights only, don't re-detect contours
             self.app.image_processor.update_lights_only()
 
     def update_light_max_size(self, value):
-        """Update light maximum size display."""
-        self.app.light_max_size_value.setText(str(value))
         if self.app.current_image is not None:
-            # Update lights only, don't re-detect contours
             self.app.image_processor.update_lights_only()
 
     def update_light_merge_distance(self, value):
-        """Update light merge distance display."""
-        self.app.light_merge_distance_value.setText(str(value))
         if self.app.current_image is not None:
-            # Update lights only, don't re-detect contours
             self.app.image_processor.update_lights_only()
 
     def add_slider(self, label, min_val, max_val, initial_val, step=1, scale_factor=None):
-        """Add a slider with a label."""
-        # Create a container widget to hold the slider and label
+        """Add a slider with a label and a synced input spinbox."""
         slider_container = QWidget()
         slider_layout = QHBoxLayout(slider_container)
         slider_layout.setContentsMargins(0, 0, 0, 0)
-        
-        # Store scale factor if provided
-        if scale_factor:
-            display_value = initial_val * scale_factor
-            display_text = f"{label}: {display_value:.1f}"
-        else:
-            display_value = initial_val
-            display_text = f"{label}: {display_value}"
-            
-        slider_label = QLabel(display_text)
+
+        slider_label = QLabel(f"{label}:")
         slider = QSlider(Qt.Orientation.Horizontal)
         slider.setMinimum(min_val)
         slider.setMaximum(max_val)
         slider.setValue(initial_val)
         slider.setSingleStep(step)
-        
-        # Connect with scale factor handling
-        slider.valueChanged.connect(
-            lambda value, lbl=slider_label, lbl_text=label, sf=scale_factor: 
-            self.update_slider(lbl, lbl_text, value, sf)
-        )
+
+        if scale_factor:
+            decimals = 3 if scale_factor < 0.01 else 1
+            spinbox = QDoubleSpinBox()
+            spinbox.setDecimals(decimals)
+            spinbox.setMinimum(round(min_val * scale_factor, decimals))
+            spinbox.setMaximum(round(max_val * scale_factor, decimals))
+            spinbox.setSingleStep(round(step * scale_factor, decimals))
+            spinbox.setValue(round(initial_val * scale_factor, decimals))
+
+            def _on_slider(v, sb=spinbox, lbl=label):
+                # Read the current scale at runtime so mode toggles (e.g. Min Area
+                # percentage <-> pixels) convert correctly without re-binding closures.
+                sf = self.app.sliders[lbl].get('scale', scale_factor)
+                d = 3 if sf < 0.01 else 1
+                sb.blockSignals(True)
+                sb.setValue(round(v * sf, d))
+                sb.blockSignals(False)
+
+            def _on_spinbox(v, sl=slider, lbl=label):
+                sf = self.app.sliders[lbl].get('scale', scale_factor)
+                sl.setValue(round(v / sf))
+        else:
+            spinbox = QSpinBox()
+            spinbox.setMinimum(min_val)
+            spinbox.setMaximum(max_val)
+            spinbox.setSingleStep(step)
+            spinbox.setValue(initial_val)
+
+            def _on_slider(v, sb=spinbox):
+                sb.blockSignals(True)
+                sb.setValue(v)
+                sb.blockSignals(False)
+
+            def _on_spinbox(v, sl=slider):
+                sl.setValue(v)
+
+        spinbox.setFixedWidth(70)
+        slider.valueChanged.connect(_on_slider)
         slider.valueChanged.connect(self.app.image_processor.update_image)
+        spinbox.valueChanged.connect(_on_spinbox)
 
         slider_layout.addWidget(slider_label)
         slider_layout.addWidget(slider)
-        
-        # Add the container to the controls layout
+        slider_layout.addWidget(spinbox)
+
         self.app.right_layout.addWidget(slider_container)
 
-        # Store both the slider, its container, AND the label in the dictionary
-        self.app.sliders[label] = {'slider': slider, 'container': slider_container, 'label': slider_label}
-        
-        # Store scale factor if provided (moved after self.app.sliders assignment)
+        self.app.sliders[label] = {
+            'slider': slider,
+            'container': slider_container,
+            'label': slider_label,
+            'spinbox': spinbox,
+        }
         if scale_factor:
             self.app.sliders[label]['scale'] = scale_factor
 
     def update_slider(self, label, label_text, value, scale_factor=None):
-        """Update the slider label."""
-        # Special case for Min Area slider in pixel mode
-        if label_text == "Min Area" and hasattr(self, 'using_pixels_mode') and self.app.using_pixels_mode:
-            label.setText(f"{label_text}: {value} px")
-        elif scale_factor:
-            display_value = value * scale_factor
-            label.setText(f"{label_text}: {display_value:.3f}%")
+        """Update the spinbox for a slider (called on explicit mode changes)."""
+        slider_info = self.app.sliders.get(label_text, {})
+        spinbox = slider_info.get('spinbox')
+        if spinbox is None:
+            return
+        spinbox.blockSignals(True)
+        if scale_factor:
+            decimals = 3 if scale_factor < 0.01 else 1
+            spinbox.setValue(round(value * scale_factor, decimals))
         else:
-            label.setText(f"{label_text}: {value}")
+            spinbox.setValue(value)
+        spinbox.blockSignals(False)
 
     def toggle_mode(self):
         """Toggle between detection, deletion, color selection, edit mask, and thinning modes."""
@@ -239,50 +256,65 @@ class DetectionPanel:
     def toggle_min_area_mode(self):
         """Toggle between percentage and pixel mode for Min Area."""
         min_area_slider = self.app.sliders["Min Area"]['slider']
-        min_area_label = self.app.sliders["Min Area"]['label']
-        label_text = "Min Area"
+        min_area_spinbox = self.app.sliders["Min Area"]['spinbox']
 
         if self.app.min_area_percentage_radio.isChecked():
             # Switch to percentage mode (0.001% to 25%)
-            # Slider range 1 to 25000 represents this
             min_area_slider.setMinimum(1)
-            min_area_slider.setMaximum(25000) # Represents 25% with scale 0.001
+            min_area_slider.setMaximum(25000)
 
-            # If coming from pixels mode, try to convert value
             if hasattr(self, 'using_pixels_mode') and self.app.using_pixels_mode and self.app.current_image is not None:
                 current_pixel_value = min_area_slider.value()
                 image_area = self.app.current_image.shape[0] * self.app.current_image.shape[1]
                 if image_area > 0:
                     percentage = (current_pixel_value / image_area) * 100.0
-                    slider_value = max(1, min(25000, int(percentage / 0.001))) # Convert back to slider scale
+                    slider_value = max(1, min(25000, int(percentage / 0.001)))
                     min_area_slider.setValue(slider_value)
 
             self.app.using_pixels_mode = False
-            self.update_slider(min_area_label, label_text, min_area_slider.value(), 0.001)
+            # Update the mutable scale so the slider/spinbox closures convert correctly.
+            self.app.sliders["Min Area"]['scale'] = 0.001
+
+            # Reconfigure spinbox for percentage display
+            min_area_spinbox.blockSignals(True)
+            min_area_spinbox.setSuffix("")
+            min_area_spinbox.setDecimals(3)
+            min_area_spinbox.setMinimum(0.001)
+            min_area_spinbox.setMaximum(25.0)
+            min_area_spinbox.setSingleStep(0.001)
+            min_area_spinbox.setValue(round(min_area_slider.value() * 0.001, 3))
+            min_area_spinbox.blockSignals(False)
             print("Switched Min Area mode to Percentage")
 
-        else: # Pixels mode is checked
-            # Switch to pixels mode (1 to 1000 pixels)
+        else:  # Pixels mode
             min_area_slider.setMinimum(1)
             min_area_slider.setMaximum(1000)
 
-            # If coming from percentage mode, try to convert value
             if (not hasattr(self, 'using_pixels_mode') or not self.app.using_pixels_mode) and self.app.current_image is not None:
-                 current_slider_value = min_area_slider.value()
-                 percentage = current_slider_value * 0.001
-                 image_area = self.app.current_image.shape[0] * self.app.current_image.shape[1]
-                 if image_area > 0:
-                     pixel_value = max(1, min(1000, int((percentage / 100.0) * image_area)))
-                     min_area_slider.setValue(pixel_value)
-                 else:
-                      # If no image, set to a reasonable default pixel value if converting
-                      min_area_slider.setValue(min(1000, max(1, 50))) # e.g., 50 pixels
+                current_slider_value = min_area_slider.value()
+                percentage = current_slider_value * 0.001
+                image_area = self.app.current_image.shape[0] * self.app.current_image.shape[1]
+                if image_area > 0:
+                    pixel_value = max(1, min(1000, int((percentage / 100.0) * image_area)))
+                    min_area_slider.setValue(pixel_value)
+                else:
+                    min_area_slider.setValue(min(1000, max(1, 50)))
             elif self.app.current_image is None:
-                 # If no image and already in pixels mode (or first time), ensure value is in range
-                 min_area_slider.setValue(min(1000, max(1, min_area_slider.value())))
-
+                min_area_slider.setValue(min(1000, max(1, min_area_slider.value())))
 
             self.app.using_pixels_mode = True
+            # Update the mutable scale so the slider/spinbox closures convert correctly.
+            self.app.sliders["Min Area"]['scale'] = 1.0
+
+            # Reconfigure spinbox for pixel display
+            min_area_spinbox.blockSignals(True)
+            min_area_spinbox.setDecimals(0)
+            min_area_spinbox.setSuffix(" px")
+            min_area_spinbox.setMinimum(1)
+            min_area_spinbox.setMaximum(1000)
+            min_area_spinbox.setSingleStep(1)
+            min_area_spinbox.setValue(min_area_slider.value())
+            min_area_spinbox.blockSignals(False)
             self.app.image_processor.update_image()
 
     # Color detection specific
@@ -314,8 +346,10 @@ class DetectionPanel:
         self.app.threshold_slider.blockSignals(True)
         self.app.threshold_slider.setValue(int(threshold * 10))
         self.app.threshold_slider.blockSignals(False)
-        self.app.threshold_label.setText(f"Threshold: {threshold:.1f}")
-        
+        self.app.threshold_spinbox.blockSignals(True)
+        self.app.threshold_spinbox.setValue(threshold)
+        self.app.threshold_spinbox.blockSignals(False)
+
         # Show the threshold container
         self.app.threshold_container.setVisible(True)
 
@@ -323,11 +357,9 @@ class DetectionPanel:
         """Update the threshold for the selected color."""
         if not self.app.selected_color_item:
             return
-            
-        # Calculate the actual threshold value
+
         threshold = value / 10.0
-        self.app.threshold_label.setText(f"Threshold: {threshold:.1f}")
-        
+
         # Get the current color data
         color_data = self.app.selected_color_item.data(Qt.ItemDataRole.UserRole)
         color = color_data["color"]
@@ -414,8 +446,10 @@ class DetectionPanel:
         self.app.light_threshold_slider.blockSignals(True)
         self.app.light_threshold_slider.setValue(int(threshold * 10))
         self.app.light_threshold_slider.blockSignals(False)
-        self.app.light_threshold_label.setText(f"Threshold: {threshold:.1f}")
-        
+        self.app.light_threshold_spinbox.blockSignals(True)
+        self.app.light_threshold_spinbox.setValue(threshold)
+        self.app.light_threshold_spinbox.blockSignals(False)
+
         # Show the threshold container
         self.app.light_threshold_container.setVisible(True)
 
@@ -423,11 +457,9 @@ class DetectionPanel:
         """Update the threshold for the selected light color."""
         if not self.app.selected_light_color_item:
             return
-            
-        # Calculate the actual threshold value
+
         threshold = value / 10.0
-        self.app.light_threshold_label.setText(f"Threshold: {threshold:.1f}")
-        
+
         # Get the current color data
         color_data = self.app.selected_light_color_item.data(Qt.ItemDataRole.UserRole)
         color = color_data["color"]
@@ -511,31 +543,18 @@ class DetectionPanel:
                 self.app.image_processor.update_image()
 
     def update_hatching_threshold(self, value):
-        """Update the threshold for hatching color matching."""
-        # Convert from slider value (0-300) to actual threshold (0-30.0)
         self.app.hatching_threshold = value / 10.0
-        self.app.hatching_threshold_value.setText(f"{self.app.hatching_threshold:.1f}")
-        
-        # Update the image if one is loaded and removal is enabled
         if self.app.current_image is not None and self.app.remove_hatching_checkbox.isChecked():
             self.app.image_processor.update_image()
 
     def update_hatching_width(self, value):
-        """Update the maximum width of lines to remove."""
         self.app.hatching_width = value
-        self.app.hatching_width_value.setText(str(value))
-        
-        # Update the image if one is loaded and removal is enabled
         if self.app.current_image is not None and self.app.remove_hatching_checkbox.isChecked():
             self.app.image_processor.update_image()
 
     # Thinning controls
     def update_target_width(self, value):
-        """Update the target width parameter for thinning."""
         self.app.target_width = value
-        self.app.target_width_value.setText(str(value))
 
     def update_max_iterations(self, value):
-        """Update the max iterations parameter for thinning."""
         self.app.max_iterations = value
-        self.app.max_iterations_value.setText(str(value))
