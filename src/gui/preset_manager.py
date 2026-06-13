@@ -476,12 +476,12 @@ class PresetManager:
                 if "threshold" in settings["hatching"]:
                     self.app.hatching_threshold = settings["hatching"]["threshold"]
                     self.app.hatching_threshold_slider.setValue(int(self.app.hatching_threshold * 10))
-                    self.app.hatching_threshold_value.setText(f"{self.app.hatching_threshold:.1f}")
+                    self.app.hatching_threshold_value.setValue(self.app.hatching_threshold)
                 
                 if "width" in settings["hatching"]:
                     self.app.hatching_width = settings["hatching"]["width"]
                     self.app.hatching_width_slider.setValue(self.app.hatching_width)
-                    self.app.hatching_width_value.setText(str(self.app.hatching_width))
+                    self.app.hatching_width_value.setValue(self.app.hatching_width)
 
             # Apply Background Removal Settings
             bg_settings = settings.get("bg_removal", {})
@@ -520,19 +520,19 @@ class PresetManager:
             brightness_threshold = light_settings.get("brightness_threshold", 80)
             self.app.light_brightness_slider.setValue(brightness_threshold)
             brightness = brightness_threshold / 100.0
-            self.app.light_brightness_value.setText(f"{brightness:.2f}")
-            
+            self.app.light_brightness_value.setValue(brightness)
+
             min_size = light_settings.get("min_size", 5)
             self.app.light_min_size_slider.setValue(min_size)
-            self.app.light_min_size_value.setText(str(min_size))
-            
+            self.app.light_min_size_value.setValue(min_size)
+
             max_size = light_settings.get("max_size", 500)
             self.app.light_max_size_slider.setValue(max_size)
-            self.app.light_max_size_value.setText(str(max_size))
-            
+            self.app.light_max_size_value.setValue(max_size)
+
             merge_distance = light_settings.get("merge_distance", 20)
             self.app.light_merge_distance_slider.setValue(merge_distance)
-            self.app.light_merge_distance_value.setText(str(merge_distance))
+            self.app.light_merge_distance_value.setValue(merge_distance)
             
             # Light colors - always reset and apply from preset
             self.app.light_colors_list.clear()
