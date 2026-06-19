@@ -190,8 +190,17 @@ def get_pyinstaller_args(platform: str) -> Tuple[List[str], List[str]]:
 
     elif platform == "linux":
         base_args.append("--onefile")
+        # Strip symbol tables from collected binaries.
+        base_args.append("--strip")
         # Bundle CUDA shared libs from pip-installed nvidia-* packages so GPU
         # works in the AppImage/deb without requiring a system CUDA install.
+        #
+        # Only bundle the libraries onnxruntime's CUDA execution provider
+        # actually loads (cudart, cublas, cudnn, cufft, curand + nvjitlink for
+        # cuBLASLt's runtime JIT).
+        ort_cuda_libs = {
+            "cuda_runtime", "cublas", "cudnn", "cufft", "curand", "nvjitlink",
+        }
         import site as _site
         import glob as _glob
         site_pkgs = []
@@ -206,9 +215,11 @@ def get_pyinstaller_args(platform: str) -> Tuple[List[str], List[str]]:
         for sp in site_pkgs:
             nvidia_base = os.path.join(sp, "nvidia")
             if os.path.isdir(nvidia_base):
-                for so_file in sorted(_glob.glob(os.path.join(nvidia_base, "*/lib/*.so.*"))):
-                    rel_dir = os.path.relpath(os.path.dirname(so_file), sp)
-                    base_args.append(f"--add-binary={so_file}:{rel_dir}")
+                for subpkg in sorted(ort_cuda_libs):
+                    lib_glob = os.path.join(nvidia_base, subpkg, "lib", "*.so.*")
+                    for so_file in sorted(_glob.glob(lib_glob)):
+                        rel_dir = os.path.relpath(os.path.dirname(so_file), sp)
+                        base_args.append(f"--add-binary={so_file}:{rel_dir}")
                 break
 
     # Add hidden imports
